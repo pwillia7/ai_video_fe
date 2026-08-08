@@ -225,10 +225,9 @@ const params: ParamDef[] = [
 export const minimaxH3: WorkflowDef = {
   id: "minimax-h3",
   name: "MiniMax H3 · Text to Video",
-  description:
-    "Cinematic text-to-video with a generated audio track. Takes shot-by-shot direction well.",
+  description: "Video from a text prompt.",
   tags: ["text-to-video", "audio", "16:9"],
-  estimatedSeconds: 300,
+  estimatedSeconds: 180,
   hasAudio: true,
   graph,
   params,

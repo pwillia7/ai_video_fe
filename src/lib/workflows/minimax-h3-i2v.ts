@@ -194,7 +194,7 @@ const params: ParamDef[] = [
     id: "image_megapixels",
     label: "Working resolution",
     type: "slider",
-    default: 1,
+    default: 0.6,
     min: 0.1,
     max: 2,
     step: 0.05,
@@ -244,8 +244,7 @@ const params: ParamDef[] = [
 export const minimaxH3ImageToVideo: WorkflowDef = {
   id: "minimax-h3-i2v",
   name: "MiniMax H3 · Image to Video",
-  description:
-    "Animates a still image into a clip with audio. Output dimensions follow the uploaded image.",
+  description: "Animates a still. Output size follows the image.",
   tags: ["image-to-video", "audio"],
   estimatedSeconds: 300,
   hasAudio: true,
