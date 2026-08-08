@@ -12,12 +12,15 @@ import { formatDuration, type Job } from "@/lib/jobs";
 export function GenerationStage({
   job,
   now,
+  estimateSeconds,
   onCancel,
   onReuseSeed,
 }: {
   job: Job | null;
   /** Ticking clock, so the elapsed timer advances between poll results. */
   now: number;
+  /** Learned from this device's history; falls back to the workflow's guess. */
+  estimateSeconds: number | null;
   onCancel: (promptId: string) => void;
   onReuseSeed?: (seed: number) => void;
 }) {
@@ -32,7 +35,12 @@ export function GenerationStage({
       ) : job.phase === "cancelled" || job.phase === "unknown" ? (
         <Closed job={job} />
       ) : (
-        <InFlight job={job} now={now} onCancel={onCancel} />
+        <InFlight
+          job={job}
+          now={now}
+          estimateSeconds={estimateSeconds}
+          onCancel={onCancel}
+        />
       )}
     </div>
   );
@@ -103,21 +111,35 @@ const PHASE_COPY: Record<string, { label: string; detail: string }> = {
 function InFlight({
   job,
   now,
+  estimateSeconds,
   onCancel,
 }: {
   job: Job;
   now: number;
+  estimateSeconds: number | null;
   onCancel: (promptId: string) => void;
 }) {
   const copy = PHASE_COPY[job.phase] ?? PHASE_COPY.running;
   const elapsedMs = now - job.submittedAt;
-  const elapsedSeconds = elapsedMs / 1000;
 
-  // ComfyUI exposes no step-level progress over HTTP, so this curve is an
-  // estimate that eases toward 95% and never claims to be finished.
-  const fraction = job.estimatedSeconds
-    ? Math.min(0.95, 1 - Math.exp(-elapsedSeconds / (job.estimatedSeconds * 0.55)))
-    : null;
+  // Progress is measured from when rendering began, not when the job was
+  // accepted — otherwise time spent queued behind other jobs would show up as
+  // progress that has not happened.
+  const renderingMs = job.startedAt ? now - job.startedAt : 0;
+  const renderingSeconds = renderingMs / 1000;
+
+  // ComfyUI publishes no step-level progress over HTTP, so this is a curve
+  // against the expected duration. It eases toward 95% and never claims to be
+  // finished, because it does not actually know.
+  const fraction =
+    job.startedAt && estimateSeconds
+      ? Math.min(0.95, 1 - Math.exp(-renderingSeconds / (estimateSeconds * 0.55)))
+      : null;
+
+  const remainingSeconds =
+    job.startedAt && estimateSeconds
+      ? Math.max(0, Math.round(estimateSeconds - renderingSeconds))
+      : null;
 
   return (
     <Frame>
@@ -146,6 +168,14 @@ function InFlight({
             ? `${job.queuePosition} job${job.queuePosition === 1 ? "" : "s"} ahead of this one.`
             : copy.detail}
         </p>
+
+        {remainingSeconds !== null ? (
+          <p className="mt-1 text-[12px] text-fg-subtle">
+            {remainingSeconds > 0
+              ? `About ${formatDuration(remainingSeconds * 1000)} left, going on previous runs.`
+              : "Taking longer than previous runs."}
+          </p>
+        ) : null}
 
         <div className="mt-5">
           <Button size="sm" variant="danger" onClick={() => onCancel(job.promptId)}>

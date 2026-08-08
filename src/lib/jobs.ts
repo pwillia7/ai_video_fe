@@ -36,6 +36,12 @@ export interface Job {
   prompt: string;
   hasAudio: boolean;
   submittedAt: number;
+  /**
+   * When ComfyUI actually started rendering, as opposed to when it accepted
+   * the job. With a queue these diverge, and mixing them up would make the
+   * progress bar and every learned estimate include time spent waiting.
+   */
+  startedAt?: number;
   completedAt?: number;
   phase: JobPhase;
   queuePosition: number | null;
@@ -92,6 +98,40 @@ export function expireStale(jobs: Job[], now = Date.now()): Job[] {
       ? { ...job, phase: "unknown" as const }
       : job,
   );
+}
+
+/** Render time, excluding any wait in the queue. */
+export function renderMs(job: Job): number | null {
+  if (job.completedAt === undefined) return null;
+  return job.completedAt - (job.startedAt ?? job.submittedAt);
+}
+
+/**
+ * How long this workflow actually takes on this machine.
+ *
+ * ComfyUI's API carries no estimate — a running job reports only its id,
+ * status, priority and creation time, and step-level progress exists solely on
+ * the WebSocket, which cannot be proxied. But the history here already holds
+ * real completion times, so the honest estimate is the user's own median
+ * rather than a number hardcoded when the workflow was written.
+ *
+ * Median over the last few runs, so one anomalous render does not skew it.
+ */
+export function learnedEstimateSeconds(
+  jobs: Job[],
+  workflowId: string,
+  fallback: number | null,
+): number | null {
+  const samples = jobs
+    .filter((job) => job.workflowId === workflowId && job.phase === "done")
+    .map(renderMs)
+    .filter((ms): ms is number => ms !== null && ms > 0)
+    .slice(0, 5);
+
+  if (samples.length === 0) return fallback;
+
+  const sorted = [...samples].sort((a, b) => a - b);
+  return Math.round(sorted[Math.floor(sorted.length / 2)] / 1000);
 }
 
 export function formatDuration(ms: number): string {

@@ -336,9 +336,20 @@ are independent, and ComfyUI stays directly reachable regardless of the former.
 global lock, so you can queue several runs and ComfyUI works through them in
 order. Each carries its own progress, queue position and cancel button.
 
-**Cancel works at any stage.** `/api/cancel` interrupts a job that is already
-running and removes one that is still pending, picking based on where the job
-actually is.
+**Cancel targets a specific prompt.** `POST /interrupt` with no body is a
+*global* interrupt in ComfyUI — it kills whatever happens to be executing,
+which with a queue may not be the job you cancelled. Newer ComfyUI has
+`POST /api/jobs/{id}/cancel`, which handles either state in one idempotent
+call; older builds fall back to de-queueing *and* interrupting with an explicit
+`prompt_id`, both of which are no-ops when they do not apply. Either way
+nothing else in the queue is touched.
+
+**Progress is an estimate, and the API cannot do better.** A running job in
+ComfyUI's HTTP API reports only its id, status, priority and creation time —
+no step counts and no ETA. Step-level progress exists solely on the WebSocket,
+which Vercel functions cannot proxy. So the remaining-time readout is the
+median render time of that workflow's last few runs on this device, measured
+from when rendering *started* rather than when the job was queued.
 
 **History is kept per device** in `localStorage` — the last 50 runs, with their
 prompt, settings and result. Only the *reference* is stored, never the video:

@@ -189,18 +189,57 @@ export async function getQueue(): Promise<ComfyQueue> {
   return comfyJson<ComfyQueue>("/queue");
 }
 
-/** Interrupt whatever is executing right now. */
-export async function interrupt(): Promise<void> {
-  await comfyFetch("/interrupt", { method: "POST" });
-}
-
-/** Remove a not-yet-started prompt from the pending queue. */
+/** Remove a not-yet-started prompt from the pending queue. No-op if running. */
 export async function deleteFromQueue(promptId: string): Promise<void> {
   await comfyFetch("/queue", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ delete: [promptId] }),
   });
+}
+
+/**
+ * Interrupt a specific prompt.
+ *
+ * The prompt_id matters. Without it ComfyUI does a *global* interrupt — it
+ * kills whatever happens to be executing, which with a queue is quite possibly
+ * not the job the user asked to cancel. Given an id, ComfyUI checks it against
+ * the running list first and does nothing if it does not match.
+ */
+export async function interruptPrompt(promptId: string): Promise<void> {
+  await comfyFetch("/interrupt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt_id: promptId }),
+  });
+}
+
+/**
+ * Cancel a prompt whatever state it is in.
+ *
+ * Newer ComfyUI has a jobs API that handles both states in one idempotent
+ * call. Older builds do not, so fall back to doing both halves unconditionally:
+ * de-queueing is a no-op for a running prompt and the targeted interrupt is a
+ * no-op for a pending one, so there is no state to check and no window in
+ * which the job can move between the check and the action.
+ */
+export async function cancelPrompt(promptId: string): Promise<boolean> {
+  try {
+    const result = await comfyJson<{ cancelled?: boolean }>(
+      `/api/jobs/${encodeURIComponent(promptId)}/cancel`,
+      { method: "POST", timeoutMs: 20_000 },
+    );
+    return result?.cancelled ?? true;
+  } catch (error) {
+    // Anything other than "this build has no jobs API" is a real failure.
+    if (!(error instanceof ComfyError) || error.status !== 404) throw error;
+  }
+
+  await Promise.all([
+    deleteFromQueue(promptId).catch(() => undefined),
+    interruptPrompt(promptId).catch(() => undefined),
+  ]);
+  return true;
 }
 
 export async function systemStats(): Promise<unknown> {

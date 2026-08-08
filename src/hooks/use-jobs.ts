@@ -5,6 +5,7 @@ import type { StatusPayload } from "@/app/api/status/route";
 import { api, ApiError } from "@/lib/client";
 import {
   expireStale,
+  learnedEstimateSeconds,
   isActive,
   readJobs,
   sortJobs,
@@ -32,6 +33,8 @@ export interface JobsController {
   /** Newest first. */
   jobs: Job[];
   activeCount: number;
+  /** Median render time for a workflow from this device's own history. */
+  estimateFor: (workflowId: string, fallback: number | null) => number | null;
   submitting: boolean;
   submitError: string | null;
   submitErrorField: string | null;
@@ -80,10 +83,21 @@ function applyStatus(job: Job, status: StatusPayload | undefined): Job {
   }
 
   const phase = status.state === "running" ? "running" : "queued";
-  if (job.phase === phase && job.queuePosition === status.queuePosition) {
+  // Stamp the moment it leaves the queue, so progress and learned estimates
+  // measure rendering rather than waiting.
+  const startedAt =
+    phase === "running" && job.startedAt === undefined
+      ? Date.now()
+      : job.startedAt;
+
+  if (
+    job.phase === phase &&
+    job.queuePosition === status.queuePosition &&
+    job.startedAt === startedAt
+  ) {
     return job;
   }
-  return { ...job, phase, queuePosition: status.queuePosition };
+  return { ...job, phase, queuePosition: status.queuePosition, startedAt };
 }
 
 export function useJobs(): JobsController {
@@ -248,9 +262,16 @@ export function useJobs(): JobsController {
 
   const dismissSubmitError = useCallback(() => setSubmitError(null), []);
 
+  const estimateFor = useCallback(
+    (workflowId: string, fallback: number | null) =>
+      learnedEstimateSeconds(jobs, workflowId, fallback),
+    [jobs],
+  );
+
   return {
     jobs,
     activeCount: jobs.filter(isActive).length,
+    estimateFor,
     submitting,
     submitError,
     submitErrorField,

@@ -411,6 +411,11 @@ function Workbench({
             <GenerationStage
               job={viewedJob}
               now={now}
+              estimateSeconds={
+                viewedJob
+                  ? jobs.estimateFor(viewedJob.workflowId, viewedJob.estimatedSeconds)
+                  : null
+              }
               onCancel={(promptId) => void jobs.cancel(promptId)}
               onReuseSeed={(seed) => setValue("seed", seed)}
             />
