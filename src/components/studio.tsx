@@ -13,6 +13,8 @@ import { NotifyToggle } from "@/components/notify-toggle";
 import { GenerationStage } from "@/components/generation-stage";
 import { ParamForm } from "@/components/param-form";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { TipsModal } from "@/components/tips-modal";
+import { tipsFor } from "@/lib/workflows/tips";
 import { TokenGate } from "@/components/token-gate";
 import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/ui/panel";
@@ -170,6 +172,15 @@ function Workbench({
       [selectedId]: defaultValuesFor(selected),
     }));
   }, [selected, selectedId]);
+
+  const [tipsOpen, setTipsOpen] = useState(false);
+  const tips = selected ? tipsFor(selected.id) : undefined;
+
+  // Closing the panel when the workflow changes avoids showing one workflow's
+  // advice under another's name.
+  useEffect(() => {
+    setTipsOpen(false);
+  }, [selectedId]);
 
   /** Nothing to restore when the form already matches the defaults. */
   const isDefaults = useMemo(() => {
@@ -342,6 +353,17 @@ function Workbench({
                   title="Settings"
                   hint={selected.name}
                   action={
+                    <div className="flex shrink-0 items-center gap-3">
+                    {tips ? (
+                      <button
+                        type="button"
+                        onClick={() => setTipsOpen(true)}
+                        className="shrink-0 whitespace-nowrap text-[12px] font-medium
+                          text-fg-muted transition-colors hover:text-accent"
+                      >
+                        Tips
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={resetToDefaults}
@@ -357,6 +379,7 @@ function Workbench({
                     >
                       Restore defaults
                     </button>
+                    </div>
                   }
                 />
                 <ParamForm
@@ -429,6 +452,15 @@ function Workbench({
           {generation.isBusy ? "Generating…" : "Generate video"}
         </Button>
       </div>
+
+      {tips && selected ? (
+        <TipsModal
+          open={tipsOpen}
+          onClose={() => setTipsOpen(false)}
+          title={selected.name}
+          tips={tips}
+        />
+      ) : null}
     </div>
   );
 }

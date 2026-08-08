@@ -205,7 +205,7 @@ const params: ParamDef[] = [
     label: "Second reference",
     type: "image",
     default: "",
-    help: "Optional. Add a second subject, then say who is who in the prompt.",
+    help: "Optional. Becomes <Picture 2> in the prompt.",
     group: "References",
     targets: [{ node: SECOND_REF_NODE, input: "image" }],
   },
@@ -216,7 +216,7 @@ const params: ParamDef[] = [
     default: "match",
     options: [{ value: "match", label: "match" }],
     optionsFrom: { node: REFERENCE_NODE, input: "ref_image_size" },
-    help: "How the references are fitted to the output frame.",
+    help: "match is faster; max preserves identity better, up to a 2048px short edge.",
     group: "References",
     advanced: true,
     targets: [{ node: REFERENCE_NODE, input: "ref_image_size" }],
@@ -225,7 +225,7 @@ const params: ParamDef[] = [
   promptParam(
     ids,
     "the man on the right is a superhero in the ultimate final battle",
-    "Refer to the subjects by position — 'the man on the right' — so the model knows which reference is which.",
+    "Name each reference by tag in upload order — <Picture 1>, <Picture 2> — and say what each one controls.",
     6,
   ),
 
