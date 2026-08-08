@@ -85,12 +85,25 @@ export interface SeedParam extends ParamBase {
   default: number;
 }
 
+/**
+ * An image the user uploads. The stored value is the reference ComfyUI returns
+ * from /upload/image, which is what a LoadImage node expects — the file itself
+ * lives in ComfyUI's input directory, not in this payload.
+ */
+export interface ImageParam extends ParamBase {
+  type: "image";
+  default: "";
+  /** Block submission until something is uploaded. */
+  required?: boolean;
+}
+
 export type ParamDef =
   | TextParam
   | NumberParam
   | SelectParam
   | ToggleParam
-  | SeedParam;
+  | SeedParam
+  | ImageParam;
 
 export type ParamValue = string | number | boolean;
 

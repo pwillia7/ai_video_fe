@@ -4,7 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Video Studio",
+  title: "Soran’t",
   description: "Generate video on a local ComfyUI instance.",
 };
 

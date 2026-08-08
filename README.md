@@ -1,4 +1,4 @@
-# Video Studio
+# Soran’t
 
 A small Next.js app for driving video generation on a ComfyUI instance. Deploys
 to Vercel; the ComfyUI box stays where it is.
@@ -195,7 +195,7 @@ graph is never rewritten by hand.
 
 1. In ComfyUI: **Workflow → Export (API)**. You get a flat map of
    `node id -> { class_type, inputs }`, where `["1", 0]` means output 0 of node 1.
-2. Drop it into a new file next to `text-to-video.ts` as the `graph`.
+2. Drop it into a new file next to `minimax-h3.ts` as the `graph`.
 3. Declare `params`, pointing each control at the node inputs it writes:
 
 ```ts
@@ -210,9 +210,9 @@ graph is never rewritten by hand.
 ```
 
 One control can drive several inputs — `fps` in the reference workflow writes to
-both `LTXVConditioning.frame_rate` and `SaveWEBM.fps`, because the model
-conditions on frame rate and the encoder needs a matching value or playback
-speed drifts.
+both `CreateVideo.fps` and the frame-count formula on `ComfyMathExpression`,
+because the duration is computed from the frame rate — without that, changing
+fps silently changes how long the clip actually runs.
 
 4. Register it in `src/lib/workflows/index.ts`.
 5. Run the validator:
@@ -226,21 +226,46 @@ bad mapping surfaces immediately instead of sending a subtly wrong job to the
 GPU. The same check runs on `/api/workflows` and again before every submit.
 
 Param types available: `text`, `textarea`, `number`, `slider`, `select`,
-`toggle`, `seed`. Mark a param `advanced: true` to tuck it behind the disclosure;
+`toggle`, `seed`, `image`. Mark a param `advanced: true` to tuck it behind the disclosure;
 `group` sets the section heading.
 
-## The bundled workflow
+## The bundled workflows
 
-`text-to-video` and `text-to-video-draft` (same graph, fewer steps) target
-**LTX-Video 2B**, built against the models actually installed on your instance —
-`ltx-video-2b-v0.9.1.safetensors` with `t5xxl_fp8_e4m3fn` as the text encoder,
-loaded explicitly rather than assumed to be bundled in the checkpoint.
+Both target **MiniMax H3** and produce a video with a generated audio track.
+They share sampling, timing and encoding controls via `minimax-common.ts`,
+since the two exports use identical node ids for those parts.
 
-Verified end to end: a 512×320 / 49-frame draft rendered in about 25 seconds and
-came back as a valid VP9 WebM.
+| Workflow | Output size comes from |
+| --- | --- |
+| `minimax-h3` — text to video | Aspect ratio + megapixels (`ResolutionSelector`) |
+| `minimax-h3-i2v` — image to video | The uploaded image, rescaled by `ImageScaleToTotalPixels` |
 
-Note there is **no WAN 2.2 t2v** on the box — only the i2v variants. Image-to-video
-would need an upload path (`POST /upload/image`), which is not built yet.
+### Image to video
+
+`LoadImage` takes a *filename*, not image data, so the file has to exist in
+ComfyUI's input directory before the prompt is queued. `POST /api/upload`
+relays a browser upload to ComfyUI's `/upload/image` and returns the reference
+that `LoadImage` needs. The upload happens as soon as a file is chosen, so a
+rejected image surfaces immediately rather than failing a generation you have
+already committed to.
+
+Two things about that graph are easy to get wrong:
+
+- **Node 115 (`ResolutionSelector`) is orphaned.** Width and height come from
+  `GetImageSize` reading the scaled upload, so 115's outputs go nowhere.
+  Exposing its aspect ratio or megapixels would give you controls that do
+  nothing, so they are deliberately absent. The node is kept so the graph stays
+  a faithful copy of the export — ComfyUI only executes what an output depends
+  on, so it costs nothing.
+- **`image_megapixels` is the real resolution control**, because the video
+  inherits the dimensions of the rescaled image.
+
+### Audio
+
+Both graphs decode an audio track into `CreateVideo`, so they set
+`hasAudio: true`. The result player does not autoplay audio workflows —
+browsers only allow autoplay while muted, which would throw away the
+soundtrack the model just spent minutes generating.
 
 ## Deploying
 

@@ -10,21 +10,23 @@ import {
 } from "./minimax-common";
 
 /**
- * MiniMax H3 text-to-video, with audio.
+ * MiniMax H3 image-to-video, with audio. Exported from ComfyUI verbatim.
  *
- * Exported from ComfyUI verbatim. The node ids come from a flattened subgraph,
- * which is why most of them look like "105:104" — colons are fine, they are
- * just object keys.
+ * Two things about this graph differ from the text-to-video variant and drive
+ * how the controls are wired:
  *
- * Two things about this graph are worth knowing before changing it:
+ * 1. Output size comes from the *image*, not from a size picker. Node 119
+ *    scales the upload to a target megapixel count, node 120 reads the result,
+ *    and those dimensions feed MiniMaxH3ImageToVideo. So `119.megapixels` is
+ *    the real resolution control here.
  *
- * 1. The class is `MiniMaxH3ImageToVideo` but no image is wired in, so it runs
- *    in text-to-video mode. Leave the image input absent.
- * 2. Frame count is computed, not set. Node 105:111 holds a duration in
- *    seconds, and 105:107 converts it to frames via a formula that snaps to
- *    the nearest valid length. See FRAME_EXPRESSION below.
+ * 2. Node 115 (ResolutionSelector) is left over from the text-to-video graph
+ *    and is wired to nothing — width/height now come from node 120. Exposing
+ *    its aspect_ratio or megapixels would give the user controls that do
+ *    nothing at all, so they are deliberately absent. The node is kept so the
+ *    graph stays a faithful copy of the export; ComfyUI only executes nodes
+ *    that an output depends on, so it costs nothing.
  */
-
 const graph: ComfyGraph = {
   "92": {
     class_type: "SaveVideo",
@@ -32,19 +34,39 @@ const graph: ComfyGraph = {
       filename_prefix: "video/MiniMax_H3",
       format: "auto",
       codec: "auto",
-      "video-preview": "",
       video: ["105:91", 0],
     },
     _meta: { title: "Save Video" },
   },
+  "114": {
+    class_type: "LoadImage",
+    inputs: { image: "" },
+    _meta: { title: "Load Image" },
+  },
   "115": {
+    // Orphaned — see the note above. Nothing reads its outputs.
     class_type: "ResolutionSelector",
     inputs: {
-      aspect_ratio: "16:9 (Widescreen)",
+      aspect_ratio: "1:1 (Square)",
       megapixels: 0.4,
       multiple: 32,
     },
     _meta: { title: "Resolution Selector" },
+  },
+  "119": {
+    class_type: "ImageScaleToTotalPixels",
+    inputs: {
+      upscale_method: "nearest-exact",
+      megapixels: 1,
+      resolution_steps: 32,
+      image: ["114", 0],
+    },
+    _meta: { title: "Scale Image to Total Pixels" },
+  },
+  "120": {
+    class_type: "GetImageSize",
+    inputs: { image: ["119", 0] },
+    _meta: { title: "Get Image Size" },
   },
   "105:11": {
     class_type: "VAELoader",
@@ -116,7 +138,7 @@ const graph: ComfyGraph = {
   },
   "105:15": {
     class_type: "RandomNoise",
-    inputs: { noise_seed: 368623947151307 },
+    inputs: { noise_seed: 940982408154912 },
     _meta: { title: "RandomNoise" },
   },
   "105:91": {
@@ -133,11 +155,12 @@ const graph: ComfyGraph = {
     class_type: "MiniMaxH3ImageToVideo",
     inputs: {
       prompt: "",
-      width: ["115", 0],
-      height: ["115", 1],
+      width: ["120", 0],
+      height: ["120", 1],
       length: ["105:107", 1],
       clip: ["105:13", 0],
       vae: ["105:11", 0],
+      first_frame: ["119", 0],
     },
     _meta: { title: "MiniMax H3 Image to Video" },
   },
@@ -156,55 +179,43 @@ const graph: ComfyGraph = {
   },
 };
 
-const DEFAULT_PROMPT = `Realistic live-action cinematic look, action movie trailer: practical film photography style, a post-rain dusk metropolis, anamorphic lens, shallow depth of field, film grain, city volumetric fog, flying-car traffic between the towers, restrained grading for a premium feel, powerful natural movement.
-
-Scene overview: at dusk on a cluster of skyscrapers, the protagonist is being chased, sprinting and leaping across rooftops, jumping from one building's roof to the next with pursuers closing in behind. This is the escape sequence of an action movie trailer: every leap is life-or-death, thrilling and fluid.
-
-Storyboard (each shot a separate scene, rapid cuts, all landing on the musical beats):
-[0s-1.5s] Shot 1: high side angle: the protagonist sprinting at the roof edge, pursuers appearing in the rooftop doorway behind him, wind catching his coat.
-[1s-2.5s] Shot 2: the protagonist leaps across the gap between buildings, body stretching mid-air, towers and flying-car light trails behind him, a slight slow-motion feel.
-[2.5s-4s] Shot 3: he lands, rolls and rises, low-angle shot, tower shadows and fog behind him, he keeps running.
-[4s-5s] Shot 4: freeze: the instant he hits the edge of the next roof and launches into the jump, silhouette, holding.
-
-Camera: each shot its own angle, cuts clean and hard, no dissolves, a slight frame jitter on the jumps.
-
-Audio: wind, rapid footsteps, city ambience, low score underneath, an accent hit on each leap, the score bursting at 4s, closing the last 1s.
-
-No text, subtitles, logos or watermarks of any kind, no animation or cartoon rendering, no overly-CG look, keep the live-action texture.`;
-
 const params: ParamDef[] = [
-  promptParam(
-    DEFAULT_PROMPT,
-    "This model takes direction well: name the lens, the grade, the cuts, and the audio. There is no negative prompt on this graph.",
-  ),
-
-  durationParam(),
   {
-    id: "aspect_ratio",
-    label: "Aspect ratio",
-    type: "select",
-    default: "16:9 (Widescreen)",
-    options: [{ value: "16:9 (Widescreen)", label: "16:9 (Widescreen)" }],
-    optionsFrom: { node: "115", input: "aspect_ratio" },
-    group: "Output",
-    targets: [{ node: "115", input: "aspect_ratio" }],
+    id: "image",
+    label: "First frame",
+    type: "image",
+    default: "",
+    required: true,
+    help: "The video starts from this image. Its aspect ratio decides the output shape.",
+    group: "Image",
+    targets: [{ node: "114", input: "image" }],
   },
   {
-    id: "megapixels",
-    label: "Frame size",
+    id: "image_megapixels",
+    label: "Working resolution",
     type: "slider",
-    default: 0.4,
+    default: 1,
     min: 0.1,
     max: 2,
     step: 0.05,
     unit: "MP",
-    help: "Total pixels per frame. The aspect ratio decides the shape, this decides the scale. Higher is slower and heavier on VRAM.",
-    group: "Output",
-    targets: [{ node: "115", input: "megapixels" }],
+    help: "The upload is rescaled to this many pixels, and the video inherits those dimensions. Higher is slower and heavier on VRAM.",
+    group: "Image",
+    targets: [{ node: "119", input: "megapixels" }],
   },
-  fpsParam(),
   {
-    id: "multiple",
+    id: "upscale_method",
+    label: "Scaling method",
+    type: "select",
+    default: "nearest-exact",
+    options: [{ value: "nearest-exact", label: "nearest-exact" }],
+    optionsFrom: { node: "119", input: "upscale_method" },
+    group: "Image",
+    advanced: true,
+    targets: [{ node: "119", input: "upscale_method" }],
+  },
+  {
+    id: "resolution_steps",
     label: "Size rounding",
     type: "slider",
     default: 32,
@@ -212,22 +223,30 @@ const params: ParamDef[] = [
     max: 64,
     step: 8,
     unit: "px",
-    help: "Rounds width and height to a multiple of this. Leave at 32 unless the model complains.",
-    group: "Output",
+    help: "Rounds the scaled dimensions to a multiple of this.",
+    group: "Image",
     advanced: true,
-    targets: [{ node: "115", input: "multiple" }],
+    targets: [{ node: "119", input: "resolution_steps" }],
   },
+
+  promptParam(
+    "a page of suleiman the magnificent book and he gets up and starts break dancing",
+    "Describe what should happen to the image. Motion, camera, and audio all respond to direction.",
+  ),
+
+  durationParam(),
+  fpsParam(),
 
   ...samplingParams(),
   ...encodingParams(),
 ];
 
-export const minimaxH3: WorkflowDef = {
-  id: "minimax-h3",
-  name: "MiniMax H3 · Text to Video",
+export const minimaxH3ImageToVideo: WorkflowDef = {
+  id: "minimax-h3-i2v",
+  name: "MiniMax H3 · Image to Video",
   description:
-    "Cinematic text-to-video with a generated audio track. Takes shot-by-shot direction well.",
-  tags: ["text-to-video", "audio", "16:9"],
+    "Animates a still image into a clip with audio. Output dimensions follow the uploaded image.",
+  tags: ["image-to-video", "audio"],
   estimatedSeconds: 300,
   hasAudio: true,
   graph,

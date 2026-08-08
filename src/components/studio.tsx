@@ -210,7 +210,7 @@ function Workbench({
             </svg>
           </span>
           <h1 className="text-[13px] font-medium tracking-[-0.01em] text-fg">
-            Video Studio
+            Soran’t
           </h1>
           <span className="text-[13px] text-fg-subtle">/ ComfyUI</span>
 

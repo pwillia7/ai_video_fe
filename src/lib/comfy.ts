@@ -207,6 +207,48 @@ export async function systemStats(): Promise<unknown> {
   return comfyJson<unknown>("/system_stats", { timeoutMs: 8_000 });
 }
 
+export interface UploadedImage {
+  name: string;
+  subfolder: string;
+  type: string;
+}
+
+/**
+ * Push an image into ComfyUI's input directory so a LoadImage node can find it.
+ *
+ * LoadImage takes a filename, not image data, so an image-to-video workflow
+ * needs the file to exist server-side before the prompt is queued.
+ */
+export async function uploadImage(
+  file: Blob,
+  filename: string,
+): Promise<UploadedImage> {
+  const form = new FormData();
+  form.append("image", file, filename);
+  // Let ComfyUI de-duplicate by suffixing rather than clobbering an existing
+  // file that another workflow may still reference.
+  form.append("overwrite", "false");
+  form.append("type", "input");
+
+  // Content-Type is deliberately unset: fetch must generate the multipart
+  // boundary itself, and supplying the header would break the body framing.
+  return comfyJson<UploadedImage>("/upload/image", {
+    method: "POST",
+    body: form,
+    timeoutMs: 120_000,
+  });
+}
+
+/**
+ * How LoadImage refers to an uploaded file: bare name at the input root, or
+ * "subfolder/name" when ComfyUI filed it under one.
+ */
+export function loadImageRef(uploaded: UploadedImage): string {
+  return uploaded.subfolder
+    ? `${uploaded.subfolder}/${uploaded.name}`
+    : uploaded.name;
+}
+
 /** One node class as ComfyUI describes it in /object_info. */
 export interface NodeSchema {
   input?: {

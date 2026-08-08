@@ -1,16 +1,12 @@
 import { minimaxH3 } from "./minimax-h3";
-import { textToVideo, textToVideoDraft } from "./text-to-video";
+import { minimaxH3ImageToVideo } from "./minimax-h3-i2v";
 import { toSummary, type WorkflowDef, type WorkflowSummary } from "./types";
 
 /**
  * The predetermined set of workflows the app offers. Add a new file next to
- * text-to-video.ts and register it here — nothing else needs to change.
+ * minimax-h3.ts and register it here — nothing else needs to change.
  */
-export const WORKFLOWS: WorkflowDef[] = [
-  minimaxH3,
-  textToVideo,
-  textToVideoDraft,
-];
+export const WORKFLOWS: WorkflowDef[] = [minimaxH3, minimaxH3ImageToVideo];
 
 export function getWorkflow(id: string): WorkflowDef | undefined {
   return WORKFLOWS.find((workflow) => workflow.id === id);

@@ -83,6 +83,25 @@ function coerce(
       throw new ParamError(`${param.label} must be true or false.`, param.id);
     }
 
+    case "image": {
+      const value = typeof raw === "string" ? raw.trim() : "";
+      if (!value) {
+        if (param.required) {
+          throw new ParamError(
+            `${param.label} is required — upload an image first.`,
+            param.id,
+          );
+        }
+        return "";
+      }
+      // The value is a filename destined for a LoadImage node, so it must not
+      // be able to escape ComfyUI's input directory.
+      if (value.includes("..") || value.startsWith("/") || value.includes("\\")) {
+        throw new ParamError(`Invalid image reference.`, param.id);
+      }
+      return value;
+    }
+
     case "seed": {
       const value =
         raw == null

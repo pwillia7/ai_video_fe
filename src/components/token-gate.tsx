@@ -47,7 +47,7 @@ export function TokenGate({ onUnlocked }: { onUnlocked: () => void }) {
           bg-surface p-6"
       >
         <h1 className="text-base font-medium tracking-[-0.02em] text-fg">
-          Video Studio
+          Soran’t
         </h1>
         <p className="mt-1 mb-5 text-[13px] leading-relaxed text-fg-muted">
           This instance is protected. Enter the password to continue.

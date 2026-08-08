@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Field } from "@/components/ui/field";
+import { ImageUpload } from "@/components/ui/image-upload";
 import {
   NumberInput,
   Select,
@@ -236,6 +237,19 @@ function Control({
           <Toggle
             id={id}
             checked={Boolean(value ?? param.default)}
+            onChange={(next) => onChange(param.id, next)}
+            disabled={disabled}
+            describedBy={describedBy}
+          />
+        </Field>
+      );
+
+    case "image":
+      return (
+        <Field id={id} label={param.label} help={param.help} error={error}>
+          <ImageUpload
+            id={id}
+            value={String(value ?? "")}
             onChange={(next) => onChange(param.id, next)}
             disabled={disabled}
             describedBy={describedBy}
