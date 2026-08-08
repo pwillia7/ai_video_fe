@@ -330,6 +330,32 @@ are independent, and ComfyUI stays directly reachable regardless of the former.
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm check:workflows` | Validate param→graph mappings |
 
+## Leaving a generation running
+
+Two things make it safe to walk away.
+
+**The job survives a reload.** The active `promptId` is kept in `localStorage`
+and re-attached on mount, so closing the tab or refreshing puts you back on the
+progress bar — or straight onto the finished video. Outputs are not stored, only
+the id, so results are always re-derived from `/api/status` rather than trusting
+a stale local copy. A restored job that ComfyUI no longer recognises is dropped
+quietly: that means the server restarted and lost its history, not that anything
+failed.
+
+**Desktop notifications.** The bell in the header opts in (the permission prompt
+has to be tied to a click, which is why it is a button). A notification fires
+when a run finishes or fails, and only while the tab is hidden — if you are
+watching the progress bar already, it would just be noise.
+
+The ceiling: the Notifications API needs the page alive, so this covers a
+backgrounded tab, not a closed one. Reaching a closed tab needs a service worker
+and a push service, which is a separate piece of infrastructure.
+
+Browsers also throttle timers in hidden tabs — to roughly once a minute after a
+few minutes — so a notification can lag the actual finish by up to that long.
+The poll fires immediately on `visibilitychange`, so the moment you look at the
+tab the state is correct regardless.
+
 ## Known limits
 
 - **Progress is an estimate.** ComfyUI exposes step-level progress over its

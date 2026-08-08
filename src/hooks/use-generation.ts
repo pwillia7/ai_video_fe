@@ -258,8 +258,11 @@ export function useGeneration(timeoutSeconds: number): GenerationController {
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    let inFlight = false;
 
     const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const status = await api<StatusPayload>(
           `/api/status?promptId=${encodeURIComponent(promptId)}`,
@@ -339,14 +342,27 @@ export function useGeneration(timeoutSeconds: number): GenerationController {
           return;
         }
         timer = setTimeout(poll, POLL_INTERVAL_MS * 2);
+      } finally {
+        inFlight = false;
       }
     };
 
     timer = setTimeout(poll, 400);
 
+    // Browsers throttle timers in a hidden tab — down to about once a minute
+    // after a few minutes — so a backgrounded job can sit on stale state.
+    // Polling the moment the tab is looked at again makes that invisible.
+    const onVisibilityChange = () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      clearTimeout(timer);
+      void poll();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [promptId, phase, timeoutSeconds]);
 

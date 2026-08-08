@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import { ConnectionPill } from "@/components/connection-pill";
+import { NotifyToggle } from "@/components/notify-toggle";
 import { GenerationStage } from "@/components/generation-stage";
 import { ParamForm } from "@/components/param-form";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -18,6 +19,7 @@ import { Panel, PanelHeader } from "@/components/ui/panel";
 import { WorkflowPicker } from "@/components/workflow-picker";
 import { useGeneration } from "@/hooks/use-generation";
 import { api, ApiError, getToken } from "@/lib/client";
+import { notify } from "@/lib/notifications";
 import {
   defaultValuesFor,
   type ParamValue,
@@ -163,6 +165,34 @@ function Workbench({
     }));
   }, [selected, selectedId]);
 
+  // Announce a finished run so the tab can be left in the background. Keyed on
+  // the phase transition rather than the phase itself, so a re-render cannot
+  // fire a duplicate, and on promptId so each job notifies at most once.
+  const notifiedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const { phase, promptId: id } = generation;
+    if (phase !== "done" && phase !== "error") return;
+    if (!id || notifiedRef.current === id) return;
+    notifiedRef.current = id;
+
+    const name = selected?.name ?? "Generation";
+    if (phase === "done") {
+      notify(
+        "Video ready",
+        `${name} finished in ${Math.round(generation.elapsedMs / 1000)}s.`,
+        id,
+      );
+    } else {
+      notify("Generation failed", generation.error ?? name, id);
+    }
+  }, [
+    generation.phase,
+    generation.promptId,
+    generation.elapsedMs,
+    generation.error,
+    selected?.name,
+  ]);
+
   // When a job is re-attached from a previous session, switch to the workflow
   // it came from. Guarded by a ref so it happens once and never fights a
   // selection the user makes afterwards.
@@ -228,6 +258,7 @@ function Workbench({
 
           <div className="ml-auto flex items-center gap-2">
             <ConnectionPill />
+            <NotifyToggle />
             <ThemeToggle />
           </div>
         </div>
