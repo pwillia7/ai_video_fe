@@ -96,7 +96,13 @@ export function TextArea({
       maxLength={maxLength}
       aria-describedby={describedBy}
       onChange={(event) => onChange(event.target.value)}
-      className={`${CONTROL_BASE} px-3 py-2.5 text-sm leading-relaxed resize-y min-h-20`}
+      /*
+        The prompt boxes ask for 10-12 rows, which is reasonable on a desktop
+        column and swallows a phone screen whole. Capping at half the viewport
+        only bites on small screens — a 12-row box is well under 50vh on a
+        laptop — so no breakpoint is needed.
+      */
+      className={`${CONTROL_BASE} max-h-[50vh] resize-y overflow-y-auto px-3 py-2.5 text-sm leading-relaxed min-h-20`}
     />
   );
 }

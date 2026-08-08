@@ -16,7 +16,7 @@ export function Panel({
     <section
       style={style}
       className={`rounded-xl border border-border-default bg-surface ${
-        padded ? "p-5" : ""
+        padded ? "p-4 sm:p-5" : ""
       } ${className}`}
     >
       {children}

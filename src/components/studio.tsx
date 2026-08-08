@@ -165,6 +165,20 @@ function Workbench({
     }));
   }, [selected, selectedId]);
 
+  // On mobile the stage sits below the whole settings panel, so starting a run
+  // from the pinned bar would leave the user staring at the form with no sign
+  // anything happened. Bring the progress into view instead. Desktop keeps the
+  // stage pinned beside the form, so there is nothing to scroll to.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const wasBusyRef = useRef(false);
+  useEffect(() => {
+    const wasBusy = wasBusyRef.current;
+    wasBusyRef.current = generation.isBusy;
+    if (wasBusy || !generation.isBusy) return;
+    if (!window.matchMedia("(max-width: 1023px)").matches) return;
+    stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [generation.isBusy]);
+
   // Announce a finished run so the tab can be left in the background. Keyed on
   // the phase transition rather than the phase itself, so a re-render cannot
   // fire a duplicate, and on promptId so each job notifies at most once.
@@ -242,10 +256,10 @@ function Workbench({
         className="sticky top-0 z-20 border-b border-border-default
           bg-bg/80 backdrop-blur-md"
       >
-        <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-3 px-5">
+        <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-2 px-4 sm:gap-3 sm:px-5">
           <span
             aria-hidden="true"
-            className="grid size-6 place-items-center rounded bg-fg text-bg"
+            className="grid size-6 shrink-0 place-items-center rounded bg-fg text-bg"
           >
             <svg viewBox="0 0 16 16" className="size-3" fill="currentColor">
               <path d="M5 3.5v9l7-4.5-7-4.5Z" />
@@ -254,9 +268,12 @@ function Workbench({
           <h1 className="text-[13px] font-medium tracking-[-0.01em] text-fg">
             Soran’t
           </h1>
-          <span className="text-[13px] text-fg-subtle">/ ComfyUI</span>
+          {/* Secondary label: the first thing to go when space is tight. */}
+          <span className="hidden text-[13px] text-fg-subtle sm:inline">
+            / ComfyUI
+          </span>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <ConnectionPill />
             <NotifyToggle />
             <ThemeToggle />
@@ -264,7 +281,9 @@ function Workbench({
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-5 py-6">
+      {/* pb-24 on mobile keeps the sticky action bar from covering the last
+          control; the bar is not rendered at lg, so the padding goes away. */}
+      <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-5 sm:px-5 lg:pb-6 lg:pt-6">
         {problems?.length ? (
           <div
             className="mb-5 rounded-lg border border-warning/40 bg-warning/5 p-3
@@ -330,8 +349,13 @@ function Workbench({
             ) : null}
           </div>
 
-          <div className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
-            <div className="flex items-center gap-3">
+          <div
+            ref={stageRef}
+            className="flex scroll-mt-20 flex-col gap-4 lg:sticky lg:top-20 lg:self-start"
+          >
+            {/* On mobile this lives in the pinned bar at the bottom instead,
+                so the primary action is never a scroll away. */}
+            <div className="hidden items-center gap-3 lg:flex">
               <Button
                 variant="primary"
                 size="lg"
@@ -342,7 +366,7 @@ function Workbench({
               >
                 {generation.isBusy ? "Generating…" : "Generate video"}
               </Button>
-              <span className="hidden text-[12px] text-fg-subtle sm:block">
+              <span className="hidden text-[12px] text-fg-subtle lg:block">
                 or press{" "}
                 <kbd
                   className="rounded border border-border-default bg-bg-subtle
@@ -361,6 +385,29 @@ function Workbench({
           </div>
         </div>
       </main>
+
+      {/* Mobile action bar. The settings panel runs to a dozen-plus controls,
+          so an inline Generate button sits well below the fold — pinning it
+          keeps the primary action reachable from anywhere on the page. */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-border-default
+          bg-bg/90 px-4 pt-3 backdrop-blur-md lg:hidden"
+        style={{
+          // Clear the iOS home indicator without adding dead space elsewhere.
+          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+        }}
+      >
+        <Button
+          variant="primary"
+          size="lg"
+          onClick={submit}
+          loading={generation.isBusy}
+          disabled={!selected}
+          className="w-full"
+        >
+          {generation.isBusy ? "Generating…" : "Generate video"}
+        </Button>
+      </div>
     </div>
   );
 }
