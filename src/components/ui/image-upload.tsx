@@ -105,11 +105,20 @@ export function ImageUpload({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  /**
+   * Read off the loaded image. Worth showing here because in this workflow the
+   * output video inherits the image's dimensions.
+   */
+  const [dimensions, setDimensions] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
 
   const upload = async (file: File) => {
     setUploading(true);
     setError(null);
     setNote(null);
+    setDimensions(null);
     try {
       const prepared = await prepareForUpload(file);
 
@@ -180,27 +189,48 @@ export function ImageUpload({
           setDragging(false);
           if (!disabled && !uploading) pick(event.dataTransfer.files);
         }}
-        className={`relative overflow-hidden rounded-lg border border-dashed transition-colors
+        className={`relative overflow-hidden rounded-lg border transition-colors
+          ${previewUrl ? "border-solid" : "border-dashed"}
           ${
             dragging
               ? "border-accent bg-accent-subtle/30"
-              : "border-border-strong bg-bg-subtle"
+              : previewUrl
+                ? "border-border-default bg-bg-subtle"
+                : "border-border-strong bg-bg-subtle"
           } ${disabled ? "opacity-50" : ""}`}
       >
         {previewUrl ? (
           <div className="relative">
             {/* Not next/image: this is proxied through our own route, and the
-                dimensions are unknown until ComfyUI has the file. */}
+                dimensions are unknown until ComfyUI has the file.
+
+                Sized by its own aspect ratio rather than w-full: forcing full
+                width caps a portrait image at max-height and pads the rest with
+                background, which reads as the image not fitting its container. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={previewUrl}
               alt="Selected first frame"
-              className="block max-h-56 w-full bg-black object-contain"
+              onLoad={(event) =>
+                setDimensions({
+                  width: event.currentTarget.naturalWidth,
+                  height: event.currentTarget.naturalHeight,
+                })
+              }
+              className="mx-auto block h-auto max-h-64 w-auto max-w-full object-contain"
             />
             <div className="flex items-center gap-2 border-t border-border-default px-3 py-2">
-              <span className="truncate font-mono text-[11px] text-fg-muted">
+              {/* min-w-0 is what actually lets `truncate` work: a flex item
+                  defaults to min-width:auto and would otherwise refuse to
+                  shrink below the filename, pushing the buttons out. */}
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-muted">
                 {value}
               </span>
+              {dimensions ? (
+                <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                  {dimensions.width}×{dimensions.height}
+                </span>
+              ) : null}
               <div className="ml-auto flex shrink-0 gap-2">
                 <button
                   type="button"
@@ -218,6 +248,7 @@ export function ImageUpload({
                     onChange("");
                     setError(null);
                     setNote(null);
+                    setDimensions(null);
                   }}
                   className="text-[11px] font-medium text-fg-muted transition-colors
                     hover:text-danger disabled:opacity-50"
