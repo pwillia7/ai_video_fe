@@ -5,6 +5,7 @@ import {
   durationParam,
   encodingParams,
   fpsParam,
+  PROMPT_DIRECTOR,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -17,8 +18,12 @@ import {
  * Notes on this export:
  *
  * - Node ids are flat, not the "105:" subgraph ids the text/image graphs use.
- * - The prompt is not an input on the video node. It comes from node 138, a
- *   PrimitiveStringMultiline, so that is what the prompt control writes to.
+ * - The prompt is not an input on the video node. What the user types goes to
+ *   node 138, an LLM expands it (144/145), and only that expanded text reaches
+ *   the video node. So 138 is what the prompt control writes to.
+ * - The rewrite stage is given the references as well, batched by node 146, so
+ *   it can describe what it actually sees rather than guessing. That is the one
+ *   structural difference from the text-to-video graph's rewrite stage.
  * - `ref_images.ref_image_0` / `ref_image_1` are ComfyUI's variadic input
  *   form. A single-reference run must *remove* `ref_image_1` and its LoadImage
  *   rather than leave them blank — see `finalize` below.
@@ -35,10 +40,17 @@ const ids: MinimaxNodeIds = {
   save: "92",
 };
 
-/** The optional second reference, kept in one place since two things drop it. */
+/**
+ * The optional second reference. Node 139 now feeds two consumers — the video
+ * node and the batch that shows the references to the rewrite stage — so
+ * dropping it means clearing a link in both places. Named here because
+ * `finalize` has to keep up with anything new that reads from 139.
+ */
 const SECOND_REF_NODE = "139";
 const SECOND_REF_INPUT = "ref_images.ref_image_1";
 const REFERENCE_NODE = "136";
+const BATCH_NODE = "146";
+const SECOND_BATCH_INPUT = "images.image1";
 
 const graph: ComfyGraph = {
   "92": {
@@ -159,7 +171,7 @@ const graph: ComfyGraph = {
   "136": {
     class_type: "MiniMaxH3ReferenceToVideo",
     inputs: {
-      prompt: ["138", 0],
+      prompt: ["145", 0],
       width: ["115", 0],
       height: ["115", 1],
       length: ["131", 1],
@@ -186,6 +198,43 @@ const graph: ComfyGraph = {
     class_type: "LoadImage",
     inputs: { image: "" },
     _meta: { title: "Load Image" },
+  },
+
+  // The prompt-rewrite stage. 138 holds what the user typed, 146 batches the
+  // references so the rewrite can see them, 145 expands the two into the
+  // description node 136 actually reads. The api_key is "-" as exported: the
+  // ComfyUI host supplies the real one.
+  "144": {
+    class_type: "OAIAPI_Client",
+    inputs: {
+      base_url: "https://api.openai.com/v1",
+      max_retries: 2,
+      timeout: 600,
+      api_key: "-",
+    },
+    _meta: { title: "OpenAI API - Client" },
+  },
+  "145": {
+    class_type: "OAIAPI_ChatCompletion",
+    inputs: {
+      model: "gpt-5.6-terra",
+      force_regen: false,
+      prompt: ["138", 0],
+      system_prompt: PROMPT_DIRECTOR,
+      client: ["144", 0],
+      images: ["146", 0],
+    },
+    _meta: { title: "OpenAI API - Chat Completion" },
+  },
+  "146": {
+    class_type: "BatchImagesNode",
+    // Variadic, like ref_images above: image1 is removed outright when there
+    // is no second reference rather than left pointing at a deleted node.
+    inputs: {
+      "images.image0": ["137", 0],
+      "images.image1": ["139", 0],
+    },
+    _meta: { title: "Batch Images" },
   },
 };
 
@@ -224,8 +273,8 @@ const params: ParamDef[] = [
 
   promptParam(
     ids,
-    "the man on the right is a superhero in the ultimate final battle",
-    "Name each reference by tag in upload order — <Picture 1>, <Picture 2> — and say what each one controls.",
+    "<Picture 1> is a superhero, mid-fight, in the ruins of a city.",
+    "A one line idea is enough — a director model expands it into shots, camera and audio first, and it can see your references. Name them by tag in upload order (<Picture 1>, <Picture 2>) and say what each controls; the tags survive the rewrite.",
     6,
   ),
 
@@ -284,14 +333,19 @@ export const minimaxH3Reference: WorkflowDef = {
   params,
 
   /**
-   * With no second reference, the variadic input and its loader must be removed
-   * outright. Leaving `ref_image_1` pointing at a LoadImage with an empty
+   * With no second reference, the variadic inputs and the loader must be
+   * removed outright. Leaving them pointing at a LoadImage with an empty
    * filename would fail validation, and leaving it blank is not the same as
    * omitting it — the model would be told to expect a second subject.
+   *
+   * Both consumers have to be cleared before the loader goes. Dropping the
+   * node while the batch still linked to it would queue a graph referencing a
+   * node that no longer exists, which ComfyUI rejects outright.
    */
   finalize(graph, values) {
     if (values.reference_image_2) return;
     delete graph[REFERENCE_NODE].inputs[SECOND_REF_INPUT];
+    delete graph[BATCH_NODE].inputs[SECOND_BATCH_INPUT];
     delete graph[SECOND_REF_NODE];
   },
 };

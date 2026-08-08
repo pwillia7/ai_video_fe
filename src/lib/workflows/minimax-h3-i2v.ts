@@ -5,6 +5,7 @@ import {
   durationParam,
   encodingParams,
   fpsParam,
+  PROMPT_DIRECTOR,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -19,14 +20,12 @@ import {
  * 1. Output size comes from the *image*, not from a size picker. Node 119
  *    scales the upload to a target megapixel count, node 120 reads the result,
  *    and those dimensions feed MiniMaxH3ImageToVideo. So `119.megapixels` is
- *    the real resolution control here.
+ *    the real resolution control here. There is no ResolutionSelector at all —
+ *    an earlier export carried an orphaned one, and this one drops it.
  *
- * 2. Node 115 (ResolutionSelector) is left over from the text-to-video graph
- *    and is wired to nothing — width/height now come from node 120. Exposing
- *    its aspect_ratio or megapixels would give the user controls that do
- *    nothing at all, so they are deliberately absent. The node is kept so the
- *    graph stays a faithful copy of the export; ComfyUI only executes nodes
- *    that an output depends on, so it costs nothing.
+ * 2. The prompt is not written to the video node. What the user types goes to
+ *    node 125, an LLM expands it (121/123) with the uploaded image in view,
+ *    and only that expanded text reaches 105:104.
  */
 const graph: ComfyGraph = {
   "92": {
@@ -44,16 +43,6 @@ const graph: ComfyGraph = {
     inputs: { image: "" },
     _meta: { title: "Load Image" },
   },
-  "115": {
-    // Orphaned — see the note above. Nothing reads its outputs.
-    class_type: "ResolutionSelector",
-    inputs: {
-      aspect_ratio: "1:1 (Square)",
-      megapixels: 0.4,
-      multiple: 32,
-    },
-    _meta: { title: "Resolution Selector" },
-  },
   "119": {
     class_type: "ImageScaleToTotalPixels",
     inputs: {
@@ -69,6 +58,40 @@ const graph: ComfyGraph = {
     inputs: { image: ["119", 0] },
     _meta: { title: "Get Image Size" },
   },
+
+  // The prompt-rewrite stage. 125 holds what the user typed, 123 expands it
+  // with the upload in view, and 105:104 reads the result. Note that 123 is
+  // given node 114 rather than the rescaled 119 — the rewrite reads the
+  // original, at whatever size it arrived. The api_key is "-" as exported: the
+  // ComfyUI host supplies the real one.
+  "121": {
+    class_type: "OAIAPI_Client",
+    inputs: {
+      base_url: "https://api.openai.com/v1",
+      max_retries: 2,
+      timeout: 600,
+      api_key: "-",
+    },
+    _meta: { title: "OpenAI API - Client" },
+  },
+  "123": {
+    class_type: "OAIAPI_ChatCompletion",
+    inputs: {
+      model: "gpt-5.6-terra",
+      force_regen: false,
+      prompt: ["125", 0],
+      system_prompt: PROMPT_DIRECTOR,
+      client: ["121", 0],
+      images: ["114", 0],
+    },
+    _meta: { title: "OpenAI API - Chat Completion" },
+  },
+  "125": {
+    class_type: "PrimitiveStringMultiline",
+    inputs: { value: "" },
+    _meta: { title: "Input Text (Prompt)" },
+  },
+
   "105:11": {
     class_type: "VAELoader",
     inputs: { vae_name: "minimax_h3_video_vae_fp16.safetensors" },
@@ -155,7 +178,7 @@ const graph: ComfyGraph = {
   "105:104": {
     class_type: "MiniMaxH3ImageToVideo",
     inputs: {
-      prompt: "",
+      prompt: ["123", 0],
       width: ["120", 0],
       height: ["120", 1],
       length: ["105:107", 1],
@@ -181,7 +204,9 @@ const graph: ComfyGraph = {
 };
 
 const ids: MinimaxNodeIds = {
-  prompt: { node: "105:104", input: "prompt" },
+  // Node 125, not the video node: what the user types is the *input* to the
+  // rewrite stage, and 105:104.prompt is a link now, not a value.
+  prompt: { node: "125", input: "value" },
   duration: "105:111",
   video: "105:91",
   frameExpression: "105:107",
@@ -243,8 +268,9 @@ const params: ParamDef[] = [
 
   promptParam(
     ids,
-    "a page of suleiman the magnificent book and he gets up and starts break dancing",
-    "Describe what should happen to the image. Motion, camera, and audio all respond to direction.",
+    "The subject stands up and starts dancing.",
+    "Say what should happen next, not what the image already shows — a one line idea is enough. A director model expands it into motion, camera and audio first, and it can see your image.",
+    6,
   ),
 
   durationParam(ids),

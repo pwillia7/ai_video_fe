@@ -5,6 +5,7 @@ import {
   durationParam,
   encodingParams,
   fpsParam,
+  PROMPT_DIRECTOR,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -17,13 +18,17 @@ import {
  * which is why most of them look like "105:104" — colons are fine, they are
  * just object keys.
  *
- * Two things about this graph are worth knowing before changing it:
+ * Three things about this graph are worth knowing before changing it:
  *
  * 1. The class is `MiniMaxH3ImageToVideo` but no image is wired in, so it runs
  *    in text-to-video mode. Leave the image input absent.
  * 2. Frame count is computed, not set. Node 105:111 holds a duration in
  *    seconds, and 105:107 converts it to frames via a formula that snaps to
  *    the nearest valid length. See FRAME_EXPRESSION below.
+ * 3. The prompt is not written to the video node. What the user types goes to
+ *    node 123, an LLM rewrites it into a shot-by-shot description (120/121),
+ *    and only that expanded text reaches 105:104. So a one-line idea is a
+ *    perfectly good prompt here — see PROMPT_DIRECTOR in minimax-common.
  */
 
 const graph: ComfyGraph = {
@@ -33,7 +38,6 @@ const graph: ComfyGraph = {
       filename_prefix: "video/MiniMax_H3",
       format: "auto",
       codec: "auto",
-      "video-preview": "",
       video: ["105:91", 0],
     },
     _meta: { title: "Save Video" },
@@ -47,6 +51,37 @@ const graph: ComfyGraph = {
     },
     _meta: { title: "Resolution Selector" },
   },
+
+  // The prompt-rewrite stage. 123 holds what the user typed, 121 expands it,
+  // and 105:104 reads 121's output. The api_key is "-" as exported: the key
+  // comes from the ComfyUI host's own environment, not from this app.
+  "120": {
+    class_type: "OAIAPI_Client",
+    inputs: {
+      base_url: "https://api.openai.com/v1",
+      max_retries: 2,
+      timeout: 600,
+      api_key: "-",
+    },
+    _meta: { title: "OpenAI API - Client" },
+  },
+  "121": {
+    class_type: "OAIAPI_ChatCompletion",
+    inputs: {
+      model: "gpt-5.6-terra",
+      force_regen: false,
+      prompt: ["123", 0],
+      system_prompt: PROMPT_DIRECTOR,
+      client: ["120", 0],
+    },
+    _meta: { title: "OpenAI API - Chat Completion" },
+  },
+  "123": {
+    class_type: "PrimitiveStringMultiline",
+    inputs: { value: "" },
+    _meta: { title: "Input Text (Prompt)" },
+  },
+
   "105:11": {
     class_type: "VAELoader",
     inputs: { vae_name: "minimax_h3_video_vae_fp16.safetensors" },
@@ -133,7 +168,7 @@ const graph: ComfyGraph = {
   "105:104": {
     class_type: "MiniMaxH3ImageToVideo",
     inputs: {
-      prompt: "",
+      prompt: ["121", 0],
       width: ["115", 0],
       height: ["115", 1],
       length: ["105:107", 1],
@@ -157,24 +192,18 @@ const graph: ComfyGraph = {
   },
 };
 
-const DEFAULT_PROMPT = `Realistic live-action cinematic look, action movie trailer: practical film photography style, a post-rain dusk metropolis, anamorphic lens, shallow depth of field, film grain, city volumetric fog, flying-car traffic between the towers, restrained grading for a premium feel, powerful natural movement.
-
-Scene overview: at dusk on a cluster of skyscrapers, the protagonist is being chased, sprinting and leaping across rooftops, jumping from one building's roof to the next with pursuers closing in behind. This is the escape sequence of an action movie trailer: every leap is life-or-death, thrilling and fluid.
-
-Storyboard (each shot a separate scene, rapid cuts, all landing on the musical beats):
-[0s-1.5s] Shot 1: high side angle: the protagonist sprinting at the roof edge, pursuers appearing in the rooftop doorway behind him, wind catching his coat.
-[1s-2.5s] Shot 2: the protagonist leaps across the gap between buildings, body stretching mid-air, towers and flying-car light trails behind him, a slight slow-motion feel.
-[2.5s-4s] Shot 3: he lands, rolls and rises, low-angle shot, tower shadows and fog behind him, he keeps running.
-[4s-5s] Shot 4: freeze: the instant he hits the edge of the next roof and launches into the jump, silhouette, holding.
-
-Camera: each shot its own angle, cuts clean and hard, no dissolves, a slight frame jitter on the jumps.
-
-Audio: wind, rapid footsteps, city ambience, low score underneath, an accent hit on each leap, the score bursting at 4s, closing the last 1s.
-
-No text, subtitles, logos or watermarks of any kind, no animation or cartoon rendering, no overly-CG look, keep the live-action texture.`;
+/**
+ * Short on purpose. The rewrite stage turns a one-liner into the shot list,
+ * camera and audio, so a fully storyboarded default would just be showing
+ * users work they no longer have to do.
+ */
+const DEFAULT_PROMPT =
+  "A courier sprints across a rain-slick rooftop at dusk and leaps the gap to the next tower, drones closing in behind her.";
 
 const ids: MinimaxNodeIds = {
-  prompt: { node: "105:104", input: "prompt" },
+  // Node 123, not the video node: what the user types is the *input* to the
+  // rewrite stage, and 105:104.prompt is a link now, not a value.
+  prompt: { node: "123", input: "value" },
   duration: "105:111",
   video: "105:91",
   frameExpression: "105:107",
@@ -188,7 +217,8 @@ const params: ParamDef[] = [
   promptParam(
     ids,
     DEFAULT_PROMPT,
-    "This model takes direction well: name the lens, the grade, the cuts, and the audio. There is no negative prompt on this graph.",
+    "A one-line idea is enough — a director model expands it into shots, camera moves and audio first. Detail you do give is kept, so say anything you care about.",
+    6,
   ),
 
   durationParam(ids),

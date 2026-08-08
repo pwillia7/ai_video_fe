@@ -31,6 +31,15 @@ const DURATION_NOTE =
 export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
   "minimax-h3": {
     sections: [
+      {
+        heading: "Your prompt gets expanded first",
+        items: [
+          "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it.",
+          "So a single sentence is a valid prompt here. Two samurai fight on a rooftop in Hong Kong is enough to work with.",
+          "Anything you do specify is preserved: style, dialogue, setting, an explicit shot list. The rewrite elaborates your idea rather than replacing it.",
+          "The less you say, the more the rewrite decides for you. Spell out what you care about.",
+        ],
+      },
       PROMPT_STRUCTURE,
       {
         heading: "Size and length",
@@ -53,6 +62,13 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
           "The model also accepts a closing frame and will fill the motion between the two. This workflow only wires the first frame.",
         ],
       },
+      {
+        heading: "Your prompt gets expanded first",
+        items: [
+          "A director model rewrites what you type into a full scene description — motion, camera and sound — before the video model reads it. A single sentence is enough to start.",
+          "It is shown your image too, so it can build the action around what is actually in frame.",
+        ],
+      },
       PROMPT_STRUCTURE,
       { heading: "Length", items: [DURATION_NOTE] },
     ],
@@ -60,6 +76,14 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
 
   "minimax-h3-ref": {
     sections: [
+      {
+        heading: "Your prompt gets expanded first",
+        items: [
+          "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it. A single sentence is enough to start.",
+          "It is shown your reference images too, so it can build the scene around what is actually in them.",
+          "<Picture 1> and <Picture 2> tags are carried through the rewrite untouched, so keep using them.",
+        ],
+      },
       {
         heading: "Referring to your images",
         items: [

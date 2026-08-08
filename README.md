@@ -231,14 +231,34 @@ Param types available: `text`, `textarea`, `number`, `slider`, `select`,
 
 ## The bundled workflows
 
-Both target **MiniMax H3** and produce a video with a generated audio track.
-They share sampling, timing and encoding controls via `minimax-common.ts`,
-since the two exports use identical node ids for those parts.
+All three target **MiniMax H3** and produce a video with a generated audio
+track. They share sampling, timing and encoding controls via
+`minimax-common.ts`.
 
 | Workflow | Output size comes from |
 | --- | --- |
 | `minimax-h3` — text to video | Aspect ratio + megapixels (`ResolutionSelector`) |
 | `minimax-h3-i2v` — image to video | The uploaded image, rescaled by `ImageScaleToTotalPixels` |
+| `minimax-h3-ref` — reference to video | Aspect ratio + megapixels (`ResolutionSelector`) |
+
+### The prompt is rewritten before the model sees it
+
+All three graphs run what you type through an LLM first. A
+`PrimitiveStringMultiline` node holds the raw input, an `OAIAPI_ChatCompletion`
+node expands it into a shot-by-shot description using the shared
+`PROMPT_DIRECTOR` system prompt in `minimax-common.ts`, and only that output
+reaches the video node. The image and reference workflows also hand their
+uploads to the rewrite, so it can describe what is actually in frame.
+
+Two consequences:
+
+- **The prompt param targets the input node, not the video node.** On these
+  graphs `MiniMaxH3ImageToVideo.prompt` is a link, not a value. Writing to it
+  would be overwritten at execution time and the user's text would vanish.
+- **`api_key` is `"-"` in every export.** The ComfyUI host supplies the real
+  key; nothing about it lives in this app. If that host cannot reach the API,
+  the rewrite node fails and takes the whole job with it — there is no bypass
+  wired into these graphs.
 
 ### Image to video
 
@@ -262,20 +282,15 @@ Two constraints govern the upload path:
   letting it fail. Nothing is lost: `ImageScaleToTotalPixels` rescales to about
   1 MP server-side anyway, and alpha is meaningless for a video's first frame.
 
-Two things about that graph are easy to get wrong:
-
-- **Node 115 (`ResolutionSelector`) is orphaned.** Width and height come from
-  `GetImageSize` reading the scaled upload, so 115's outputs go nowhere.
-  Exposing its aspect ratio or megapixels would give you controls that do
-  nothing, so they are deliberately absent. The node is kept so the graph stays
-  a faithful copy of the export — ComfyUI only executes what an output depends
-  on, so it costs nothing.
-- **`image_megapixels` is the real resolution control**, because the video
-  inherits the dimensions of the rescaled image.
+One thing about that graph is easy to get wrong: **`image_megapixels` is the
+real resolution control**, because width and height come from `GetImageSize`
+reading the rescaled upload rather than from any size picker. There is no
+`ResolutionSelector` in this graph at all — an earlier export carried an
+orphaned one, and the current export drops it.
 
 ### Audio
 
-Both graphs decode an audio track into `CreateVideo`, so they set
+All three graphs decode an audio track into `CreateVideo`, so they set
 `hasAudio: true`. The result player does not autoplay audio workflows —
 browsers only allow autoplay while muted, which would throw away the
 soundtrack the model just spent minutes generating.
