@@ -20,6 +20,7 @@ import { WorkflowPicker } from "@/components/workflow-picker";
 import { useGeneration } from "@/hooks/use-generation";
 import { api, ApiError, getToken } from "@/lib/client";
 import { notify } from "@/lib/notifications";
+import { hydrateAll, writeStoredParams } from "@/lib/param-storage";
 import {
   defaultValuesFor,
   type ParamValue,
@@ -129,14 +130,17 @@ function Workbench({
   const [selectedId, setSelectedId] = useState(workflows[0]?.id ?? "");
 
   // Values are kept per workflow so switching to compare settings and coming
-  // back does not throw away what you typed.
+  // back does not throw away what you typed, and persisted so a reload does
+  // not either. Read lazily rather than in an effect: Workbench only mounts
+  // after the client-side load, so there is no server render to mismatch, and
+  // an effect would flash the defaults first.
   const [valuesByWorkflow, setValuesByWorkflow] = useState<
     Record<string, Record<string, ParamValue>>
-  >(() =>
-    Object.fromEntries(
-      workflows.map((workflow) => [workflow.id, defaultValuesFor(workflow)]),
-    ),
-  );
+  >(() => hydrateAll(workflows));
+
+  useEffect(() => {
+    writeStoredParams(valuesByWorkflow);
+  }, [valuesByWorkflow]);
 
   const generation = useGeneration(timeoutSeconds);
 
@@ -159,11 +163,22 @@ function Workbench({
 
   const resetToDefaults = useCallback(() => {
     if (!selected) return;
+    // The persistence effect writes this straight back out, so the stored copy
+    // is reset too rather than reappearing on the next load.
     setValuesByWorkflow((previous) => ({
       ...previous,
       [selectedId]: defaultValuesFor(selected),
     }));
   }, [selected, selectedId]);
+
+  /** Nothing to restore when the form already matches the defaults. */
+  const isDefaults = useMemo(() => {
+    if (!selected) return true;
+    const defaults = defaultValuesFor(selected);
+    return Object.keys(defaults).every(
+      (key) => values[key] === defaults[key],
+    );
+  }, [selected, values]);
 
   // On mobile the stage sits below the whole settings panel, so starting a run
   // from the pinned bar would leave the user staring at the form with no sign
@@ -330,11 +345,17 @@ function Workbench({
                     <button
                       type="button"
                       onClick={resetToDefaults}
-                      disabled={generation.isBusy}
-                      className="text-[12px] font-medium text-fg-muted transition-colors
-                        hover:text-fg disabled:opacity-50"
+                      disabled={generation.isBusy || isDefaults}
+                      title={
+                        isDefaults
+                          ? "Already at the defaults"
+                          : "Put every setting on this workflow back to its default"
+                      }
+                      className="shrink-0 whitespace-nowrap text-[12px] font-medium
+                        text-fg-muted transition-colors hover:text-fg
+                        disabled:opacity-40 disabled:hover:text-fg-muted"
                     >
-                      Reset
+                      Restore defaults
                     </button>
                   }
                 />

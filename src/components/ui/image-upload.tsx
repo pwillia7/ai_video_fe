@@ -217,6 +217,19 @@ export function ImageUpload({
                   height: event.currentTarget.naturalHeight,
                 })
               }
+              /*
+                A remembered reference can outlive the file — ComfyUI's input
+                directory gets cleared, or the box is rebuilt. Catching it here
+                turns a wasted generation ("Value not in list") into an
+                obvious prompt to re-upload.
+              */
+              onError={() => {
+                onChange("");
+                setDimensions(null);
+                setError(
+                  "That image is no longer on the ComfyUI server. Upload it again.",
+                );
+              }}
               className="mx-auto block h-auto max-h-64 w-auto max-w-full object-contain"
             />
             <div className="flex items-center gap-2 border-t border-border-default px-3 py-2">
