@@ -257,7 +257,7 @@ const params: ParamDef[] = [
 export const minimaxH3ImageToVideo: WorkflowDef = {
   id: "minimax-h3-i2v",
   name: "MiniMax H3 · Image to Video",
-  description: "Animates a still. Output size follows the image.",
+  description: "Your image becomes the first frame of the video.",
   tags: ["image-to-video", "audio"],
   estimatedSeconds: 300,
   hasAudio: true,

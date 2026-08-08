@@ -276,7 +276,7 @@ const params: ParamDef[] = [
 export const minimaxH3Reference: WorkflowDef = {
   id: "minimax-h3-ref",
   name: "MiniMax H3 · Reference to Video",
-  description: "Builds a video around one or two reference images.",
+  description: "Puts people or objects from your images into a new scene.",
   tags: ["reference-to-video", "audio"],
   estimatedSeconds: 180,
   hasAudio: true,
