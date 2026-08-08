@@ -239,7 +239,9 @@ function Workbench({
         ) : null}
 
         <div className="grid gap-5 lg:grid-cols-[minmax(320px,380px)_1fr]">
-          <div className="flex flex-col gap-5">
+          {/* min-w-0: a grid item defaults to min-width:auto and would grow
+              past its track to fit wide content such as an image preview. */}
+          <div className="flex min-w-0 flex-col gap-5">
             <Panel className="rise" padded>
               <PanelHeader
                 title="Workflow"

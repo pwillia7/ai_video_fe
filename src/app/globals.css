@@ -179,6 +179,15 @@ button {
   color: inherit;
 }
 
+/*
+ * The UA stylesheet gives fieldset `min-inline-size: min-content`, so it is the
+ * one element that refuses to shrink below its widest child. Inside a sized
+ * grid column that makes a wide image push the whole panel past its track.
+ */
+fieldset {
+  min-inline-size: 0;
+}
+
 textarea {
   field-sizing: content;
 }

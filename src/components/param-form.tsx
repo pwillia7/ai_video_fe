@@ -54,7 +54,14 @@ export function ParamForm({
         if (visible.length === 0) return null;
 
         return (
-          <fieldset key={group} className="flex flex-col gap-4" disabled={disabled}>
+          // min-w-0 restates the globals.css rule at the call site: fieldset's
+          // UA min-inline-size:min-content otherwise stops the whole group
+          // shrinking around wide content.
+          <fieldset
+            key={group}
+            className="flex min-w-0 flex-col gap-4"
+            disabled={disabled}
+          >
             <legend
               className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-fg-subtle"
             >
