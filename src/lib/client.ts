@@ -41,7 +41,14 @@ export async function api<T>(
   const token = getToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("x-app-token", token);
-  if (init.body && !headers.has("Content-Type")) {
+
+  // Only JSON bodies get a JSON content-type. FormData must be left alone: the
+  // browser generates a `multipart/form-data; boundary=...` header itself, and
+  // overwriting it strips the boundary so the server can parse nothing back out.
+  const bodyIsFormData =
+    typeof FormData !== "undefined" && init.body instanceof FormData;
+
+  if (init.body && !bodyIsFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 

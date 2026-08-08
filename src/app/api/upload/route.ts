@@ -6,7 +6,12 @@ import { ParamError } from "@/lib/params";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const MAX_BYTES = 32 * 1024 * 1024;
+/**
+ * Vercel caps a function's request body at 4.5 MB and rejects anything larger
+ * with a 413 before the handler runs, so a bigger limit here would just produce
+ * an opaque platform error. The client downscales above this threshold.
+ */
+const MAX_BYTES = 4 * 1024 * 1024;
 const ACCEPTED = /^image\//;
 
 /**

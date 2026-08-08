@@ -249,6 +249,19 @@ that `LoadImage` needs. The upload happens as soon as a file is chosen, so a
 rejected image surfaces immediately rather than failing a generation you have
 already committed to.
 
+Two constraints govern the upload path:
+
+- **`api()` must not set a Content-Type on FormData.** The browser generates
+  `multipart/form-data; boundary=...` itself, and overwriting that header strips
+  the boundary, so the server parses an empty form and reports "No image was
+  included in the upload." This bit once — the shared client helper was setting
+  `application/json` on every request that had a body.
+- **Vercel caps function request bodies at 4.5 MB** (`413
+  FUNCTION_PAYLOAD_TOO_LARGE`), enforced before the handler runs. The client
+  downscales anything over 4 MB in a canvas and re-encodes as JPEG rather than
+  letting it fail. Nothing is lost: `ImageScaleToTotalPixels` rescales to about
+  1 MP server-side anyway, and alpha is meaningless for a video's first frame.
+
 Two things about that graph are easy to get wrong:
 
 - **Node 115 (`ResolutionSelector`) is orphaned.** Width and height come from

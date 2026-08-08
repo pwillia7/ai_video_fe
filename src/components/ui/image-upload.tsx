@@ -11,6 +11,76 @@ interface UploadResponse {
   type: string;
 }
 
+/** Stay under Vercel's 4.5 MB function request-body limit, with headroom. */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_EDGE = 2560;
+
+interface Prepared {
+  blob: Blob;
+  name: string;
+  /** Set when the file was rescaled, so the UI can say so rather than do it silently. */
+  note?: string;
+}
+
+/**
+ * Shrinks oversized images in the browser instead of letting the upload fail.
+ *
+ * Vercel rejects request bodies over 4.5 MB with a 413 before the handler runs,
+ * and a phone photo clears that easily. Downscaling loses nothing in practice:
+ * the workflow's ImageScaleToTotalPixels rescales to roughly 1 MP anyway, so a
+ * 12 MP original is discarded server-side regardless.
+ *
+ * Re-encodes as JPEG because alpha is meaningless for a video's first frame.
+ */
+async function prepareForUpload(file: File): Promise<Prepared> {
+  if (file.size <= MAX_UPLOAD_BYTES) return { blob: file, name: file.name };
+
+  const bitmap = await createImageBitmap(file);
+  const originalMb = (file.size / 1024 / 1024).toFixed(1);
+
+  try {
+    let edge = MAX_EDGE;
+    let quality = 0.9;
+
+    // Shrink until it fits. Two or three passes at most in practice.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) break;
+      context.drawImage(bitmap, 0, 0, width, height);
+
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", quality),
+      );
+      if (!blob) break;
+
+      if (blob.size <= MAX_UPLOAD_BYTES) {
+        const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+        return {
+          blob,
+          name,
+          note: `Resized from ${originalMb} MB to ${width}×${height} (${(blob.size / 1024 / 1024).toFixed(1)} MB) to fit the upload limit.`,
+        };
+      }
+
+      edge = Math.round(edge * 0.75);
+      quality = Math.max(0.6, quality - 0.1);
+    }
+  } finally {
+    bitmap.close();
+  }
+
+  throw new Error(
+    `That image is ${originalMb} MB and could not be shrunk below the ${MAX_UPLOAD_BYTES / 1024 / 1024} MB upload limit. Try exporting it smaller.`,
+  );
+}
+
 /**
  * Uploads to ComfyUI's input directory as soon as a file is chosen, then holds
  * the returned reference as the param value. Uploading on selection rather
@@ -33,23 +103,34 @@ export function ImageUpload({
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
   const upload = async (file: File) => {
     setUploading(true);
     setError(null);
+    setNote(null);
     try {
+      const prepared = await prepareForUpload(file);
+
       const form = new FormData();
-      form.append("file", file);
-      // No Content-Type header: the browser must set the multipart boundary.
+      form.append("file", prepared.blob, prepared.name);
+      // api() deliberately leaves the Content-Type off FormData so the browser
+      // can set the multipart boundary itself.
       const result = await api<UploadResponse>("/api/upload", {
         method: "POST",
         body: form,
       });
+
       onChange(result.ref);
+      if (prepared.note) setNote(prepared.note);
     } catch (cause) {
       setError(
-        cause instanceof ApiError ? cause.message : "Could not upload that image.",
+        cause instanceof ApiError
+          ? cause.message
+          : cause instanceof Error
+            ? cause.message
+            : "Could not upload that image.",
       );
     } finally {
       setUploading(false);
@@ -136,6 +217,7 @@ export function ImageUpload({
                   onClick={() => {
                     onChange("");
                     setError(null);
+                    setNote(null);
                   }}
                   className="text-[11px] font-medium text-fg-muted transition-colors
                     hover:text-danger disabled:opacity-50"
@@ -198,6 +280,8 @@ export function ImageUpload({
 
       {error ? (
         <p className="text-[12px] leading-snug text-danger">{error}</p>
+      ) : note ? (
+        <p className="text-[12px] leading-snug text-fg-subtle">{note}</p>
       ) : null}
     </div>
   );
