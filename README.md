@@ -280,7 +280,23 @@ Both graphs decode an audio track into `CreateVideo`, so they set
 browsers only allow autoplay while muted, which would throw away the
 soundtrack the model just spent minutes generating.
 
-## Deploying
+## How deploys happen
+
+The GitHub repo is connected to the Vercel project, so:
+
+- **Push to `main` → production**, live at `ai-video-fe.vercel.app`
+- **Push to any other branch → a preview deployment**, protected by Vercel
+  Authentication (a Vercel login is required to view it)
+
+Production is publicly reachable and gated only by `APP_ACCESS_TOKEN`, because
+Vercel Authentication cannot cover production deployments on the Pro plan. A
+push to `main` is therefore a public release — work on a branch and merge when
+you mean it.
+
+`vercel deploy` and `vercel deploy --prod` still work for deploying the working
+tree directly, without a commit.
+
+## Deploying manually
 
 ```bash
 vercel link
