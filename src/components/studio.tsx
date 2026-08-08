@@ -163,6 +163,18 @@ function Workbench({
     }));
   }, [selected, selectedId]);
 
+  // When a job is re-attached from a previous session, switch to the workflow
+  // it came from. Guarded by a ref so it happens once and never fights a
+  // selection the user makes afterwards.
+  const appliedRestoreRef = useRef(false);
+  useEffect(() => {
+    const restored = generation.restoredWorkflowId;
+    if (!restored || appliedRestoreRef.current) return;
+    if (!workflows.some((workflow) => workflow.id === restored)) return;
+    appliedRestoreRef.current = true;
+    setSelectedId(restored);
+  }, [generation.restoredWorkflowId, workflows]);
+
   // Only surface an inline field error when the server actually blamed a field;
   // anything else belongs in the stage panel, not under a control.
   const fieldError = useMemo(() => {
