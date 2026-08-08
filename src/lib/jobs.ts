@@ -100,10 +100,21 @@ export function expireStale(jobs: Job[], now = Date.now()): Job[] {
   );
 }
 
-/** Render time, excluding any wait in the queue. */
+/**
+ * Render time, excluding any wait in the queue.
+ *
+ * Null when the job was never seen running, rather than falling back to
+ * `submittedAt`. That fallback looked harmless but scored queue wait as render
+ * time: close the tab with five jobs queued, come back, and every one of them
+ * reports submit-to-reopen. Those samples then became the median and the
+ * progress bar started pacing minutes of rendering against an hour.
+ *
+ * A job that taught us nothing is better than a job that taught us a lie —
+ * learnedEstimateSeconds drops nulls and falls back to the static estimate.
+ */
 export function renderMs(job: Job): number | null {
-  if (job.completedAt === undefined) return null;
-  return job.completedAt - (job.startedAt ?? job.submittedAt);
+  if (job.completedAt === undefined || job.startedAt === undefined) return null;
+  return job.completedAt - job.startedAt;
 }
 
 /**
