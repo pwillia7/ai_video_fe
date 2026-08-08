@@ -15,6 +15,11 @@ function safeEqual(a: string, b: string): boolean {
 /**
  * Returns a 401 response when the request fails the shared-secret check, or
  * null when it may proceed. With APP_ACCESS_TOKEN unset the app is open.
+ *
+ * The query-param fallback exists because <video src> cannot send headers, so
+ * the media URL carries the secret. That does mean a copied video link leaks
+ * the password — acceptable for a single shared credential, but the reason to
+ * prefer a long random value over a memorable one.
  */
 export function unauthorized(request: Request): Response | null {
   const expected = appAccessToken();
@@ -28,7 +33,7 @@ export function unauthorized(request: Request): Response | null {
   if (safeEqual(provided, expected)) return null;
 
   return Response.json(
-    { error: "Not authorised. Enter the access token to continue." },
+    { error: "Not authorised. Enter the password to continue." },
     { status: 401 },
   );
 }
