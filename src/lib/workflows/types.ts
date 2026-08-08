@@ -123,6 +123,14 @@ export interface WorkflowDef {
   hasAudio?: boolean;
   graph: ComfyGraph;
   params: ParamDef[];
+  /**
+   * Structural adjustment after the params are written in, on the cloned graph.
+   *
+   * Params can only set values on inputs that already exist. Some graphs need
+   * more than that — an optional second reference image means both the link
+   * and its LoadImage node have to disappear when unused, not merely be blank.
+   */
+  finalize?: (graph: ComfyGraph, values: Record<string, ParamValue>) => void;
 }
 
 /**

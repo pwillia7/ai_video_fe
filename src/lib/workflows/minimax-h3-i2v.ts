@@ -7,6 +7,7 @@ import {
   fpsParam,
   promptParam,
   samplingParams,
+  type MinimaxNodeIds,
 } from "./minimax-common";
 
 /**
@@ -179,6 +180,17 @@ const graph: ComfyGraph = {
   },
 };
 
+const ids: MinimaxNodeIds = {
+  prompt: { node: "105:104", input: "prompt" },
+  duration: "105:111",
+  video: "105:91",
+  frameExpression: "105:107",
+  noise: "105:15",
+  scheduler: "105:9",
+  sampler: "105:17",
+  save: "92",
+};
+
 const params: ParamDef[] = [
   {
     id: "image",
@@ -230,15 +242,16 @@ const params: ParamDef[] = [
   },
 
   promptParam(
+    ids,
     "a page of suleiman the magnificent book and he gets up and starts break dancing",
     "Describe what should happen to the image. Motion, camera, and audio all respond to direction.",
   ),
 
-  durationParam(),
-  fpsParam(),
+  durationParam(ids),
+  fpsParam(ids),
 
-  ...samplingParams(),
-  ...encodingParams(),
+  ...samplingParams(ids),
+  ...encodingParams(ids),
 ];
 
 export const minimaxH3ImageToVideo: WorkflowDef = {

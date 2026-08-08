@@ -172,6 +172,10 @@ export function applyParams(
     }
   }
 
+  // Runs last so it sees the resolved values and can prune anything they made
+  // redundant — an unused optional input, and the node that fed it.
+  workflow.finalize?.(graph, resolved);
+
   return { graph, resolved };
 }
 

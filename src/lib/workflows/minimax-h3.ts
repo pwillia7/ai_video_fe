@@ -7,6 +7,7 @@ import {
   fpsParam,
   promptParam,
   samplingParams,
+  type MinimaxNodeIds,
 } from "./minimax-common";
 
 /**
@@ -172,13 +173,25 @@ Audio: wind, rapid footsteps, city ambience, low score underneath, an accent hit
 
 No text, subtitles, logos or watermarks of any kind, no animation or cartoon rendering, no overly-CG look, keep the live-action texture.`;
 
+const ids: MinimaxNodeIds = {
+  prompt: { node: "105:104", input: "prompt" },
+  duration: "105:111",
+  video: "105:91",
+  frameExpression: "105:107",
+  noise: "105:15",
+  scheduler: "105:9",
+  sampler: "105:17",
+  save: "92",
+};
+
 const params: ParamDef[] = [
   promptParam(
+    ids,
     DEFAULT_PROMPT,
     "This model takes direction well: name the lens, the grade, the cuts, and the audio. There is no negative prompt on this graph.",
   ),
 
-  durationParam(),
+  durationParam(ids),
   {
     id: "aspect_ratio",
     label: "Aspect ratio",
@@ -202,7 +215,7 @@ const params: ParamDef[] = [
     group: "Output",
     targets: [{ node: "115", input: "megapixels" }],
   },
-  fpsParam(),
+  fpsParam(ids),
   {
     id: "multiple",
     label: "Size rounding",
@@ -218,8 +231,8 @@ const params: ParamDef[] = [
     targets: [{ node: "115", input: "multiple" }],
   },
 
-  ...samplingParams(),
-  ...encodingParams(),
+  ...samplingParams(ids),
+  ...encodingParams(ids),
 ];
 
 export const minimaxH3: WorkflowDef = {

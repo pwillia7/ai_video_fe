@@ -1,10 +1,32 @@
 import type { ParamDef } from "./types";
 
 /**
- * Shared pieces of the MiniMax H3 graphs. Both the text-to-video and
- * image-to-video exports use identical node ids for sampling, encoding and
- * timing, so these builders apply to either.
+ * Shared pieces of the MiniMax H3 graphs.
+ *
+ * The three exports use the same node *types* for sampling, timing and
+ * encoding but different node *ids* — the text/image graphs come from a
+ * flattened subgraph ("105:9"), the reference graph does not ("124"). So the
+ * builders take an id map rather than assuming a naming scheme.
  */
+export interface MinimaxNodeIds {
+  /** Where the prompt text is written. Sometimes the video node, sometimes a
+   *  PrimitiveStringMultiline feeding it. */
+  prompt: { node: string; input: string };
+  /** PrimitiveFloat holding the duration in seconds. */
+  duration: string;
+  /** CreateVideo. */
+  video: string;
+  /** ComfyMathExpression converting duration to a frame count. */
+  frameExpression: string;
+  /** RandomNoise. */
+  noise: string;
+  /** BasicScheduler. */
+  scheduler: string;
+  /** KSamplerSelect. */
+  sampler: string;
+  /** SaveVideo. */
+  save: string;
+}
 
 /**
  * Duration (seconds) -> frame count.
@@ -13,7 +35,7 @@ import type { ParamDef } from "./types";
  * next value congruent to 5 mod 17, which is what this model expects:
  * 5, 22, 39, 56, 73, 90, 107, 124...
  *
- * Both exports hardcode 24 here while exposing fps separately on CreateVideo.
+ * Every export hardcodes 24 here while exposing fps separately on CreateVideo.
  * That silently breaks the duration: ask for 5 seconds at 60fps and you get
  * 124 frames played at 60, i.e. about 2 seconds. Rebuilding the formula from
  * the chosen fps keeps the requested duration honest at any frame rate.
@@ -21,22 +43,27 @@ import type { ParamDef } from "./types";
 export const FRAME_EXPRESSION = (fps: number) =>
   `max(5, round(a * ${fps})) + (5 - (max(5, round(a * ${fps})) % 17)) % 17`;
 
-export function promptParam(defaultPrompt: string, help: string): ParamDef {
+export function promptParam(
+  ids: MinimaxNodeIds,
+  defaultPrompt: string,
+  help: string,
+  rows = 10,
+): ParamDef {
   return {
     id: "prompt",
     label: "Prompt",
     type: "textarea",
-    rows: 10,
+    rows,
     default: defaultPrompt,
     placeholder: "Describe the action, the camera, and the audio.",
     maxLength: 8000,
     help,
     group: "Prompt",
-    targets: [{ node: "105:104", input: "prompt" }],
+    targets: [{ node: ids.prompt.node, input: ids.prompt.input }],
   };
 }
 
-export function durationParam(): ParamDef {
+export function durationParam(ids: MinimaxNodeIds): ParamDef {
   return {
     id: "duration",
     label: "Duration",
@@ -48,11 +75,11 @@ export function durationParam(): ParamDef {
     unit: "sec",
     help: "Frame count is derived from this and snapped to the nearest length the model accepts, so the result can land slightly long.",
     group: "Output",
-    targets: [{ node: "105:111", input: "value" }],
+    targets: [{ node: ids.duration, input: "value" }],
   };
 }
 
-export function fpsParam(): ParamDef {
+export function fpsParam(ids: MinimaxNodeIds): ParamDef {
   return {
     id: "fps",
     label: "Frame rate",
@@ -67,9 +94,9 @@ export function fpsParam(): ParamDef {
     // Two targets, two shapes: the raw number for the encoder, and the number
     // baked into the frame-count formula.
     targets: [
-      { node: "105:91", input: "fps" },
+      { node: ids.video, input: "fps" },
       {
-        node: "105:107",
+        node: ids.frameExpression,
         input: "expression",
         transform: (value) => FRAME_EXPRESSION(Number(value)),
       },
@@ -77,7 +104,7 @@ export function fpsParam(): ParamDef {
   };
 }
 
-export function samplingParams(): ParamDef[] {
+export function samplingParams(ids: MinimaxNodeIds): ParamDef[] {
   return [
     {
       id: "seed",
@@ -86,7 +113,7 @@ export function samplingParams(): ParamDef[] {
       default: -1,
       help: "Reuse a seed to reproduce a take. Randomised by default.",
       group: "Sampling",
-      targets: [{ node: "105:15", input: "noise_seed" }],
+      targets: [{ node: ids.noise, input: "noise_seed" }],
     },
     {
       id: "steps",
@@ -97,7 +124,7 @@ export function samplingParams(): ParamDef[] {
       max: 60,
       step: 1,
       group: "Sampling",
-      targets: [{ node: "105:9", input: "steps" }],
+      targets: [{ node: ids.scheduler, input: "steps" }],
     },
     {
       id: "sampler_name",
@@ -105,10 +132,10 @@ export function samplingParams(): ParamDef[] {
       type: "select",
       default: "res_multistep",
       options: [{ value: "res_multistep", label: "res_multistep" }],
-      optionsFrom: { node: "105:17", input: "sampler_name" },
+      optionsFrom: { node: ids.sampler, input: "sampler_name" },
       group: "Sampling",
       advanced: true,
-      targets: [{ node: "105:17", input: "sampler_name" }],
+      targets: [{ node: ids.sampler, input: "sampler_name" }],
     },
     {
       id: "scheduler",
@@ -116,10 +143,10 @@ export function samplingParams(): ParamDef[] {
       type: "select",
       default: "simple",
       options: [{ value: "simple", label: "simple" }],
-      optionsFrom: { node: "105:9", input: "scheduler" },
+      optionsFrom: { node: ids.scheduler, input: "scheduler" },
       group: "Sampling",
       advanced: true,
-      targets: [{ node: "105:9", input: "scheduler" }],
+      targets: [{ node: ids.scheduler, input: "scheduler" }],
     },
     {
       id: "denoise",
@@ -131,12 +158,12 @@ export function samplingParams(): ParamDef[] {
       step: 0.05,
       group: "Sampling",
       advanced: true,
-      targets: [{ node: "105:9", input: "denoise" }],
+      targets: [{ node: ids.scheduler, input: "denoise" }],
     },
   ];
 }
 
-export function encodingParams(): ParamDef[] {
+export function encodingParams(ids: MinimaxNodeIds): ParamDef[] {
   return [
     {
       id: "format",
@@ -144,10 +171,10 @@ export function encodingParams(): ParamDef[] {
       type: "select",
       default: "auto",
       options: [{ value: "auto", label: "auto" }],
-      optionsFrom: { node: "92", input: "format" },
+      optionsFrom: { node: ids.save, input: "format" },
       group: "Encoding",
       advanced: true,
-      targets: [{ node: "92", input: "format" }],
+      targets: [{ node: ids.save, input: "format" }],
     },
     {
       id: "codec",
@@ -155,10 +182,10 @@ export function encodingParams(): ParamDef[] {
       type: "select",
       default: "auto",
       options: [{ value: "auto", label: "auto" }],
-      optionsFrom: { node: "92", input: "codec" },
+      optionsFrom: { node: ids.save, input: "codec" },
       group: "Encoding",
       advanced: true,
-      targets: [{ node: "92", input: "codec" }],
+      targets: [{ node: ids.save, input: "codec" }],
     },
   ];
 }
