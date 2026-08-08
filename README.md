@@ -330,22 +330,31 @@ are independent, and ComfyUI stays directly reachable regardless of the former.
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm check:workflows` | Validate param→graph mappings |
 
-## Leaving a generation running
+## Queueing, history and leaving it running
 
-Two things make it safe to walk away.
+**The form never locks.** Submitting appends to a list rather than taking a
+global lock, so you can queue several runs and ComfyUI works through them in
+order. Each carries its own progress, queue position and cancel button.
 
-**The job survives a reload.** The active `promptId` is kept in `localStorage`
-and re-attached on mount, so closing the tab or refreshing puts you back on the
-progress bar — or straight onto the finished video. Outputs are not stored, only
-the id, so results are always re-derived from `/api/status` rather than trusting
-a stale local copy. A restored job that ComfyUI no longer recognises is dropped
-quietly: that means the server restarted and lost its history, not that anything
-failed.
+**Cancel works at any stage.** `/api/cancel` interrupts a job that is already
+running and removes one that is still pending, picking based on where the job
+actually is.
+
+**History is kept per device** in `localStorage` — the last 50 runs, with their
+prompt, settings and result. Only the *reference* is stored, never the video:
+the file stays on the ComfyUI box and streams through `/api/media` on demand.
+Storing media here would exhaust the few megabytes localStorage allows after a
+couple of clips. The trade is that an entry stops playing if ComfyUI's output
+directory is cleared.
+
+Active jobs are polled in **one batched request** regardless of how many are in
+flight — `/api/status?promptIds=a,b,c` reads the queue once and resolves every
+id against it, so a deep queue does not multiply load on the GPU box.
 
 **Desktop notifications.** The bell in the header opts in (the permission prompt
-has to be tied to a click, which is why it is a button). A notification fires
-when a run finishes or fails, and only while the tab is hidden — if you are
-watching the progress bar already, it would just be noise.
+has to be tied to a click, which is why it is a button). Each finished or failed
+run notifies once, and only while the tab is hidden — if you are watching the
+progress bar already, it would just be noise.
 
 The ceiling: the Notifications API needs the page alive, so this covers a
 backgrounded tab, not a closed one. Reaching a closed tab needs a service worker
@@ -364,6 +373,6 @@ tab the state is correct regardless.
   be done. Real progress would need an SSE relay that opens a WS server-side —
   workable, but it inherits the function timeout ceiling, which is why polling
   is the default.
-- **No history.** Results live until the next run. Persisting them would mean
-  storage (Vercel Blob) and a decision about retention.
-- **One video at a time in the UI**, though ComfyUI will happily queue more.
+- **History is per device.** It lives in `localStorage`, so it does not follow
+  you between desktop and phone. Making it portable would mean real storage
+  (Vercel Blob) and a decision about retention.

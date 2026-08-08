@@ -3,39 +3,36 @@
 import { Badge, Dot } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
 import { withToken } from "@/lib/client";
-import type { GenerationController } from "@/hooks/use-generation";
+import { formatDuration, type Job } from "@/lib/jobs";
 
 /**
- * The right-hand canvas: empty state, live progress, failure, or the finished
- * video. Only one of these is ever on screen.
+ * The canvas: whichever generation is being viewed. Progress while it runs,
+ * the video once it lands, or the reason it did not.
  */
 export function GenerationStage({
-  generation,
+  job,
+  now,
+  onCancel,
   onReuseSeed,
-  hasAudio = false,
 }: {
-  generation: GenerationController;
+  job: Job | null;
+  /** Ticking clock, so the elapsed timer advances between poll results. */
+  now: number;
+  onCancel: (promptId: string) => void;
   onReuseSeed?: (seed: number) => void;
-  hasAudio?: boolean;
 }) {
-  const { phase } = generation;
-
   return (
-    <div className="flex min-h-[420px] flex-col">
-      {phase === "done" && generation.outputs.length > 0 ? (
-        <Result
-          generation={generation}
-          onReuseSeed={onReuseSeed}
-          hasAudio={hasAudio}
-        />
-      ) : phase === "error" ? (
-        <Failure generation={generation} />
-      ) : generation.isBusy ? (
-        <InFlight generation={generation} />
-      ) : phase === "cancelled" ? (
-        <Cancelled generation={generation} />
-      ) : (
+    <div className="flex min-h-[320px] flex-col sm:min-h-[420px]">
+      {!job ? (
         <Empty />
+      ) : job.phase === "done" && job.outputs.length > 0 ? (
+        <Result job={job} onReuseSeed={onReuseSeed} />
+      ) : job.phase === "error" ? (
+        <Failure job={job} />
+      ) : job.phase === "cancelled" || job.phase === "unknown" ? (
+        <Closed job={job} />
+      ) : (
+        <InFlight job={job} now={now} onCancel={onCancel} />
       )}
     </div>
   );
@@ -51,7 +48,7 @@ function Frame({
   return (
     <div
       className={`flex flex-1 flex-col items-center justify-center gap-4 rounded-xl
-        bg-bg-subtle p-8 text-center ${
+        bg-bg-subtle p-6 text-center sm:p-8 ${
           dashed
             ? "border border-dashed border-border-strong"
             : "border border-border-default"
@@ -90,8 +87,8 @@ function Empty() {
       <div>
         <p className="text-sm font-medium text-fg">No video yet</p>
         <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-fg-subtle">
-          Pick a workflow, write a prompt, and generate. The result appears here
-          and stays until the next run.
+          Pick a workflow, write a prompt, and generate. You can queue more than
+          one — they run in order.
         </p>
       </div>
     </Frame>
@@ -99,29 +96,27 @@ function Empty() {
 }
 
 const PHASE_COPY: Record<string, { label: string; detail: string }> = {
-  submitting: {
-    label: "Submitting",
-    detail: "Handing the graph to ComfyUI.",
-  },
-  queued: {
-    label: "Queued",
-    detail: "Waiting for the GPU to free up.",
-  },
-  running: {
-    label: "Generating",
-    detail: "Sampling frames. This is the slow part.",
-  },
+  queued: { label: "Queued", detail: "Waiting for the GPU to free up." },
+  running: { label: "Generating", detail: "Sampling frames. This is the slow part." },
 };
 
-function InFlight({ generation }: { generation: GenerationController }) {
-  const { phase, elapsedMs, estimatedSeconds, queuePosition } = generation;
-  const copy = PHASE_COPY[phase] ?? PHASE_COPY.running;
-
+function InFlight({
+  job,
+  now,
+  onCancel,
+}: {
+  job: Job;
+  now: number;
+  onCancel: (promptId: string) => void;
+}) {
+  const copy = PHASE_COPY[job.phase] ?? PHASE_COPY.running;
+  const elapsedMs = now - job.submittedAt;
   const elapsedSeconds = elapsedMs / 1000;
+
   // ComfyUI exposes no step-level progress over HTTP, so this curve is an
   // estimate that eases toward 95% and never claims to be finished.
-  const fraction = estimatedSeconds
-    ? Math.min(0.95, 1 - Math.exp(-elapsedSeconds / (estimatedSeconds * 0.55)))
+  const fraction = job.estimatedSeconds
+    ? Math.min(0.95, 1 - Math.exp(-elapsedSeconds / (job.estimatedSeconds * 0.55)))
     : null;
 
   return (
@@ -135,7 +130,6 @@ function InFlight({ generation }: { generation: GenerationController }) {
           </span>
         </div>
 
-        {/* Determinate when we have an estimate, indeterminate sweep otherwise. */}
         <div className="relative h-1 w-full overflow-hidden rounded-full bg-track">
           {fraction === null ? (
             <div className="sweep absolute inset-0" />
@@ -148,20 +142,13 @@ function InFlight({ generation }: { generation: GenerationController }) {
         </div>
 
         <p className="mt-3 text-[13px] leading-relaxed text-fg-subtle">
-          {queuePosition !== null && queuePosition > 0
-            ? `${queuePosition} job${queuePosition === 1 ? "" : "s"} ahead of this one.`
+          {job.queuePosition !== null && job.queuePosition > 0
+            ? `${job.queuePosition} job${job.queuePosition === 1 ? "" : "s"} ahead of this one.`
             : copy.detail}
         </p>
 
-        {estimatedSeconds ? (
-          <p className="mt-1 text-[12px] text-fg-subtle">
-            Typically about {formatDuration(estimatedSeconds * 1000)} for this
-            workflow.
-          </p>
-        ) : null}
-
         <div className="mt-5">
-          <Button size="sm" variant="danger" onClick={generation.cancel}>
+          <Button size="sm" variant="danger" onClick={() => onCancel(job.promptId)}>
             Cancel
           </Button>
         </div>
@@ -170,63 +157,57 @@ function InFlight({ generation }: { generation: GenerationController }) {
   );
 }
 
-function Failure({ generation }: { generation: GenerationController }) {
+function Failure({ job }: { job: Job }) {
   return (
     <Frame>
       <div className="w-full max-w-md">
         <div className="mb-3 flex items-center justify-center gap-2">
           <Dot tone="danger" />
-          <span className="text-sm font-medium text-fg">
-            Generation failed
-          </span>
+          <span className="text-sm font-medium text-fg">Generation failed</span>
         </div>
-        <p className="text-[13px] leading-relaxed text-fg-muted">
-          {generation.error}
-        </p>
-        <div className="mt-5">
-          <Button size="sm" onClick={generation.reset}>
-            Dismiss
-          </Button>
-        </div>
+        <p className="text-[13px] leading-relaxed text-fg-muted">{job.error}</p>
       </div>
     </Frame>
   );
 }
 
-function Cancelled({ generation }: { generation: GenerationController }) {
+function Closed({ job }: { job: Job }) {
   return (
     <Frame dashed>
       <div className="flex items-center gap-2">
         <Dot tone="warning" />
-        <span className="text-sm font-medium text-fg">Cancelled</span>
+        <span className="text-sm font-medium text-fg">
+          {job.phase === "cancelled" ? "Cancelled" : "No longer tracked"}
+        </span>
       </div>
-      <Button size="sm" onClick={generation.reset}>
-        Start over
-      </Button>
+      {job.phase === "unknown" ? (
+        <p className="mx-auto max-w-xs text-[13px] leading-relaxed text-fg-subtle">
+          ComfyUI no longer has a record of this job. It was probably restarted
+          since.
+        </p>
+      ) : null}
     </Frame>
   );
 }
 
 function Result({
-  generation,
+  job,
   onReuseSeed,
-  hasAudio,
 }: {
-  generation: GenerationController;
+  job: Job;
   onReuseSeed?: (seed: number) => void;
-  hasAudio?: boolean;
 }) {
-  const [primary, ...rest] = generation.outputs;
-  const seed = generation.resolved?.seed;
+  const [primary, ...rest] = job.outputs;
+  const seed = job.resolved?.seed;
   const src = withToken(primary.url);
+  const took =
+    job.completedAt !== undefined
+      ? formatDuration(job.completedAt - job.submittedAt)
+      : null;
 
   return (
     <div className="flex flex-1 flex-col gap-3">
       <div className="overflow-hidden rounded-xl border border-border-default bg-black">
-        {/*
-          key on src so switching results tears down the old media element
-          instead of trying to swap the source underneath it.
-        */}
         {/*
           Silent workflows autoplay on a loop, which is the nicer preview.
           Audio workflows must not: autoplay is only allowed while muted, so
@@ -236,9 +217,9 @@ function Result({
           key={src}
           src={src}
           controls
-          autoPlay={!hasAudio}
-          loop={!hasAudio}
-          muted={!hasAudio}
+          autoPlay={!job.hasAudio}
+          loop={!job.hasAudio}
+          muted={!job.hasAudio}
           playsInline
           className="block max-h-[60vh] w-full bg-black"
         />
@@ -248,10 +229,8 @@ function Result({
         <Badge tone="success">
           <Dot tone="success" /> Done
         </Badge>
-        <Badge mono>{primary.filename}</Badge>
-        {typeof seed === "number" ? (
-          <Badge mono>seed {seed}</Badge>
-        ) : null}
+        {took ? <Badge mono>{took}</Badge> : null}
+        {typeof seed === "number" ? <Badge mono>seed {seed}</Badge> : null}
 
         <div className="ml-auto flex items-center gap-2">
           {typeof seed === "number" && onReuseSeed ? (
@@ -283,8 +262,7 @@ function Result({
 
       {rest.length > 0 ? (
         <p className="text-[12px] text-fg-subtle">
-          This run also produced {rest.length} other file
-          {rest.length === 1 ? "" : "s"}:{" "}
+          Also produced{" "}
           {rest.map((file, index) => (
             <span key={file.url}>
               {index > 0 ? ", " : ""}
@@ -301,12 +279,4 @@ function Result({
       ) : null}
     </div>
   );
-}
-
-function formatDuration(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  if (minutes === 0) return `${seconds}s`;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }

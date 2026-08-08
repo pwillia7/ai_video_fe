@@ -19,9 +19,10 @@ import { TokenGate } from "@/components/token-gate";
 import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { WorkflowPicker } from "@/components/workflow-picker";
-import { useGeneration } from "@/hooks/use-generation";
+import { GenerationsPanel } from "@/components/generations-panel";
+import { useJobs } from "@/hooks/use-jobs";
+import { isActive } from "@/lib/jobs";
 import { api, ApiError, getToken } from "@/lib/client";
-import { notify } from "@/lib/notifications";
 import { hydrateAll, writeStoredParams } from "@/lib/param-storage";
 import {
   defaultValuesFor,
@@ -112,24 +113,19 @@ export function Studio() {
   }
 
   return (
-    <Workbench
-      workflows={boot.workflows}
-      timeoutSeconds={boot.timeoutSeconds}
-      problems={boot.problems}
-    />
+    <Workbench workflows={boot.workflows} problems={boot.problems} />
   );
 }
 
 function Workbench({
   workflows,
-  timeoutSeconds,
   problems,
 }: {
   workflows: WorkflowSummary[];
-  timeoutSeconds: number;
   problems?: string[];
 }) {
   const [selectedId, setSelectedId] = useState(workflows[0]?.id ?? "");
+  const jobs = useJobs();
 
   // Values are kept per workflow so switching to compare settings and coming
   // back does not throw away what you typed, and persisted so a reload does
@@ -144,7 +140,16 @@ function Workbench({
     writeStoredParams(valuesByWorkflow);
   }, [valuesByWorkflow]);
 
-  const generation = useGeneration(timeoutSeconds);
+  // A clock that only ticks while something is running, so elapsed times
+  // advance smoothly between poll results without re-rendering an idle page.
+  const [now, setNow] = useState(() => Date.now());
+  const hasActive = jobs.jobs.some(isActive);
+  useEffect(() => {
+    if (!hasActive) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [hasActive]);
 
   const selected = useMemo(
     () => workflows.find((workflow) => workflow.id === selectedId),
@@ -186,77 +191,39 @@ function Workbench({
   const isDefaults = useMemo(() => {
     if (!selected) return true;
     const defaults = defaultValuesFor(selected);
-    return Object.keys(defaults).every(
-      (key) => values[key] === defaults[key],
-    );
+    return Object.keys(defaults).every((key) => values[key] === defaults[key]);
   }, [selected, values]);
 
-  // On mobile the stage sits below the whole settings panel, so starting a run
-  // from the pinned bar would leave the user staring at the form with no sign
-  // anything happened. Bring the progress into view instead. Desktop keeps the
-  // stage pinned beside the form, so there is nothing to scroll to.
-  const stageRef = useRef<HTMLDivElement>(null);
-  const wasBusyRef = useRef(false);
+  // Which generation the stage is showing. Follows the newest submission so a
+  // fresh run takes over the canvas, but stays put if you pick an older one.
+  const [viewedId, setViewedId] = useState<string | null>(null);
+  const newestId = jobs.jobs[0]?.promptId ?? null;
   useEffect(() => {
-    const wasBusy = wasBusyRef.current;
-    wasBusyRef.current = generation.isBusy;
-    if (wasBusy || !generation.isBusy) return;
-    if (!window.matchMedia("(max-width: 1023px)").matches) return;
-    stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [generation.isBusy]);
+    if (newestId) setViewedId(newestId);
+  }, [newestId]);
 
-  // Announce a finished run so the tab can be left in the background. Keyed on
-  // the phase transition rather than the phase itself, so a re-render cannot
-  // fire a duplicate, and on promptId so each job notifies at most once.
-  const notifiedRef = useRef<string | null>(null);
-  useEffect(() => {
-    const { phase, promptId: id } = generation;
-    if (phase !== "done" && phase !== "error") return;
-    if (!id || notifiedRef.current === id) return;
-    notifiedRef.current = id;
+  const viewedJob =
+    jobs.jobs.find((job) => job.promptId === viewedId) ?? jobs.jobs[0] ?? null;
 
-    const name = selected?.name ?? "Generation";
-    if (phase === "done") {
-      notify(
-        "Video ready",
-        `${name} finished in ${Math.round(generation.elapsedMs / 1000)}s.`,
-        id,
-      );
-    } else {
-      notify("Generation failed", generation.error ?? name, id);
-    }
-  }, [
-    generation.phase,
-    generation.promptId,
-    generation.elapsedMs,
-    generation.error,
-    selected?.name,
-  ]);
-
-  // When a job is re-attached from a previous session, switch to the workflow
-  // it came from. Guarded by a ref so it happens once and never fights a
-  // selection the user makes afterwards.
-  const appliedRestoreRef = useRef(false);
-  useEffect(() => {
-    const restored = generation.restoredWorkflowId;
-    if (!restored || appliedRestoreRef.current) return;
-    if (!workflows.some((workflow) => workflow.id === restored)) return;
-    appliedRestoreRef.current = true;
-    setSelectedId(restored);
-  }, [generation.restoredWorkflowId, workflows]);
-
-  // Only surface an inline field error when the server actually blamed a field;
-  // anything else belongs in the stage panel, not under a control.
   const fieldError = useMemo(() => {
-    if (generation.phase !== "error" || !generation.error) return null;
-    if (!generation.errorField) return null;
-    return { field: generation.errorField, message: generation.error };
-  }, [generation.phase, generation.error, generation.errorField]);
+    if (!jobs.submitError || !jobs.submitErrorField) return null;
+    return { field: jobs.submitErrorField, message: jobs.submitError };
+  }, [jobs.submitError, jobs.submitErrorField]);
+
+  const stageRef = useRef<HTMLDivElement>(null);
 
   const submit = useCallback(() => {
-    if (!selected || generation.isBusy) return;
-    void generation.start(selected.id, values);
-  }, [selected, generation.isBusy, generation.start, values]);
+    if (!selected || jobs.submitting) return;
+    void jobs.submit(selected, values);
+    // On mobile the stage sits below the whole settings panel, so submitting
+    // from the pinned bar would otherwise give no visible sign of anything
+    // happening. Desktop keeps the stage pinned alongside, so leave it alone.
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      requestAnimationFrame(() =>
+        stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    }
+  }, [selected, values, jobs]);
 
   // Cmd/Ctrl+Enter from anywhere fires the run. Held in a ref so the listener
   // is attached once rather than on every keystroke in the prompt box.
@@ -275,6 +242,9 @@ function Workbench({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  const queueLabel =
+    jobs.activeCount > 0 ? `Queue another (${jobs.activeCount} running)` : "Generate video";
 
   return (
     <div className="min-h-dvh">
@@ -339,7 +309,6 @@ function Workbench({
                 workflows={workflows}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
-                disabled={generation.isBusy}
               />
             </Panel>
 
@@ -354,39 +323,40 @@ function Workbench({
                   hint={selected.name}
                   action={
                     <div className="flex shrink-0 items-center gap-3">
-                    {tips ? (
+                      {tips ? (
+                        <button
+                          type="button"
+                          onClick={() => setTipsOpen(true)}
+                          className="shrink-0 whitespace-nowrap text-[12px] font-medium
+                            text-fg-muted transition-colors hover:text-accent"
+                        >
+                          Tips
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        onClick={() => setTipsOpen(true)}
+                        onClick={resetToDefaults}
+                        disabled={isDefaults}
+                        title={
+                          isDefaults
+                            ? "Already at the defaults"
+                            : "Put every setting on this workflow back to its default"
+                        }
                         className="shrink-0 whitespace-nowrap text-[12px] font-medium
-                          text-fg-muted transition-colors hover:text-accent"
+                          text-fg-muted transition-colors hover:text-fg
+                          disabled:opacity-40 disabled:hover:text-fg-muted"
                       >
-                        Tips
+                        Restore defaults
                       </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={resetToDefaults}
-                      disabled={generation.isBusy || isDefaults}
-                      title={
-                        isDefaults
-                          ? "Already at the defaults"
-                          : "Put every setting on this workflow back to its default"
-                      }
-                      className="shrink-0 whitespace-nowrap text-[12px] font-medium
-                        text-fg-muted transition-colors hover:text-fg
-                        disabled:opacity-40 disabled:hover:text-fg-muted"
-                    >
-                      Restore defaults
-                    </button>
                     </div>
                   }
                 />
+                {/* Deliberately never disabled: a running generation should not
+                    stop you setting up the next one. */}
                 <ParamForm
                   params={selected.params}
                   values={values}
                   onChange={setValue}
-                  disabled={generation.isBusy}
                   fieldError={fieldError}
                 />
               </Panel>
@@ -404,11 +374,11 @@ function Workbench({
                 variant="primary"
                 size="lg"
                 onClick={submit}
-                loading={generation.isBusy}
+                loading={jobs.submitting}
                 disabled={!selected}
                 className="flex-1 sm:flex-none sm:min-w-44"
               >
-                {generation.isBusy ? "Generating…" : "Generate video"}
+                {queueLabel}
               </Button>
               <span className="hidden text-[12px] text-fg-subtle lg:block">
                 or press{" "}
@@ -421,11 +391,49 @@ function Workbench({
               </span>
             </div>
 
+            {jobs.submitError && !jobs.submitErrorField ? (
+              <div
+                className="flex items-start gap-3 rounded-lg border border-danger/40
+                  bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
+              >
+                <span className="min-w-0 flex-1">{jobs.submitError}</span>
+                <button
+                  type="button"
+                  onClick={jobs.dismissSubmitError}
+                  aria-label="Dismiss"
+                  className="shrink-0 font-medium hover:underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+
             <GenerationStage
-              generation={generation}
+              job={viewedJob}
+              now={now}
+              onCancel={(promptId) => void jobs.cancel(promptId)}
               onReuseSeed={(seed) => setValue("seed", seed)}
-              hasAudio={selected?.hasAudio}
             />
+
+            <Panel padded>
+              <PanelHeader
+                title="Generations"
+                hint={
+                  jobs.jobs.length > 0
+                    ? `${jobs.jobs.length} on this device`
+                    : undefined
+                }
+              />
+              <GenerationsPanel
+                jobs={jobs.jobs}
+                selectedId={viewedJob?.promptId ?? null}
+                now={now}
+                onSelect={setViewedId}
+                onCancel={(promptId) => void jobs.cancel(promptId)}
+                onRemove={jobs.remove}
+                onClearFinished={jobs.clearFinished}
+              />
+            </Panel>
           </div>
         </div>
       </main>
@@ -445,11 +453,11 @@ function Workbench({
           variant="primary"
           size="lg"
           onClick={submit}
-          loading={generation.isBusy}
+          loading={jobs.submitting}
           disabled={!selected}
           className="w-full"
         >
-          {generation.isBusy ? "Generating…" : "Generate video"}
+          {queueLabel}
         </Button>
       </div>
 

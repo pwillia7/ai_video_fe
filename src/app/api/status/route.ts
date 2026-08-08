@@ -5,6 +5,7 @@ import {
   getQueue,
   type ComfyFileRef,
   type ComfyHistoryEntry,
+  type ComfyQueue,
 } from "@/lib/comfy";
 import { errorResponse } from "@/lib/errors";
 import { ParamError } from "@/lib/params";
@@ -26,6 +27,9 @@ export interface StatusPayload {
   outputs: Array<ComfyFileRef & { url: string }>;
   error?: string;
 }
+
+/** Guards against an oversized fan-out of history lookups. */
+const MAX_BATCH = 25;
 
 /** Build the proxied URL the <video> element will actually load. */
 function mediaUrl(ref: ComfyFileRef): string {
@@ -66,81 +70,94 @@ function promptIdOf(entry: unknown): string | undefined {
   return Array.isArray(entry) ? (entry[1] as string | undefined) : undefined;
 }
 
+/**
+ * Resolve one prompt against an already-fetched queue, so a batch costs a
+ * single /queue call rather than one per job.
+ */
+async function statusFor(
+  promptId: string,
+  queue: ComfyQueue,
+): Promise<StatusPayload> {
+  // History is authoritative: a finished prompt lands here whether it
+  // succeeded or failed, so check it before the queue.
+  const entry = await getHistoryEntry(promptId);
+  if (entry) {
+    const failure = extractError(entry);
+    const outputs = collectOutputs(entry);
+
+    if (failure) {
+      return { state: "error", queuePosition: null, outputs: [], error: failure };
+    }
+
+    // A completed prompt with nothing to show means the graph has no save
+    // node wired to an output, which is a workflow bug worth naming.
+    if (entry.status?.completed && outputs.length === 0) {
+      return {
+        state: "error",
+        queuePosition: null,
+        outputs: [],
+        error:
+          "The workflow finished but produced no file. Check that a save node (SaveVideo, SaveWEBM or VHS_VideoCombine) is connected in the graph.",
+      };
+    }
+
+    if (outputs.length > 0) {
+      return {
+        state: "done",
+        queuePosition: null,
+        outputs: outputs.map((ref) => ({ ...ref, url: mediaUrl(ref) })),
+      };
+    }
+  }
+
+  if (queue.queue_running?.some((item) => promptIdOf(item) === promptId)) {
+    return { state: "running", queuePosition: null, outputs: [] };
+  }
+
+  const pendingIndex =
+    queue.queue_pending?.findIndex((item) => promptIdOf(item) === promptId) ??
+    -1;
+
+  if (pendingIndex >= 0) {
+    return { state: "queued", queuePosition: pendingIndex, outputs: [] };
+  }
+
+  // Not in history and not in the queue. Usually a race right after
+  // submitting; the client keeps polling for a short grace period.
+  return { state: "unknown", queuePosition: null, outputs: [] };
+}
+
 export async function GET(request: Request) {
   const denied = unauthorized(request);
   if (denied) return denied;
 
   try {
-    const promptId = new URL(request.url).searchParams.get("promptId");
-    if (!promptId) throw new ParamError("promptId is required.");
+    const search = new URL(request.url).searchParams;
+    const single = search.get("promptId");
+    const batch = search.get("promptIds");
 
-    // History is authoritative: a finished prompt lands here whether it
-    // succeeded or failed, so check it before the queue.
-    const entry = await getHistoryEntry(promptId);
-    if (entry) {
-      const failure = extractError(entry);
-      const outputs = collectOutputs(entry);
-
-      if (failure) {
-        return Response.json({
-          state: "error",
-          queuePosition: null,
-          outputs: [],
-          error: failure,
-        } satisfies StatusPayload);
-      }
-
-      // A completed prompt with nothing to show means the graph has no save
-      // node wired to an output, which is a workflow bug worth naming.
-      if (entry.status?.completed && outputs.length === 0) {
-        return Response.json({
-          state: "error",
-          queuePosition: null,
-          outputs: [],
-          error:
-            "The workflow finished but produced no file. Check that a save node (SaveWEBM, SaveVideo or VHS_VideoCombine) is connected in the graph.",
-        } satisfies StatusPayload);
-      }
-
-      if (outputs.length > 0) {
-        return Response.json({
-          state: "done",
-          queuePosition: null,
-          outputs: outputs.map((ref) => ({ ...ref, url: mediaUrl(ref) })),
-        } satisfies StatusPayload);
-      }
+    if (!single && !batch) {
+      throw new ParamError("promptId or promptIds is required.");
     }
 
+    // One queue read serves every id in the request.
     const queue = await getQueue();
 
-    if (queue.queue_running?.some((item) => promptIdOf(item) === promptId)) {
-      return Response.json({
-        state: "running",
-        queuePosition: null,
-        outputs: [],
-      } satisfies StatusPayload);
+    if (single) {
+      return Response.json(await statusFor(single, queue));
     }
 
-    const pendingIndex =
-      queue.queue_pending?.findIndex(
-        (item) => promptIdOf(item) === promptId,
-      ) ?? -1;
+    const ids = batch!
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .slice(0, MAX_BATCH);
 
-    if (pendingIndex >= 0) {
-      return Response.json({
-        state: "queued",
-        queuePosition: pendingIndex,
-        outputs: [],
-      } satisfies StatusPayload);
-    }
+    const entries = await Promise.all(
+      ids.map(async (id) => [id, await statusFor(id, queue)] as const),
+    );
 
-    // Not in history and not in the queue. Usually a race right after
-    // submitting; the client keeps polling for a short grace period.
-    return Response.json({
-      state: "unknown",
-      queuePosition: null,
-      outputs: [],
-    } satisfies StatusPayload);
+    return Response.json({ statuses: Object.fromEntries(entries) });
   } catch (error) {
     return errorResponse(error);
   }
