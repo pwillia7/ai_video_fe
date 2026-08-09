@@ -109,10 +109,12 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         ],
       },
       {
-        heading: "Your prompt gets expanded first",
+        heading: "Your prompt gets expanded first — differently here",
         items: [
-          "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it.",
-          "It is shown your reference images, but not the clip. Anything about the video the rewrite needs to know has to be in what you type.",
+          "The other workflows run a director model that fills in everything you left unsaid. This one runs a remix director instead, which does close to the opposite: it reads what you type as a change and writes out instructions to hold everything else to the source.",
+          "So “make him a pirate” becomes: keep the performance, camera, cuts, environment and dialogue, change the costume. Short instructions work well; you are describing a delta, not a scene.",
+          "It will not invent replacement dialogue just because someone is speaking — the clip's own audio supplies the words unless you ask for different ones.",
+          "It is shown your reference images, but not the clip. It refers to the source as <Video 1> and <Audio 1> rather than describing contents it cannot see.",
           "<Picture 1> and <Picture 2> tags are carried through the rewrite untouched, so keep using them.",
         ],
       },

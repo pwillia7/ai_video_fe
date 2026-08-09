@@ -5,8 +5,8 @@ import {
   durationParam,
   encodingParams,
   fpsParam,
-  PROMPT_DIRECTOR,
   promptParam,
+  REMIX_DIRECTOR,
   samplingParams,
   type MinimaxNodeIds,
 } from "./minimax-common";
@@ -217,6 +217,13 @@ const graph: ComfyGraph = {
   // the user typed and 145 expands it into what node 136 actually reads. 146
   // shows it any reference images; it cannot see the clip, so the prompt is
   // the only place the video's contents can be described.
+  //
+  // The system prompt is the one thing here that differs from the other
+  // graphs. REMIX_DIRECTOR treats what the user typed as a change to an
+  // existing video rather than a scene to invent, which is the whole point of
+  // this workflow — and it knows the rewrite is blind to the clip, so it
+  // writes preservation instructions against <Video 1> and <Audio 1> instead
+  // of describing contents it cannot see.
   "144": {
     class_type: "OAIAPI_Client",
     inputs: {
@@ -233,7 +240,7 @@ const graph: ComfyGraph = {
       model: "gpt-5.6-terra",
       force_regen: false,
       prompt: ["138", 0],
-      system_prompt: PROMPT_DIRECTOR,
+      system_prompt: REMIX_DIRECTOR,
       client: ["144", 0],
       images: ["146", 0],
     },
@@ -305,8 +312,8 @@ const params: ParamDef[] = [
 
   promptParam(
     ids,
-    "Same character and setting, but the camera pulls back to reveal a crowded street at night.",
-    "Say what should change. The model already has the clip, so describing what it shows spends the prompt on things it can see — where the reference images do need naming, by tag in upload order (<Picture 1>, <Picture 2>).",
+    "Make it snow, and dress the man in a heavy winter coat.",
+    "Say only what should change — a remix director turns it into explicit hold-everything-else instructions, so the performance, camera, cuts and dialogue survive. Reference images still need naming by tag in upload order (<Picture 1>, <Picture 2>).",
     6,
   ),
 

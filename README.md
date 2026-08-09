@@ -246,10 +246,20 @@ track. They share sampling, timing and encoding controls via
 
 Every graph runs what you type through an LLM first. A
 `PrimitiveStringMultiline` node holds the raw input, an `OAIAPI_ChatCompletion`
-node expands it into a shot-by-shot description using the shared
-`PROMPT_DIRECTOR` system prompt in `minimax-common.ts`, and only that output
-reaches the video node. The image and reference workflows also hand their
-uploads to the rewrite, so it can describe what is actually in frame.
+node expands it into a shot-by-shot description, and only that output reaches
+the video node. The image and reference workflows also hand their uploads to
+the rewrite, so it can describe what is actually in frame.
+
+**Which system prompt depends on the workflow**, and the difference is not
+cosmetic. The three generating graphs use `PROMPT_DIRECTOR`, which fills in
+everything you left unsaid — camera, performance, dialogue, sound design — from
+a one-line idea. Video to video uses `REMIX_DIRECTOR` instead, because that
+behaviour is actively wrong once there is a source clip: what you type is a
+*delta*, and every detail the rewrite invents overwrites something the source
+already decided. `REMIX_DIRECTOR` inverts it — preserve by instruction, change
+only what was asked for, and never write replacement dialogue merely because
+someone is speaking, since the clip's own audio already holds the words. Both
+live in `minimax-common.ts` and are workflow data: kept verbatim, not tidied.
 
 Two consequences:
 
