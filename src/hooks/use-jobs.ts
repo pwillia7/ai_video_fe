@@ -44,6 +44,8 @@ export interface JobsController {
   ) => Promise<void>;
   cancel: (promptId: string) => Promise<void>;
   remove: (promptId: string) => void;
+  /** Drop several at once, so a day's worth is one state write. */
+  removeMany: (promptIds: string[]) => void;
   clearFinished: () => void;
   dismissSubmitError: () => void;
 }
@@ -256,6 +258,11 @@ export function useJobs(): JobsController {
     setJobs((previous) => previous.filter((job) => job.promptId !== promptId));
   }, []);
 
+  const removeMany = useCallback((promptIds: string[]) => {
+    const doomed = new Set(promptIds);
+    setJobs((previous) => previous.filter((job) => !doomed.has(job.promptId)));
+  }, []);
+
   const clearFinished = useCallback(() => {
     setJobs((previous) => previous.filter(isActive));
   }, []);
@@ -278,6 +285,7 @@ export function useJobs(): JobsController {
     submit,
     cancel,
     remove,
+    removeMany,
     clearFinished,
     dismissSubmitError,
   };

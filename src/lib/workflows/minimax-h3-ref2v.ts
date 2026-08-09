@@ -39,7 +39,6 @@ const ids: Omit<MinimaxNodeIds, "duration"> = {
   sampler: "123",
 };
 
-const REFERENCE_NODE = "136";
 const VIDEO_NODE = "154";
 
 const graph: ComfyGraph = {
@@ -247,18 +246,6 @@ const params: ParamDef[] = [
     help: "Remix on a finished generation fills this in, or drop in a clip of your own. Its size and length become the output's, so the control holds it to what the model can render.",
     group: "Source",
     targets: [{ node: VIDEO_NODE, input: "file" }],
-  },
-  {
-    id: "ref_image_size",
-    label: "Reference handling",
-    type: "select",
-    default: "match",
-    options: [{ value: "match", label: "match" }],
-    optionsFrom: { node: REFERENCE_NODE, input: "ref_image_size" },
-    help: "How reference stills are sized before the model reads them.",
-    group: "Source",
-    advanced: true,
-    targets: [{ node: REFERENCE_NODE, input: "ref_image_size" }],
   },
 
   promptParam(

@@ -618,6 +618,7 @@ function Workbench({
                 onSelect={setViewedId}
                 onCancel={(promptId) => void jobs.cancel(promptId)}
                 onRemove={jobs.remove}
+                onRemoveMany={jobs.removeMany}
                 onClearFinished={jobs.clearFinished}
               />
             </Panel>

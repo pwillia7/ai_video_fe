@@ -1,7 +1,15 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Dot } from "@/components/ui/panel";
-import { formatDuration, formatWhen, isActive, type Job } from "@/lib/jobs";
+import { withToken } from "@/lib/client";
+import {
+  formatDuration,
+  formatWhen,
+  groupByDay,
+  isActive,
+  type Job,
+} from "@/lib/jobs";
 
 const PHASE_LABEL: Record<Job["phase"], string> = {
   queued: "Queued",
@@ -24,8 +32,15 @@ const PHASE_TONE: Record<
   unknown: "warning",
 };
 
+/** Browsers throttle a burst of programmatic downloads; this paces them. */
+const DOWNLOAD_STAGGER_MS = 300;
+
+/** What a day's header is asking the user to confirm, if anything. */
+type Pending = { day: string; action: "download" | "delete" } | null;
+
 /**
- * Past and in-flight generations for this device.
+ * Past and in-flight generations for this device, grouped by the day they were
+ * started.
  *
  * Only references are kept, so an entry stops playing if ComfyUI's output
  * directory is cleared. That is worth the trade — storing the video itself
@@ -38,6 +53,7 @@ export function GenerationsPanel({
   onSelect,
   onCancel,
   onRemove,
+  onRemoveMany,
   onClearFinished,
 }: {
   jobs: Job[];
@@ -46,8 +62,23 @@ export function GenerationsPanel({
   onSelect: (promptId: string) => void;
   onCancel: (promptId: string) => void;
   onRemove: (promptId: string) => void;
+  onRemoveMany: (promptIds: string[]) => void;
   onClearFinished: () => void;
 }) {
+  /**
+   * Per-day open state, but only where the user has said otherwise: the newest
+   * day is open by default and the rest are closed, so a long history collapses
+   * to a readable index without hiding what was just made. Keying on the day
+   * rather than the position means a new day inherits the default rather than
+   * whatever the day above it was set to.
+   */
+  const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [pending, setPending] = useState<Pending>(null);
+
+  const groups = useMemo(() => groupByDay(jobs, now), [jobs, now]);
+
   if (jobs.length === 0) {
     return (
       <p className="py-2 text-[13px] leading-relaxed text-fg-subtle">
@@ -60,95 +91,112 @@ export function GenerationsPanel({
 
   return (
     <div className="flex flex-col gap-2">
-      <ul className="flex flex-col gap-1.5">
-        {jobs.map((job) => {
-          const selected = job.promptId === selectedId;
-          const active = isActive(job);
-          const elapsed = active
-            ? now - job.submittedAt
-            : job.completedAt !== undefined
-              ? job.completedAt - job.submittedAt
-              : null;
+      <div className="flex flex-col gap-3">
+        {groups.map((group, index) => {
+          const open = openOverrides[group.key] ?? index === 0;
+          const downloadable = group.jobs.filter(
+            (job) => job.outputs.length > 0,
+          );
+          const confirming = pending?.day === group.key ? pending.action : null;
 
           return (
-            <li key={job.promptId}>
-              <div
-                className={`group flex items-center gap-2 rounded-lg border p-2 transition-colors
-                  ${
-                    selected
-                      ? "border-accent bg-accent-subtle/30"
-                      : "border-border-default bg-bg-subtle hover:border-border-strong"
-                  }`}
-              >
+            <section key={group.key}>
+              <header className="mb-1.5 flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => onSelect(job.promptId)}
-                  aria-current={selected || undefined}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                  onClick={() =>
+                    setOpenOverrides((previous) => ({
+                      ...previous,
+                      [group.key]: !open,
+                    }))
+                  }
+                  aria-expanded={open}
+                  className="group flex min-w-0 flex-1 items-center gap-1.5 text-left"
                 >
-                  <Dot tone={PHASE_TONE[job.phase]} pulse={active} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline gap-2">
-                      <span className="truncate text-[12px] font-medium text-fg">
-                        {PHASE_LABEL[job.phase]}
-                      </span>
-                      <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
-                        {elapsed !== null ? formatDuration(elapsed) : ""}
-                      </span>
-                      <span className="ml-auto shrink-0 text-[11px] text-fg-subtle">
-                        {formatWhen(job.submittedAt, now)}
-                      </span>
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11px] text-fg-subtle">
-                      {job.prompt.trim() || job.workflowName}
-                    </span>
+                  <svg
+                    viewBox="0 0 16 16"
+                    className={`size-3 shrink-0 text-fg-subtle transition-transform duration-200
+                      ${open ? "rotate-90" : ""}`}
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M6 4l4 4-4 4"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      fill="none"
+                    />
+                  </svg>
+                  <span
+                    className="truncate text-[11px] font-medium uppercase tracking-[0.08em]
+                      text-fg-subtle transition-colors group-hover:text-fg-muted"
+                  >
+                    {group.label}
+                  </span>
+                  <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                    {group.jobs.length}
                   </span>
                 </button>
 
-                {active ? (
-                  <button
-                    type="button"
-                    onClick={() => onCancel(job.promptId)}
-                    title="Cancel this generation"
-                    aria-label="Cancel this generation"
-                    className="grid size-7 shrink-0 place-items-center rounded-md
-                      text-fg-muted transition-colors hover:bg-surface hover:text-danger"
-                  >
-                    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
-                      <path
-                        d="M4 4l8 8M12 4l-8 8"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
+                {confirming ? (
+                  <ConfirmBar
+                    action={confirming}
+                    count={
+                      confirming === "download"
+                        ? downloadable.length
+                        : group.jobs.length
+                    }
+                    onCancel={() => setPending(null)}
+                    onConfirm={() => {
+                      if (confirming === "download") downloadAll(downloadable);
+                      else onRemoveMany(group.jobs.map((job) => job.promptId));
+                      setPending(null);
+                    }}
+                  />
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => onRemove(job.promptId)}
-                    title="Remove from history"
-                    aria-label="Remove from history"
-                    className="grid size-7 shrink-0 place-items-center rounded-md
-                      text-fg-subtle opacity-0 transition-all hover:bg-surface
-                      hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
-                  >
-                    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
-                      <path
-                        d="M3 4.5h10M6.5 4.5V3.5h3v1M5 4.5l.5 8h5l.5-8"
-                        stroke="currentColor"
-                        strokeWidth="1.3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2.5">
+                    {downloadable.length > 0 ? (
+                      <HeaderAction
+                        onClick={() =>
+                          setPending({ day: group.key, action: "download" })
+                        }
+                      >
+                        Download
+                      </HeaderAction>
+                    ) : null}
+                    <HeaderAction
+                      danger
+                      onClick={() =>
+                        setPending({ day: group.key, action: "delete" })
+                      }
+                    >
+                      Delete
+                    </HeaderAction>
+                  </div>
                 )}
-              </div>
-            </li>
+              </header>
+
+              {open ? (
+                <ul className="flex flex-col gap-1.5">
+                  {group.jobs.map((job) => (
+                    <li key={job.promptId}>
+                      <Row
+                        job={job}
+                        now={now}
+                        selected={job.promptId === selectedId}
+                        onSelect={onSelect}
+                        onCancel={onCancel}
+                        onRemove={onRemove}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
           );
         })}
-      </ul>
+      </div>
 
       {finishedCount > 0 ? (
         <button
@@ -162,4 +210,186 @@ export function GenerationsPanel({
       ) : null}
     </div>
   );
+}
+
+function HeaderAction({
+  children,
+  onClick,
+  danger = false,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 text-[11px] font-medium text-fg-subtle transition-colors
+        ${danger ? "hover:text-danger" : "hover:text-fg"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Confirmation in place of the actions it replaces, rather than a dialog.
+ * Both of these are one click from a mis-hit and one of them is destructive,
+ * but neither is weighty enough to be worth taking over the screen — and the
+ * question reads better sitting on the row it applies to.
+ */
+function ConfirmBar({
+  action,
+  count,
+  onConfirm,
+  onCancel,
+}: {
+  action: "download" | "delete";
+  count: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const noun = `${count} ${count === 1 ? "video" : "videos"}`;
+  return (
+    <div className="flex shrink-0 items-center gap-2.5">
+      <span className="text-[11px] text-fg-muted">
+        {action === "download"
+          ? `Download ${noun}?`
+          : /* Naming what survives: the files themselves are on the ComfyUI
+               box and this only forgets where they are. */
+            `Forget ${noun}? Files stay on the server.`}
+      </span>
+      <HeaderAction danger={action === "delete"} onClick={onConfirm}>
+        {action === "download" ? "Download" : "Delete"}
+      </HeaderAction>
+      <HeaderAction onClick={onCancel}>Cancel</HeaderAction>
+    </div>
+  );
+}
+
+function Row({
+  job,
+  now,
+  selected,
+  onSelect,
+  onCancel,
+  onRemove,
+}: {
+  job: Job;
+  now: number;
+  selected: boolean;
+  onSelect: (promptId: string) => void;
+  onCancel: (promptId: string) => void;
+  onRemove: (promptId: string) => void;
+}) {
+  const active = isActive(job);
+  const elapsed = active
+    ? now - job.submittedAt
+    : job.completedAt !== undefined
+      ? job.completedAt - job.submittedAt
+      : null;
+
+  return (
+    <div
+      className={`group flex items-center gap-2 rounded-lg border p-2 transition-colors
+        ${
+          selected
+            ? "border-accent bg-accent-subtle/30"
+            : "border-border-default bg-bg-subtle hover:border-border-strong"
+        }`}
+    >
+      <button
+        type="button"
+        onClick={() => onSelect(job.promptId)}
+        aria-current={selected || undefined}
+        className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+      >
+        <Dot tone={PHASE_TONE[job.phase]} pulse={active} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            <span className="truncate text-[12px] font-medium text-fg">
+              {PHASE_LABEL[job.phase]}
+            </span>
+            <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+              {elapsed !== null ? formatDuration(elapsed) : ""}
+            </span>
+            <span className="ml-auto shrink-0 text-[11px] text-fg-subtle">
+              {formatWhen(job.submittedAt, now)}
+            </span>
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] text-fg-subtle">
+            {job.prompt.trim() || job.workflowName}
+          </span>
+        </span>
+      </button>
+
+      {active ? (
+        <button
+          type="button"
+          onClick={() => onCancel(job.promptId)}
+          title="Cancel this generation"
+          aria-label="Cancel this generation"
+          className="grid size-7 shrink-0 place-items-center rounded-md
+            text-fg-muted transition-colors hover:bg-surface hover:text-danger"
+        >
+          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+            <path
+              d="M4 4l8 8M12 4l-8 8"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onRemove(job.promptId)}
+          title="Remove from history"
+          aria-label="Remove from history"
+          className="grid size-7 shrink-0 place-items-center rounded-md
+            text-fg-subtle opacity-0 transition-all hover:bg-surface
+            hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+            <path
+              d="M3 4.5h10M6.5 4.5V3.5h3v1M5 4.5l.5 8h5l.5-8"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Saves each generation's primary output, one anchor click at a time.
+ *
+ * Staggered because browsers treat a burst of programmatic downloads as
+ * suspicious and drop all but the first. Chrome also asks once per site
+ * whether to allow multiple files, which is part of why this is behind a
+ * confirmation — the prompt makes more sense when it was expected.
+ *
+ * Deliberately not cancelled if the panel unmounts: the user asked for the
+ * files, and navigating away should not take back the ones still queued.
+ */
+function downloadAll(jobs: Job[]): void {
+  jobs
+    .map((job) => job.outputs[0])
+    .filter((file) => file !== undefined)
+    .forEach((file, index) => {
+      setTimeout(() => {
+        const anchor = document.createElement("a");
+        anchor.href = withToken(file.url);
+        anchor.download = file.filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      }, index * DOWNLOAD_STAGGER_MS);
+    });
 }

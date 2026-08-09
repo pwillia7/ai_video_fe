@@ -446,6 +446,14 @@ Storing media here would exhaust the few megabytes localStorage allows after a
 couple of clips. The trade is that an entry stops playing if ComfyUI's output
 directory is cleared.
 
+The list is **grouped by the day a generation was started**, newest day open and
+the rest collapsed, so a long history reads as an index rather than a wall. Days
+are worked out from local calendar date parts rather than by dividing the
+timestamp, because a day is not reliably 24 hours long once daylight saving is
+involved. Each day header can download or delete its generations in one go,
+both behind an inline confirmation — deleting only forgets where the files are,
+which is why the prompt says so.
+
 The settings kept are the **resolved** ones — what the server made of the form,
 not what the form held. That distinction is the point: a run submitted with the
 seed on "random" records the number it actually got, which is what makes the

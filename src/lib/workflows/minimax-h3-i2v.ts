@@ -226,7 +226,7 @@ const params: ParamDef[] = [
     id: "image_megapixels",
     label: "Working resolution",
     type: "slider",
-    default: 0.6,
+    default: 0.5,
     min: 0.1,
     max: 2,
     step: 0.05,

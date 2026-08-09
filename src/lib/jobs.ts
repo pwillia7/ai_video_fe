@@ -154,6 +154,62 @@ export function formatDuration(ms: number): string {
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+/**
+ * Local calendar day, as a sortable key. Built from the date parts rather than
+ * by dividing the timestamp: a day is not reliably 24 hours long once daylight
+ * saving is involved, and "which day was this" has to agree with the calendar
+ * the user is looking at, not with UTC.
+ */
+export function dayKey(timestamp: number): string {
+  const date = new Date(timestamp);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+export function dayLabel(timestamp: number, now = Date.now()): string {
+  const key = dayKey(timestamp);
+  if (key === dayKey(now)) return "Today";
+
+  // Stepping the calendar date back by one rather than subtracting 24 hours,
+  // for the same reason as above — on the day the clocks change, subtracting
+  // would land on the wrong side of midnight.
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (key === dayKey(yesterday.getTime())) return "Yesterday";
+
+  const date = new Date(timestamp);
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    // The year only earns its place once it is not this one.
+    ...(date.getFullYear() === new Date(now).getFullYear()
+      ? {}
+      : { year: "numeric" }),
+  });
+}
+
+/** Newest day first, and newest job first within each — as `sortJobs` leaves them. */
+export function groupByDay(
+  jobs: Job[],
+  now = Date.now(),
+): Array<{ key: string; label: string; jobs: Job[] }> {
+  const groups = new Map<string, Job[]>();
+  for (const job of jobs) {
+    const key = dayKey(job.submittedAt);
+    const existing = groups.get(key);
+    if (existing) existing.push(job);
+    else groups.set(key, [job]);
+  }
+  return [...groups.entries()].map(([key, dayJobs]) => ({
+    key,
+    label: dayLabel(dayJobs[0].submittedAt, now),
+    jobs: dayJobs,
+  }));
+}
+
 export function formatWhen(timestamp: number, now = Date.now()): string {
   const elapsed = now - timestamp;
   if (elapsed < 60_000) return "just now";
