@@ -45,8 +45,15 @@ const SIZES: Record<Size, string> = {
   lg: "h-12 px-5 text-[15px] rounded-lg gap-2",
 };
 
-const BASE = `inline-flex items-center justify-center font-medium tracking-[-0.01em]
-  transition-colors duration-150 select-none whitespace-nowrap
+/**
+ * `font-sans` is stated rather than inherited. A <button> only gets the page
+ * font through `font: inherit` in the preflight, and the `font` shorthand
+ * resets every font longhand it does not mention — so the family survives only
+ * as long as nothing later in the cascade touches that rule. Naming it here
+ * costs one utility and takes the question off the table.
+ */
+const BASE = `inline-flex items-center justify-center font-sans font-medium
+  tracking-[-0.01em] transition-colors duration-150 select-none whitespace-nowrap
   disabled:opacity-45 disabled:pointer-events-none`;
 
 /**

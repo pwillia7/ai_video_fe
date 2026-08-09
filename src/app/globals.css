@@ -170,12 +170,22 @@ body {
   border-radius: 2px;
 }
 
-/* Native controls should follow the theme rather than fight it. */
+/*
+ * Native controls should follow the theme rather than fight it.
+ *
+ * The `font` shorthand resets every font longhand it does not name, which is
+ * why Tailwind's own preflight pairs it with these two. Restating them matters
+ * because this rule comes later in the cascade: without them it quietly reverts
+ * variable-font settings for exactly the elements that most need to match the
+ * text around them.
+ */
 input,
 textarea,
 select,
 button {
   font: inherit;
+  font-feature-settings: inherit;
+  font-variation-settings: inherit;
   color: inherit;
 }
 
