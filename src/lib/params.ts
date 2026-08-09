@@ -100,12 +100,8 @@ function coerce(
       const value = typeof raw === "string" ? raw.trim() : "";
       if (!value) {
         if (param.required) {
-          // A hidden param has no control to point at, so telling the user to
-          // add one would send them looking for a picker that is not there.
           throw new ParamError(
-            param.hidden
-              ? `${param.label} has not been set. This workflow takes it from a finished generation rather than the form.`
-              : `${param.label} is required — add ${param.type === "image" ? "an image" : "a video"} first.`,
+            `${param.label} is required — add ${param.type === "image" ? "an image" : "a video"} first.`,
             param.id,
           );
         }

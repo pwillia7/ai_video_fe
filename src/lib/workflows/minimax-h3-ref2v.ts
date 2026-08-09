@@ -27,9 +27,12 @@ import {
  * - 156 also feeds the rewrite stage, so the director sees what the clip looks
  *   like rather than working blind from the filename.
  *
- * That is why the form has no image controls and no video picker: those inputs
- * are consequences of the clip, not choices. The clip arrives from the Remix
- * button (`remixTarget` below), which is the only way into this workflow.
+ * So the clip is the one input the form offers. The reference images, the
+ * reference audio and the output size are consequences of it rather than
+ * choices, and controls for them would misrepresent what this graph does. It
+ * can be filled either by the Remix button (`remixTarget` below) or by an
+ * upload — see video-upload.tsx for the limits that keeps within, which matter
+ * more here than elsewhere because the clip decides what gets generated.
  */
 const ids: Omit<MinimaxNodeIds, "duration" | "frameExpression"> = {
   prompt: { node: "138", input: "value" },
@@ -267,15 +270,12 @@ const graph: ComfyGraph = {
 const params: ParamDef[] = [
   {
     id: "reference_video",
-    label: "Reference video",
+    label: "Clip to remix",
     type: "video",
     default: "",
     required: true,
-    // Plumbing, not a control. Remix writes the clip here; the form never
-    // shows it, because every other input this graph has is derived from it
-    // and offering a picker would imply otherwise.
-    hidden: true,
-    group: "References",
+    help: "Remix on a finished generation fills this in, or drop in a clip of your own. Its size and length become the output's, so the control holds it to what the model can render.",
+    group: "Source",
     targets: [{ node: VIDEO_NODE, input: "file" }],
   },
   {
@@ -286,7 +286,7 @@ const params: ParamDef[] = [
     options: [{ value: "match", label: "match" }],
     optionsFrom: { node: REFERENCE_NODE, input: "ref_image_size" },
     help: "How the frames sampled from your clip are fed back in. match is faster; max preserves detail better, up to a 2048px short edge.",
-    group: "References",
+    group: "Source",
     advanced: true,
     targets: [{ node: REFERENCE_NODE, input: "ref_image_size" }],
   },

@@ -103,8 +103,9 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       {
         heading: "Working from a clip",
         items: [
-          "There is nothing to upload and nothing to wire up. Press Remix on a finished generation and the clip arrives here with the prompt and framing it was made with.",
+          "Two ways in. Press Remix on a finished generation and the clip arrives with the prompt it was made with, or drop a video of your own into the Source panel.",
           "The clip supplies the motion, the framing and the audio. Five frames sampled evenly across it become the reference images, so the model has the look of the whole thing rather than just its first moment.",
+          "Your own clips are held to 768×1344, 20 seconds and 4 MB — the remix is generated at the source's size and length, so an oversized clip asks the model for a canvas it was not built for. Scale it down first.",
           "The quickest way to iterate is generate, remix, change one thing.",
         ],
       },

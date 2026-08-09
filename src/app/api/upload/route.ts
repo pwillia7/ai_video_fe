@@ -12,19 +12,22 @@ export const maxDuration = 120;
  * an opaque platform error. The client downscales above this threshold.
  */
 const MAX_BYTES = 4 * 1024 * 1024;
-const ACCEPTED = /^image\//;
+const ACCEPTED = /^(image|video)\//;
 
 /**
  * Relays a browser file upload into ComfyUI's input directory and returns the
- * reference a LoadImage node needs.
+ * reference a LoadImage or LoadVideo node needs.
  *
  * Goes through us rather than straight to ComfyUI for the same reasons as
  * everything else: mixed content blocks an HTTPS page from posting to a plain
  * http:// origin, and the ComfyUI credentials never leave the server.
  *
- * Images only. The one workflow that loads a video gets it from Remix, which
- * copies a clip already sitting on the ComfyUI box (see /api/remix) rather
- * than moving bytes through the browser — where 4 MB would not go far anyway.
+ * Video arrives here only when the user picks a clip by hand. Resolution and
+ * duration are checked in the browser before the upload starts, because both
+ * need a decoder to read and the browser already has one — see
+ * video-upload.tsx. Remix does not come through this route at all; it copies a
+ * clip already sitting on the ComfyUI box (see /api/remix), which is how it
+ * sidesteps the size cap below.
  */
 export async function POST(request: Request) {
   const denied = unauthorized(request);
@@ -48,7 +51,7 @@ export async function POST(request: Request) {
     }
     if (file.type && !ACCEPTED.test(file.type)) {
       throw new ParamError(
-        `${file.type || "That file"} is not an image.`,
+        `${file.type || "That file"} is not an image or a video.`,
         "image",
       );
     }

@@ -41,15 +41,6 @@ interface ParamBase {
   group?: string;
   /** Hidden behind the "Advanced" disclosure. */
   advanced?: boolean;
-  /**
-   * Not rendered as a control at all, though the value still travels with the
-   * submission and is written to its targets like any other.
-   *
-   * For an input the app sets on the user's behalf — a value that is a
-   * consequence of something they did rather than a choice, where showing a
-   * picker would wrongly imply it is theirs to set.
-   */
-  hidden?: boolean;
 }
 
 export interface TextParam extends ParamBase {

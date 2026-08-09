@@ -227,10 +227,7 @@ GPU. The same check runs on `/api/workflows` and again before every submit.
 
 Param types available: `text`, `textarea`, `number`, `slider`, `select`,
 `toggle`, `seed`, `image`, `video`. Mark a param `advanced: true` to tuck it behind the disclosure;
-`group` sets the section heading. `hidden: true` removes the control entirely
-while still validating and writing the value — for an input the app sets on the
-user's behalf, such as the remix clip. `video` is only ever used that way today,
-so it has no control of its own.
+`group` sets the section heading.
 
 ## The bundled workflows
 
@@ -324,12 +321,20 @@ derived from that one input:
 - The same five frames go to the rewrite stage, so the director sees the clip
   it is editing.
 
-**The form has no video, image, size or duration controls**, and that is the
-point rather than an omission: every one of those inputs is a consequence of
-the clip, so offering pickers would imply choices that do not exist. The clip
-param is marked `hidden` — it still validates and still writes to its target,
-it simply has no control. What stays editable is what the clip cannot decide:
-prompt, frame rate, sampling, encoding.
+**The clip is the only input the form offers.** There are no image, audio, size
+or duration controls, and that is the point rather than an omission: every one
+of those is a consequence of the clip, so a picker would imply a choice that
+does not exist. What stays editable is what the clip cannot decide: prompt,
+frame rate, sampling, encoding.
+
+A clip can arrive two ways — the Remix button, or an upload. Uploads are held
+to **768×1344, 20 seconds and 4 MB** (`video-upload.tsx`). The size and length
+limits matter more here than the file-size one: the remix is generated at the
+source's own dimensions and for as many frames as it has, so an oversized clip
+does not merely upload slowly, it asks the model for a canvas it was never
+built for. Both are checked in the browser before the upload starts, because
+reading them needs a decoder and the browser already has one — and because
+there is no point sending a file that was never going to work.
 
 Frame rate is worth a note, because it means something different here. On the
 generating graphs it is paired with a duration and the frame count is rebuilt
@@ -345,12 +350,6 @@ and stops — nothing is submitted, because the point is to edit before running.
 Which settings travel is the `CARRIED_PARAMS` list in `studio.tsx`; the seed
 deliberately does not, since reusing it would pin the new take to the old one's
 noise.
-
-`hidden` costs three small accommodations elsewhere, all in `studio.tsx`:
-"Restore defaults" leaves hidden values alone (it restores what you can see,
-and wiping the clip would strand the form), `isDefaults` ignores them for the
-same reason, and a validation error naming a hidden param falls through to the
-banner rather than being attached to a field that is not on screen.
 
 The copy is the part that needs a route of its own. ComfyUI writes what a
 workflow produces to its **output** directory and only lets loader nodes read
