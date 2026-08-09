@@ -4,7 +4,6 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   encodingParams,
-  fpsParam,
   PROMPT_DIRECTOR,
   promptParam,
   samplingParams,
@@ -205,8 +204,6 @@ const ids: MinimaxNodeIds = {
   // rewrite stage, and 105:104.prompt is a link now, not a value.
   prompt: { node: "123", input: "value" },
   duration: "105:111",
-  video: "105:91",
-  frameExpression: "105:107",
   noise: "105:15",
   scheduler: "105:9",
   sampler: "105:17",
@@ -226,8 +223,10 @@ const params: ParamDef[] = [
     id: "aspect_ratio",
     label: "Aspect ratio",
     type: "select",
-    default: "16:9 (Widescreen)",
-    options: [{ value: "16:9 (Widescreen)", label: "16:9 (Widescreen)" }],
+    default: "9:16 (Portrait Widescreen)",
+    options: [
+      { value: "9:16 (Portrait Widescreen)", label: "9:16 (Portrait Widescreen)" },
+    ],
     optionsFrom: { node: "115", input: "aspect_ratio" },
     group: "Output",
     targets: [{ node: "115", input: "aspect_ratio" }],
@@ -245,7 +244,6 @@ const params: ParamDef[] = [
     group: "Output",
     targets: [{ node: "115", input: "megapixels" }],
   },
-  fpsParam(ids),
   {
     id: "multiple",
     label: "Size rounding",

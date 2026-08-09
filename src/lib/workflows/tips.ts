@@ -122,13 +122,13 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         heading: "Size and length are not yours to set",
         items: [
           "Both are measured off the clip: its frames give the width and height, and how many of them there are gives the length. A remix comes back the same shape and the same length as what went in.",
-          "So there is no aspect ratio, frame size or duration control here. Frame rate is the exception — the frame count is fixed, so changing it changes how fast those frames play, and with it how long the result runs. Leave it matching the source unless you want that.",
+          "So there is no aspect ratio, frame size or duration control here, and no frame rate either — that is fixed at the 24fps the model works in, on every workflow.",
         ],
       },
       {
         heading: "What carries over, and what does not",
         items: [
-          "The prompt and the frame rate come across from the generation you remixed, since the clip cannot supply either. Change them before running.",
+          "The prompt comes across from the generation you remixed — the one thing the clip cannot supply. Change it before running.",
           "The seed does not carry over. Reusing it would pin the new take to the old one's noise, which is the opposite of what a remix is for.",
           "Steps start lower here than on the other workflows. A remix is holding to a source rather than inventing from noise, so it needs fewer.",
         ],

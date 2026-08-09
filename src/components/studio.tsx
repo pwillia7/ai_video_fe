@@ -39,12 +39,13 @@ interface ConfigPayload {
  * Params a remix inherits from the generation it came from, where both
  * workflows happen to declare the same id.
  *
- * Short, because the remix graph reads its frame size and its length off the
- * clip itself — nothing about framing or timing needs carrying. What is left
- * is the prompt, and the frame rate the frames should play at. See `remix`
- * below for what is deliberately excluded.
+ * Down to one, because the remix graph reads its frame size and its length off
+ * the clip itself and the frame rate is fixed at 24 everywhere. Only the
+ * prompt is left to carry. See `remix` below for what is deliberately
+ * excluded, and keep this a set rather than a special case: another remix
+ * target may declare more.
  */
-const CARRIED_PARAMS = new Set(["prompt", "fps"]);
+const CARRIED_PARAMS = new Set(["prompt"]);
 
 type Boot =
   | { kind: "loading" }

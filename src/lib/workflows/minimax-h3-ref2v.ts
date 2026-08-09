@@ -34,9 +34,8 @@ import {
  * upload — see video-upload.tsx for the limits that keeps within, which matter
  * more here than elsewhere because the clip decides what gets generated.
  */
-const ids: Omit<MinimaxNodeIds, "duration" | "frameExpression"> = {
+const ids: Omit<MinimaxNodeIds, "duration"> = {
   prompt: { node: "138", input: "value" },
-  video: "130",
   noise: "129",
   scheduler: "124",
   sampler: "123",
@@ -303,38 +302,14 @@ const params: ParamDef[] = [
     6,
   ),
 
-  /**
-   * The only output control left, and it means something different here than
-   * on the other graphs.
-   *
-   * Elsewhere fps is paired with a duration: the frame count is rebuilt from
-   * both, so the clip stays the length you asked for. Here the frame count is
-   * the source's, fixed, so fps divides into it — the same frames played
-   * faster or slower. It is a speed control, and the help says so.
-   *
-   * Left adjustable rather than pinned to the source's own rate because Remix
-   * carries fps over from the generation being remixed, so it already matches
-   * unless someone changes it on purpose.
-   */
-  {
-    id: "fps",
-    label: "Frame rate",
-    type: "number",
-    default: 24,
-    min: 8,
-    max: 60,
-    step: 1,
-    unit: "fps",
-    help: "The remix has as many frames as the clip it came from, so this sets how fast they play — and with it the length. Match the source to keep the timing.",
-    group: "Output",
-    targets: [{ node: ids.video, input: "fps" }],
-  },
-
-  // Half what the generating graphs use: a remix is holding to a source rather
-  // than inventing from noise, so it converges in fewer steps. This is the
+  // No output controls at all on this one. Size and length come from the clip,
+  // and the frame rate is fixed at the 24 the model works in.
+  //
+  // Far fewer steps than the generating graphs: a remix is holding to a source
+  // rather than inventing from noise, so it converges quickly. This is the
   // number that ships; node 124's literal is whatever the export happened to
   // carry and never reaches ComfyUI.
-  ...samplingParams(ids, { steps: 10 }),
+  ...samplingParams(ids, { steps: 8 }),
   ...encodingParams(ids),
 ];
 

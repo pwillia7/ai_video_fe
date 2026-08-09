@@ -4,7 +4,6 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   encodingParams,
-  fpsParam,
   PROMPT_DIRECTOR,
   promptParam,
   samplingParams,
@@ -208,8 +207,6 @@ const ids: MinimaxNodeIds = {
   // rewrite stage, and 105:104.prompt is a link now, not a value.
   prompt: { node: "125", input: "value" },
   duration: "105:111",
-  video: "105:91",
-  frameExpression: "105:107",
   noise: "105:15",
   scheduler: "105:9",
   sampler: "105:17",
@@ -274,7 +271,6 @@ const params: ParamDef[] = [
   ),
 
   durationParam(ids),
-  fpsParam(ids),
 
   ...samplingParams(ids),
   ...encodingParams(ids),

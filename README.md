@@ -209,10 +209,9 @@ graph is never rewritten by hand.
 }
 ```
 
-One control can drive several inputs — `fps` in the reference workflow writes to
-both `CreateVideo.fps` and the frame-count formula on `ComfyMathExpression`,
-because the duration is computed from the frame rate — without that, changing
-fps silently changes how long the clip actually runs.
+One control can drive several inputs, and a `transform` on a target derives what
+each one receives — so a single value can go to one node as a number and to
+another baked into a formula string.
 
 4. Register it in `src/lib/workflows/index.ts`.
 5. Run the validator:
@@ -324,8 +323,8 @@ derived from that one input:
 **The clip is the only input the form offers.** There are no image, audio, size
 or duration controls, and that is the point rather than an omission: every one
 of those is a consequence of the clip, so a picker would imply a choice that
-does not exist. What stays editable is what the clip cannot decide: prompt,
-frame rate, sampling, encoding.
+does not exist. What stays editable is what the clip cannot decide: the prompt,
+and the sampling and encoding settings.
 
 A clip can arrive two ways — the Remix button, or an upload. Uploads are held
 to **768×1344, 20 seconds and 4 MB** (`video-upload.tsx`). The size and length
@@ -336,17 +335,9 @@ built for. Both are checked in the browser before the upload starts, because
 reading them needs a decoder and the browser already has one — and because
 there is no point sending a file that was never going to work.
 
-Frame rate is worth a note, because it means something different here. On the
-generating graphs it is paired with a duration and the frame count is rebuilt
-from both, so the clip stays the length you asked for. Here the frame count is
-the source's and fixed, so fps divides into it: the same frames, played faster
-or slower. It stays adjustable rather than pinned to the source's own rate
-because Remix carries fps across, so it already matches unless changed on
-purpose.
-
-**Remix** on a finished generation is the only way in. It selects this
-workflow, loads the clip, carries over the prompt and framing it was made with,
-and stops — nothing is submitted, because the point is to edit before running.
+**Remix** on a finished generation is the quickest way in. It selects this
+workflow, loads the clip, carries the prompt it was made with across, and
+stops — nothing is submitted, because the point is to edit before running.
 Which settings travel is the `CARRIED_PARAMS` list in `studio.tsx`; the seed
 deliberately does not, since reusing it would pin the new take to the old one's
 noise.
