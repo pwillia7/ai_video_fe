@@ -217,12 +217,17 @@ const graph: ComfyGraph = {
   // Five evenly-spaced frames, one per reference slot below. `num_frames` is
   // not a knob: 157-161 index this batch by position, so asking for fewer
   // frames would leave ImageFromBatch reading past the end of it.
+  //
+  // `seed` is carried from the export rather than exposed. It should not
+  // select anything while `strategy` is "uniform" — evenly spaced frames are
+  // not a random draw — but it is the one widget value here that no param
+  // overwrites, so it is kept in step with the export rather than guessed at.
   "155": {
     class_type: "VideoFrameSample",
     inputs: {
       num_frames: 5,
       strategy: "uniform",
-      seed: 848550697915228,
+      seed: 222561866641859,
       video: ["154", 0],
     },
     _meta: { title: "Sample Video Frame" },
