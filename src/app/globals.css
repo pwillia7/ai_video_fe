@@ -130,20 +130,32 @@
   --radius-xl: 12px;
 }
 
-* {
-  border-color: var(--border);
-}
+/*
+ * Wrapped in @layer base so Tailwind's utilities can still win.
+ *
+ * Anything written outside a layer beats everything inside one, whatever
+ * the specificity — so unlayered `button { font: inherit }` was overriding
+ * text-[12px], font-medium and font-sans on every button, and `*
+ * { border-color }` was defeating every border colour utility in the app.
+ * Putting these in `base` restores the order the utilities assume: theme,
+ * base, components, utilities.
+ */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 
-html {
-  background: var(--bg);
-}
+  html {
+    background: var(--bg);
+  }
 
-body {
-  background-color: var(--bg);
-  color: var(--fg);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
 }
 
 /* Faint engineering grid — depth without decoration competing for attention. */
@@ -159,103 +171,105 @@ body {
   mask-image: radial-gradient(ellipse 100% 60% at 50% 0%, #000 30%, transparent 75%);
 }
 
-::selection {
-  background: var(--accent);
-  color: var(--accent-fg);
-}
+@layer base {
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
 
-/*
- * Native controls should follow the theme rather than fight it.
- *
- * The `font` shorthand resets every font longhand it does not name, which is
- * why Tailwind's own preflight pairs it with these two. Restating them matters
- * because this rule comes later in the cascade: without them it quietly reverts
- * variable-font settings for exactly the elements that most need to match the
- * text around them.
- */
-input,
-textarea,
-select,
-button {
-  font: inherit;
-  font-feature-settings: inherit;
-  font-variation-settings: inherit;
-  color: inherit;
-}
+  /*
+   * Native controls should follow the theme rather than fight it.
+   *
+   * The `font` shorthand resets every font longhand it does not name, which is
+   * why Tailwind's own preflight pairs it with these two. Restating them matters
+   * because this rule comes later in the cascade: without them it quietly reverts
+   * variable-font settings for exactly the elements that most need to match the
+   * text around them.
+   */
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    font-feature-settings: inherit;
+    font-variation-settings: inherit;
+    color: inherit;
+  }
 
-/*
- * The UA stylesheet gives fieldset `min-inline-size: min-content`, so it is the
- * one element that refuses to shrink below its widest child. Inside a sized
- * grid column that makes a wide image push the whole panel past its track.
- */
-fieldset {
-  min-inline-size: 0;
-}
+  /*
+   * The UA stylesheet gives fieldset `min-inline-size: min-content`, so it is the
+   * one element that refuses to shrink below its widest child. Inside a sized
+   * grid column that makes a wide image push the whole panel past its track.
+   */
+  fieldset {
+    min-inline-size: 0;
+  }
 
-textarea {
-  field-sizing: content;
-}
+  textarea {
+    field-sizing: content;
+  }
 
-/* Range input, restyled to Geist proportions in both themes. */
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 20px;
-  background: transparent;
-  cursor: pointer;
-}
+  /* Range input, restyled to Geist proportions in both themes. */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+  }
 
-input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--track);
-}
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--track);
+  }
 
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 14px;
-  width: 14px;
-  margin-top: -5px;
-  border-radius: 999px;
-  background: var(--fg);
-  border: 1px solid var(--bg);
-  box-shadow: var(--shadow-sm);
-  transition: transform 120ms ease;
-}
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 14px;
+    width: 14px;
+    margin-top: -5px;
+    border-radius: 999px;
+    background: var(--fg);
+    border: 1px solid var(--bg);
+    box-shadow: var(--shadow-sm);
+    transition: transform 120ms ease;
+  }
 
-input[type="range"]:hover::-webkit-slider-thumb {
-  transform: scale(1.15);
-}
+  input[type="range"]:hover::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
 
-input[type="range"]:active::-webkit-slider-thumb {
-  background: var(--accent);
-}
+  input[type="range"]:active::-webkit-slider-thumb {
+    background: var(--accent);
+  }
 
-input[type="range"]::-moz-range-track {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--track);
-}
+  input[type="range"]::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--track);
+  }
 
-input[type="range"]::-moz-range-thumb {
-  height: 13px;
-  width: 13px;
-  border-radius: 999px;
-  background: var(--fg);
-  border: 1px solid var(--bg);
-}
+  input[type="range"]::-moz-range-thumb {
+    height: 13px;
+    width: 13px;
+    border-radius: 999px;
+    background: var(--fg);
+    border: 1px solid var(--bg);
+  }
 
-input[type="range"]:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  input[type="range"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 @keyframes rise {
