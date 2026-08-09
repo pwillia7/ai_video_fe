@@ -34,11 +34,29 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    /*
+      The font variables belong on <html>, not <body>.
+
+      Tailwind declares --font-sans and --default-font-family on :root as
+      `var(--font-geist-sans), …`. A custom property is substituted using the
+      variables of the element it is declared on, so with --font-geist-sans
+      defined a level lower there is nothing for :root to resolve against and
+      --font-sans computes to the guaranteed-invalid value. Everything
+      inheriting it then silently falls back to the browser default, and a
+      var() fallback does not help — those apply to undefined properties, not
+      invalid ones. Utilities like font-sans still worked, because they are
+      applied inside <body> where the variable does inherit, which is what made
+      it look like a button problem rather than a page-wide one.
+    */
+    <html
+      lang="en"
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body>
         <div className="app-backdrop" aria-hidden="true" />
         {children}
       </body>
