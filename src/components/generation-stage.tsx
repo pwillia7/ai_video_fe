@@ -16,6 +16,7 @@ export function GenerationStage({
   onCancel,
   onReuseSeed,
   onRemix,
+  onShowSettings,
   remixing = false,
 }: {
   job: Job | null;
@@ -27,6 +28,8 @@ export function GenerationStage({
   onReuseSeed?: (seed: number) => void;
   /** Absent when no registered workflow can take a clip as a reference. */
   onRemix?: (job: Job) => void;
+  /** Opens the record of what this generation was run with. */
+  onShowSettings?: () => void;
   /** The copy into ComfyUI's input directory is still in flight. */
   remixing?: boolean;
 }) {
@@ -39,10 +42,11 @@ export function GenerationStage({
           job={job}
           onReuseSeed={onReuseSeed}
           onRemix={onRemix}
+          onShowSettings={onShowSettings}
           remixing={remixing}
         />
       ) : job.phase === "error" ? (
-        <Failure job={job} />
+        <Failure job={job} onShowSettings={onShowSettings} />
       ) : job.phase === "cancelled" || job.phase === "unknown" ? (
         <Closed job={job} />
       ) : (
@@ -198,7 +202,13 @@ function InFlight({
   );
 }
 
-function Failure({ job }: { job: Job }) {
+function Failure({
+  job,
+  onShowSettings,
+}: {
+  job: Job;
+  onShowSettings?: () => void;
+}) {
   return (
     <Frame>
       <div className="w-full max-w-md">
@@ -207,6 +217,15 @@ function Failure({ job }: { job: Job }) {
           <span className="text-sm font-medium text-fg">Generation failed</span>
         </div>
         <p className="text-[13px] leading-relaxed text-fg-muted">{job.error}</p>
+        {/* Worth reaching most from here: the first question after a failure
+            is usually what it was run with. */}
+        {onShowSettings ? (
+          <div className="mt-5">
+            <Button size="sm" variant="ghost" onClick={onShowSettings}>
+              View settings
+            </Button>
+          </div>
+        ) : null}
       </div>
     </Frame>
   );
@@ -238,11 +257,13 @@ function Result({
   job,
   onReuseSeed,
   onRemix,
+  onShowSettings,
   remixing,
 }: {
   job: Job;
   onReuseSeed?: (seed: number) => void;
   onRemix?: (job: Job) => void;
+  onShowSettings?: () => void;
   remixing?: boolean;
 }) {
   const [primary, ...rest] = job.outputs;
@@ -282,6 +303,11 @@ function Result({
         {typeof seed === "number" ? <Badge mono>seed {seed}</Badge> : null}
 
         <div className="ml-auto flex items-center gap-2">
+          {onShowSettings ? (
+            <Button size="sm" variant="ghost" onClick={onShowSettings}>
+              Settings
+            </Button>
+          ) : null}
           {typeof seed === "number" && onReuseSeed ? (
             <Button size="sm" variant="ghost" onClick={() => onReuseSeed(seed)}>
               Reuse seed

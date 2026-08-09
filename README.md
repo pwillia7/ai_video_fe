@@ -436,6 +436,18 @@ Storing media here would exhaust the few megabytes localStorage allows after a
 couple of clips. The trade is that an entry stops playing if ComfyUI's output
 directory is cleared.
 
+The settings kept are the **resolved** ones — what the server made of the form,
+not what the form held. That distinction is the point: a run submitted with the
+seed on "random" records the number it actually got, which is what makes the
+take reproducible. **Settings** on the stage opens them for whichever generation
+is being viewed, failed ones included, where the first question is usually what
+it was run with.
+
+That record outlives the workflow that made it. Params get renamed, removed or
+added between a run and the reading of it, so the modal labels what the current
+definition still recognises and falls back to the raw id for the rest, rather
+than dropping values someone is trying to reconstruct from.
+
 Active jobs are polled in **one batched request** regardless of how many are in
 flight — `/api/status?promptIds=a,b,c` reads the queue once and resolves every
 id against it, so a deep queue does not multiply load on the GPU box.

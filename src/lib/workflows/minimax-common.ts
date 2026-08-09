@@ -25,8 +25,6 @@ export interface MinimaxNodeIds {
   scheduler: string;
   /** KSamplerSelect. */
   sampler: string;
-  /** SaveVideo. */
-  save: string;
 }
 
 /**
@@ -83,7 +81,7 @@ export function durationParam(ids: Pick<MinimaxNodeIds, "duration">): ParamDef {
 export function samplingParams(
   ids: Pick<MinimaxNodeIds, "noise" | "scheduler" | "sampler">,
   /** Per-graph tuning. The remix graph runs fewer steps than the rest. */
-  { steps = 20 }: { steps?: number } = {},
+  { steps = 12 }: { steps?: number } = {},
 ): ParamDef[] {
   return [
     {
@@ -116,56 +114,6 @@ export function samplingParams(
       group: "Sampling",
       advanced: true,
       targets: [{ node: ids.sampler, input: "sampler_name" }],
-    },
-    {
-      id: "scheduler",
-      label: "Scheduler",
-      type: "select",
-      default: "simple",
-      options: [{ value: "simple", label: "simple" }],
-      optionsFrom: { node: ids.scheduler, input: "scheduler" },
-      group: "Sampling",
-      advanced: true,
-      targets: [{ node: ids.scheduler, input: "scheduler" }],
-    },
-    {
-      id: "denoise",
-      label: "Denoise",
-      type: "slider",
-      default: 1,
-      min: 0.1,
-      max: 1,
-      step: 0.05,
-      group: "Sampling",
-      advanced: true,
-      targets: [{ node: ids.scheduler, input: "denoise" }],
-    },
-  ];
-}
-
-export function encodingParams(ids: Pick<MinimaxNodeIds, "save">): ParamDef[] {
-  return [
-    {
-      id: "format",
-      label: "Container",
-      type: "select",
-      default: "auto",
-      options: [{ value: "auto", label: "auto" }],
-      optionsFrom: { node: ids.save, input: "format" },
-      group: "Encoding",
-      advanced: true,
-      targets: [{ node: ids.save, input: "format" }],
-    },
-    {
-      id: "codec",
-      label: "Codec",
-      type: "select",
-      default: "auto",
-      options: [{ value: "auto", label: "auto" }],
-      optionsFrom: { node: ids.save, input: "codec" },
-      group: "Encoding",
-      advanced: true,
-      targets: [{ node: ids.save, input: "codec" }],
     },
   ];
 }

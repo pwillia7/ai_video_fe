@@ -3,7 +3,6 @@ import type { ParamDef, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   durationParam,
-  encodingParams,
   PROMPT_DIRECTOR,
   promptParam,
   samplingParams,
@@ -207,7 +206,6 @@ const ids: MinimaxNodeIds = {
   noise: "105:15",
   scheduler: "105:9",
   sampler: "105:17",
-  save: "92",
 };
 
 const params: ParamDef[] = [
@@ -235,7 +233,7 @@ const params: ParamDef[] = [
     id: "megapixels",
     label: "Frame size",
     type: "slider",
-    default: 0.4,
+    default: 0.5,
     min: 0.1,
     max: 2,
     step: 0.05,
@@ -244,23 +242,8 @@ const params: ParamDef[] = [
     group: "Output",
     targets: [{ node: "115", input: "megapixels" }],
   },
-  {
-    id: "multiple",
-    label: "Size rounding",
-    type: "slider",
-    default: 32,
-    min: 8,
-    max: 64,
-    step: 8,
-    unit: "px",
-    help: "Rounds width and height to a multiple of this. Leave at 32 unless the model complains.",
-    group: "Output",
-    advanced: true,
-    targets: [{ node: "115", input: "multiple" }],
-  },
 
   ...samplingParams(ids),
-  ...encodingParams(ids),
 ];
 
 export const minimaxH3: WorkflowDef = {

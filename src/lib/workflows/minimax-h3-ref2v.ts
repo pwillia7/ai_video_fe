@@ -1,7 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
-  encodingParams,
   promptParam,
   REMIX_DIRECTOR,
   samplingParams,
@@ -39,7 +38,6 @@ const ids: Omit<MinimaxNodeIds, "duration"> = {
   noise: "129",
   scheduler: "124",
   sampler: "123",
-  save: "92",
 };
 
 const REFERENCE_NODE = "136";
@@ -310,7 +308,6 @@ const params: ParamDef[] = [
   // number that ships; node 124's literal is whatever the export happened to
   // carry and never reaches ComfyUI.
   ...samplingParams(ids, { steps: 8 }),
-  ...encodingParams(ids),
 ];
 
 export const minimaxH3ReferenceVideo: WorkflowDef = {
@@ -318,7 +315,7 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
   name: "MiniMax H3 · Remix",
   description: "Rebuilds a clip you have already made into a new take.",
   tags: ["video-to-video", "remix", "audio"],
-  estimatedSeconds: 180,
+  estimatedSeconds: 480,
   hasAudio: true,
   graph,
   params,

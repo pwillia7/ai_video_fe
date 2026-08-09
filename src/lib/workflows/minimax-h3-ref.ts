@@ -3,7 +3,6 @@ import type { ParamDef, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   durationParam,
-  encodingParams,
   PROMPT_DIRECTOR,
   promptParam,
   samplingParams,
@@ -34,7 +33,6 @@ const ids: MinimaxNodeIds = {
   noise: "129",
   scheduler: "124",
   sampler: "123",
-  save: "92",
 };
 
 /**
@@ -292,7 +290,7 @@ const params: ParamDef[] = [
     id: "megapixels",
     label: "Frame size",
     type: "slider",
-    default: 0.4,
+    default: 0.5,
     min: 0.1,
     max: 2,
     step: 0.05,
@@ -301,23 +299,8 @@ const params: ParamDef[] = [
     group: "Output",
     targets: [{ node: "115", input: "megapixels" }],
   },
-  {
-    id: "multiple",
-    label: "Size rounding",
-    type: "slider",
-    default: 32,
-    min: 8,
-    max: 64,
-    step: 8,
-    unit: "px",
-    help: "Rounds width and height to a multiple of this.",
-    group: "Output",
-    advanced: true,
-    targets: [{ node: "115", input: "multiple" }],
-  },
 
   ...samplingParams(ids),
-  ...encodingParams(ids),
 ];
 
 export const minimaxH3Reference: WorkflowDef = {
@@ -325,7 +308,7 @@ export const minimaxH3Reference: WorkflowDef = {
   name: "MiniMax H3 · Reference to Video",
   description: "Puts people or objects from your images into a new scene.",
   tags: ["reference-to-video", "audio"],
-  estimatedSeconds: 180,
+  estimatedSeconds: 300,
   hasAudio: true,
   graph,
   params,

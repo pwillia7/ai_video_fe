@@ -12,6 +12,7 @@ import { ConnectionPill } from "@/components/connection-pill";
 import { NotifyToggle } from "@/components/notify-toggle";
 import { GenerationStage } from "@/components/generation-stage";
 import { ParamForm } from "@/components/param-form";
+import { SettingsModal } from "@/components/settings-modal";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TipsModal } from "@/components/tips-modal";
 import { tipsFor } from "@/lib/workflows/tips";
@@ -287,6 +288,11 @@ function Workbench({
   const [tipsOpen, setTipsOpen] = useState(false);
   const tips = selected ? tipsFor(selected.id) : undefined;
 
+  // Which generation's settings are on screen, by id rather than by value: a
+  // poll can replace the job object mid-view, and holding the object would
+  // freeze the modal on a stale copy.
+  const [settingsForId, setSettingsForId] = useState<string | null>(null);
+
   // Closing the panel when the workflow changes avoids showing one workflow's
   // advice under another's name.
   useEffect(() => {
@@ -310,6 +316,11 @@ function Workbench({
 
   const viewedJob =
     jobs.jobs.find((job) => job.promptId === viewedId) ?? jobs.jobs[0] ?? null;
+
+  // Resolved fresh each render, so the modal follows the job it is showing —
+  // and closes itself if that entry is cleared from history while open.
+  const settingsJob =
+    jobs.jobs.find((job) => job.promptId === settingsForId) ?? null;
 
   const fieldError = useMemo(() => {
     if (!jobs.submitError || !jobs.submitErrorField) return null;
@@ -583,6 +594,11 @@ function Workbench({
               onCancel={(promptId) => void jobs.cancel(promptId)}
               onReuseSeed={(seed) => setValue("seed", seed)}
               onRemix={remixWorkflow ? (job) => void remix(job) : undefined}
+              onShowSettings={
+                viewedJob
+                  ? () => setSettingsForId(viewedJob.promptId)
+                  : undefined
+              }
               remixing={remixing}
             />
 
@@ -638,6 +654,17 @@ function Workbench({
           onClose={() => setTipsOpen(false)}
           title={selected.name}
           tips={tips}
+        />
+      ) : null}
+
+      {settingsJob ? (
+        <SettingsModal
+          open
+          onClose={() => setSettingsForId(null)}
+          job={settingsJob}
+          workflow={workflows.find(
+            (workflow) => workflow.id === settingsJob.workflowId,
+          )}
         />
       ) : null}
     </div>

@@ -3,7 +3,6 @@ import type { ParamDef, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   durationParam,
-  encodingParams,
   PROMPT_DIRECTOR,
   promptParam,
   samplingParams,
@@ -45,7 +44,7 @@ const graph: ComfyGraph = {
   "119": {
     class_type: "ImageScaleToTotalPixels",
     inputs: {
-      upscale_method: "nearest-exact",
+      upscale_method: "lanczos",
       megapixels: 1,
       resolution_steps: 32,
       image: ["114", 0],
@@ -210,7 +209,6 @@ const ids: MinimaxNodeIds = {
   noise: "105:15",
   scheduler: "105:9",
   sampler: "105:17",
-  save: "92",
 };
 
 const params: ParamDef[] = [
@@ -237,31 +235,6 @@ const params: ParamDef[] = [
     group: "Image",
     targets: [{ node: "119", input: "megapixels" }],
   },
-  {
-    id: "upscale_method",
-    label: "Scaling method",
-    type: "select",
-    default: "nearest-exact",
-    options: [{ value: "nearest-exact", label: "nearest-exact" }],
-    optionsFrom: { node: "119", input: "upscale_method" },
-    group: "Image",
-    advanced: true,
-    targets: [{ node: "119", input: "upscale_method" }],
-  },
-  {
-    id: "resolution_steps",
-    label: "Size rounding",
-    type: "slider",
-    default: 32,
-    min: 8,
-    max: 64,
-    step: 8,
-    unit: "px",
-    help: "Rounds the scaled dimensions to a multiple of this.",
-    group: "Image",
-    advanced: true,
-    targets: [{ node: "119", input: "resolution_steps" }],
-  },
 
   promptParam(
     ids,
@@ -273,7 +246,6 @@ const params: ParamDef[] = [
   durationParam(ids),
 
   ...samplingParams(ids),
-  ...encodingParams(ids),
 ];
 
 export const minimaxH3ImageToVideo: WorkflowDef = {
