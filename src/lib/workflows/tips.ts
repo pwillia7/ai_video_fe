@@ -104,7 +104,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         heading: "Working from a clip",
         items: [
           "Two ways in. Press Remix on a finished generation and the clip arrives with the prompt it was made with, or drop a video of your own into the Source panel.",
-          "The clip supplies the motion, the framing and the audio. Five frames sampled evenly across it become the reference images, so the model has the look of the whole thing rather than just its first moment.",
+          "The clip is the only reference the model gets — it supplies the motion, the framing and the audio all at once, as one thing rather than as a pile of stills.",
           "Your own clips are held to 768×1344, 20 seconds and 4 MB — the remix is generated at the source's size and length, so an oversized clip asks the model for a canvas it was not built for. Scale it down first.",
           "The quickest way to iterate is generate, remix, change one thing.",
         ],
@@ -115,7 +115,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
           "The other workflows run a director model that fills in everything you left unsaid. This one runs a remix director instead, which does close to the opposite: it reads what you type as a change and writes out instructions to hold everything else to the source.",
           "So “make him a pirate” becomes: keep the performance, camera, cuts, environment and dialogue, change the costume. Short instructions work well — you are describing a delta, not a scene.",
           "It will not invent replacement dialogue just because someone is speaking. The clip's own audio supplies the words unless you ask for different ones.",
-          "It sees the same five sampled frames the model does, and refers to the source as <Video 1> and <Audio 1>.",
+          "It is shown five frames sampled evenly across the clip, so it can write about what is actually there. Those frames are for the director only — the model itself works from the clip — and it refers to the source as <Video 1> and <Audio 1>.",
         ],
       },
       {

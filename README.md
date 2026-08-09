@@ -193,6 +193,11 @@ The registry lives in `src/lib/workflows/`. A workflow is the ComfyUI graph
 **verbatim** plus a declaration of which node inputs the UI may drive — the
 graph is never rewritten by hand.
 
+`archive/` holds superseded graphs that are worth keeping to compare against.
+They are complete workflow definitions and still typecheck, but nothing imports
+them, so they are neither validated by `check:workflows` nor bundled. Adding one
+back is a single line in `index.ts`.
+
 1. In ComfyUI: **Workflow → Export (API)**. You get a flat map of
    `node id -> { class_type, inputs }`, where `["1", 0]` means output 0 of node 1.
 2. Drop it into a new file next to `minimax-h3.ts` as the `graph`.
@@ -306,10 +311,11 @@ derived from that one input:
 - `LoadVideo` (154) loads it, and `GetVideoComponents` (153) splits it into
   frames and audio, which become `ref_videos.ref_video_0` and
   `ref_audios.ref_audio_0`.
-- `VideoFrameSample` (155) takes five frames spread evenly across it, and
-  `ImageFromBatch` (157-161) peels off one each to fill the five
-  `ref_images.ref_image_*` slots. `num_frames` is not a knob — those five nodes
-  index the batch by position, so a smaller sample would read past its end.
+  That pair is the **only** visual input the sampler gets.
+- `VideoFrameSample` (155) takes five frames spread evenly across it and
+  `GetVideoComponents` (156) turns them back into images, which go to the
+  prompt director and nowhere else — so the rewrite can see the clip it is
+  editing instead of working blind from a filename.
 - `GetImageSizeAndCount` (163) measures the clip's own frames — not the
   five-frame sample — and supplies all three dimensions of the output: width,
   height, and length as a frame count. A remix comes back the same shape and
@@ -317,14 +323,18 @@ derived from that one input:
   `ResolutionSelector` nor a duration node, and no frame-count expression to
   derive one from.
 
-- The same five frames go to the rewrite stage, so the director sees the clip
-  it is editing.
+An earlier version also wired those five frames into `ref_images.ref_image_0..4`
+on the reference node, handing the model the same footage twice — once as a
+video reference and again as five stills to reconcile with it. That graph is
+kept, unregistered, at `archive/minimax-h3-remix-frame-refs.ts`; it still
+compiles, so a rename in `minimax-common.ts` surfaces there rather than letting
+it rot.
 
 **The clip is the only input the form offers.** There are no image, audio, size
 or duration controls, and that is the point rather than an omission: every one
 of those is a consequence of the clip, so a picker would imply a choice that
-does not exist. What stays editable is what the clip cannot decide: the prompt,
-and the sampling and encoding settings.
+does not exist. What stays editable is what the clip cannot decide: the prompt
+and the sampling settings.
 
 A clip can arrive two ways — the Remix button, or an upload. Uploads are held
 to **768×1344, 20 seconds and 4 MB** (`video-upload.tsx`). The size and length

@@ -1,36 +1,56 @@
 import type { ComfyGraph } from "@/lib/comfy";
-import type { ParamDef, WorkflowDef } from "./types";
+import type { ParamDef, WorkflowDef } from "../types";
 import {
   promptParam,
   REMIX_DIRECTOR,
   samplingParams,
   type MinimaxNodeIds,
-} from "./minimax-common";
+} from "../minimax-common";
 
+/**
+ * ARCHIVED — not registered in the workflow index, not reachable from the app.
+ *
+ * The remix graph as it stood when the five frames sampled from the source clip
+ * were passed to the sampler as reference images (ref_images.ref_image_0..4 on
+ * node 136, fed by ImageFromBatch nodes 157-161) *in addition to* the clip
+ * itself going in as ref_videos.ref_video_0.
+ *
+ * The live graph dropped that. There the sampled frames reach only the prompt
+ * director, so the video reference is the sole visual input to the sampler.
+ * Handing the same footage in twice — once as a video reference and again as
+ * five stills — gave the model two descriptions of one clip to reconcile.
+ *
+ * Kept because that is a real difference in behaviour rather than a bug fix,
+ * and worth being able to compare against or return to. To bring it back, add
+ * it to WORKFLOWS in ../index.ts; it is a complete WorkflowDef and still
+ * compiles, so a rename in minimax-common.ts will surface here rather than
+ * letting it rot quietly.
+ */
 /**
  * MiniMax H3 remix: rebuild a clip you already have.
  *
- * The clip goes in at node 154 and everything else follows from it:
+ * The reference node is the same one the image-driven workflow uses, but
+ * nothing here is supplied by hand. The clip goes in at node 154 and the graph
+ * derives everything else from it:
  *
- * - 153 splits it into frames and audio, which go to the reference node as
- *   `ref_videos.ref_video_0` and `ref_audios.ref_audio_0`. That pair is the
- *   only visual input the sampler gets.
- * - 155 samples five frames spread evenly across it and 156 turns them back
- *   into images, which go to the prompt director alone — so the rewrite can
- *   see the clip it is editing rather than working blind from the filename.
- *   Nothing from that sample reaches the sampler; an earlier version wired it
- *   into `ref_images.*` as well, which is kept under archive/ for comparison.
+ * - 153 splits the clip into frames and audio, which become the video and
+ *   audio references.
+ * - 155 samples five frames spread evenly across it, 156 turns that sample
+ *   back into images, and 157-161 peel off one frame each to fill the five
+ *   reference-image slots.
  * - 163 measures the clip's own frames and supplies all three dimensions of
  *   the output: width, height, and length as a frame count. So a remix comes
  *   back the same shape and the same length as what went in, and there is
  *   neither a ResolutionSelector nor a duration node in this graph.
+ * - 156 also feeds the rewrite stage, so the director sees what the clip looks
+ *   like rather than working blind from the filename.
  *
- * So the clip is the one input the form offers. The reference audio and the
- * output size are consequences of it rather than choices, and controls for
- * them would misrepresent what this graph does. It can be filled either by the
- * Remix button (`remixTarget` below) or by an upload — see video-upload.tsx
- * for the limits that keeps within, which matter more here than elsewhere
- * because the clip decides what gets generated.
+ * So the clip is the one input the form offers. The reference images, the
+ * reference audio and the output size are consequences of it rather than
+ * choices, and controls for them would misrepresent what this graph does. It
+ * can be filled either by the Remix button (`remixTarget` below) or by an
+ * upload — see video-upload.tsx for the limits that keeps within, which matter
+ * more here than elsewhere because the clip decides what gets generated.
  */
 const ids: Omit<MinimaxNodeIds, "duration"> = {
   prompt: { node: "138", input: "value" },
@@ -124,7 +144,7 @@ const graph: ComfyGraph = {
   },
   "129": {
     class_type: "RandomNoise",
-    inputs: { noise_seed: 147913421715932 },
+    inputs: { noise_seed: 432597392404604 },
     _meta: { title: "RandomNoise" },
   },
   "130": {
@@ -150,7 +170,11 @@ const graph: ComfyGraph = {
       clip: ["128", 0],
       vae: ["119", 0],
       audio_vae: ["120", 0],
-      // No ref_images here — the clip is the only reference the sampler gets.
+      "ref_images.ref_image_0": ["157", 0],
+      "ref_images.ref_image_1": ["158", 0],
+      "ref_images.ref_image_2": ["159", 0],
+      "ref_images.ref_image_3": ["160", 0],
+      "ref_images.ref_image_4": ["161", 0],
       "ref_videos.ref_video_0": ["153", 0],
       "ref_audios.ref_audio_0": ["153", 1],
     },
@@ -187,7 +211,7 @@ const graph: ComfyGraph = {
       prompt: ["138", 0],
       system_prompt: REMIX_DIRECTOR,
       client: ["144", 0],
-      // The sampled frames, and the only place they are used.
+      // The sampled frames, so the rewrite can see the clip it is editing.
       images: ["156", 0],
     },
     _meta: { title: "OpenAI API - Chat Completion" },
@@ -206,7 +230,9 @@ const graph: ComfyGraph = {
     _meta: { title: "Load Video" },
   },
 
-  // Five frames spread evenly across the clip, for the director to look at.
+  // Five evenly-spaced frames, one per reference slot below. `num_frames` is
+  // not a knob: 157-161 index this batch by position, so asking for fewer
+  // frames would leave ImageFromBatch reading past the end of it.
   //
   // `seed` is carried from the export rather than exposed. It should not
   // select anything while `strategy` is "uniform" — evenly spaced frames are
@@ -217,7 +243,7 @@ const graph: ComfyGraph = {
     inputs: {
       num_frames: 5,
       strategy: "uniform",
-      seed: 249656790861689,
+      seed: 222561866641859,
       video: ["154", 0],
     },
     _meta: { title: "Sample Video Frame" },
@@ -227,9 +253,34 @@ const graph: ComfyGraph = {
     inputs: { video: ["155", 0] },
     _meta: { title: "Get Video Components" },
   },
+  "157": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 0, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
+  "158": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 1, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
+  "159": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 2, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
+  "160": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 3, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
+  "161": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 4, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
 
   // Reads the clip's full frame sequence, not the five-frame sample: the count
-  // has to be the length of the source, not the size of the director's peek.
+  // has to be the length of the source, not the size of the reference set.
   "163": {
     class_type: "GetImageSizeAndCount",
     inputs: { image: ["153", 0] },
@@ -255,7 +306,7 @@ const params: ParamDef[] = [
     default: "match",
     options: [{ value: "match", label: "match" }],
     optionsFrom: { node: REFERENCE_NODE, input: "ref_image_size" },
-    help: "How reference stills are sized before the model reads them.",
+    help: "How the frames sampled from your clip are fed back in. match is faster; max preserves detail better, up to a 2048px short edge.",
     group: "Source",
     advanced: true,
     targets: [{ node: REFERENCE_NODE, input: "ref_image_size" }],
@@ -278,9 +329,9 @@ const params: ParamDef[] = [
   ...samplingParams(ids, { steps: 8 }),
 ];
 
-export const minimaxH3ReferenceVideo: WorkflowDef = {
-  id: "minimax-h3-ref2v",
-  name: "MiniMax H3 · Remix",
+export const minimaxH3RemixFrameRefs: WorkflowDef = {
+  id: "minimax-h3-ref2v-frame-refs",
+  name: "MiniMax H3 · Remix (frame references)",
   description: "Rebuilds a clip you have already made into a new take.",
   tags: ["video-to-video", "remix", "audio"],
   estimatedSeconds: 480,
