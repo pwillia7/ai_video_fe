@@ -21,7 +21,7 @@ import { Panel, PanelHeader } from "@/components/ui/panel";
 import { WorkflowPicker } from "@/components/workflow-picker";
 import { GenerationsPanel } from "@/components/generations-panel";
 import { useJobs } from "@/hooks/use-jobs";
-import { isActive } from "@/lib/jobs";
+import { isActive, type Job } from "@/lib/jobs";
 import { api, ApiError, getToken } from "@/lib/client";
 import { hydrateAll, writeStoredParams } from "@/lib/param-storage";
 import {
@@ -34,6 +34,19 @@ interface ConfigPayload {
   authRequired: boolean;
   generationTimeoutSeconds: number;
 }
+
+/**
+ * Params a remix inherits from the generation it came from, where both
+ * workflows happen to declare the same id. Framing and timing, so the new take
+ * matches the clip it references — see `remix` below for what is left out.
+ */
+const CARRIED_PARAMS = new Set([
+  "prompt",
+  "duration",
+  "aspect_ratio",
+  "megapixels",
+  "fps",
+]);
 
 type Boot =
   | { kind: "loading" }
@@ -178,6 +191,100 @@ function Workbench({
     }));
   }, [selected, selectedId]);
 
+  // The workflow that takes a finished clip as a reference, if one is
+  // registered. Found by declaration rather than by id so the button follows
+  // whatever the registry offers.
+  const remixWorkflow = useMemo(
+    () => workflows.find((workflow) => workflow.remixTarget),
+    [workflows],
+  );
+
+  const [remixing, setRemixing] = useState(false);
+  const [remixError, setRemixError] = useState<string | null>(null);
+  /** What the loaded reference clip was, for the notice above the form. */
+  const [remixNotice, setRemixNotice] = useState<string | null>(null);
+
+  const stageRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLElement>(null);
+
+  /**
+   * Send a finished generation back into the workflow that can reference it.
+   *
+   * The video itself is copied server-side (see /api/remix): ComfyUI keeps
+   * outputs and loader inputs in separate directories, so a clip has to move
+   * between them before a LoadVideo node can see it.
+   *
+   * Nothing is submitted. This only fills the form in — the point is to open
+   * the next generation ready to edit, prompt included.
+   */
+  const remix = useCallback(
+    async (job: Job) => {
+      const target = remixWorkflow;
+      if (!target?.remixTarget || remixing) return;
+      const { videoParam } = target.remixTarget;
+
+      const output = job.outputs[0];
+      if (!output) return;
+
+      setRemixing(true);
+      setRemixError(null);
+      try {
+        const { ref } = await api<{ ref: string }>("/api/remix", {
+          method: "POST",
+          body: JSON.stringify({
+            filename: output.filename,
+            subfolder: output.subfolder,
+            type: output.type,
+          }),
+        });
+
+        setValuesByWorkflow((previous) => {
+          const next = { ...previous[target.id], [videoParam]: ref };
+
+          // Carry across the settings that describe the shot, so the remix
+          // starts out matching the clip it came from rather than reverting to
+          // whatever was last used here. The seed is deliberately not among
+          // them: reusing it would pin the new take to the old one's noise,
+          // which is the opposite of what a remix is for.
+          for (const param of target.params) {
+            if (!CARRIED_PARAMS.has(param.id)) continue;
+            const carried = job.resolved?.[param.id];
+            // A type mismatch means the source workflow used the id for
+            // something else — take the target's default over nonsense.
+            if (carried === undefined) continue;
+            if (typeof carried !== typeof param.default) continue;
+            next[param.id] = carried;
+          }
+
+          return { ...previous, [target.id]: next };
+        });
+
+        setSelectedId(target.id);
+        setRemixNotice(job.prompt.trim() || job.workflowName);
+
+        // On mobile the form sits above the stage the button was pressed in,
+        // so without this the settings it just filled in are off-screen.
+        if (window.matchMedia("(max-width: 1023px)").matches) {
+          requestAnimationFrame(() =>
+            settingsRef.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            }),
+          );
+        }
+      } catch (cause) {
+        setRemixError(
+          cause instanceof ApiError
+            ? cause.message
+            : "Could not set that clip up as a reference.",
+        );
+      } finally {
+        setRemixing(false);
+      }
+    },
+    [remixWorkflow, remixing],
+  );
+
   const [tipsOpen, setTipsOpen] = useState(false);
   const tips = selected ? tipsFor(selected.id) : undefined;
 
@@ -210,11 +317,12 @@ function Workbench({
     return { field: jobs.submitErrorField, message: jobs.submitError };
   }, [jobs.submitError, jobs.submitErrorField]);
 
-  const stageRef = useRef<HTMLDivElement>(null);
-
   const submit = useCallback(() => {
     if (!selected || jobs.submitting) return;
     void jobs.submit(selected, values);
+    // The form has been acted on, so the note explaining how it got filled in
+    // has served its purpose.
+    setRemixNotice(null);
     // On mobile the stage sits below the whole settings panel, so submitting
     // from the pinned bar would otherwise give no visible sign of anything
     // happening. Desktop keeps the stage pinned alongside, so leave it alone.
@@ -308,13 +416,19 @@ function Workbench({
               <WorkflowPicker
                 workflows={workflows}
                 selectedId={selectedId}
-                onSelect={setSelectedId}
+                onSelect={(id) => {
+                  // Choosing a workflow by hand supersedes whatever a remix
+                  // set up, so the note about it goes.
+                  setRemixNotice(null);
+                  setSelectedId(id);
+                }}
               />
             </Panel>
 
             {selected ? (
               <Panel
-                className="rise"
+                ref={settingsRef}
+                className="rise scroll-mt-20"
                 style={{ "--delay": "80ms" } as CSSProperties}
                 padded
               >
@@ -351,6 +465,28 @@ function Workbench({
                     </div>
                   }
                 />
+                {remixNotice && selected.id === remixWorkflow?.id ? (
+                  <div
+                    className="mb-5 flex items-start gap-3 rounded-lg border border-accent/40
+                      bg-accent-subtle/30 p-3 text-[12px] leading-relaxed text-fg-muted"
+                  >
+                    <span className="min-w-0 flex-1">
+                      Remixing{" "}
+                      <span className="text-fg">“{remixNotice}”</span>. The clip
+                      is loaded as the reference below — change anything you
+                      like, then generate.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRemixNotice(null)}
+                      aria-label="Dismiss"
+                      className="shrink-0 font-medium text-fg-muted transition-colors hover:text-fg"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
+
                 {/* Deliberately never disabled: a running generation should not
                     stop you setting up the next one. */}
                 <ParamForm
@@ -408,6 +544,23 @@ function Workbench({
               </div>
             ) : null}
 
+            {remixError ? (
+              <div
+                className="flex items-start gap-3 rounded-lg border border-danger/40
+                  bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
+              >
+                <span className="min-w-0 flex-1">{remixError}</span>
+                <button
+                  type="button"
+                  onClick={() => setRemixError(null)}
+                  aria-label="Dismiss"
+                  className="shrink-0 font-medium hover:underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+
             <GenerationStage
               job={viewedJob}
               now={now}
@@ -418,6 +571,8 @@ function Workbench({
               }
               onCancel={(promptId) => void jobs.cancel(promptId)}
               onReuseSeed={(seed) => setValue("seed", seed)}
+              onRemix={remixWorkflow ? (job) => void remix(job) : undefined}
+              remixing={remixing}
             />
 
             <Panel padded>

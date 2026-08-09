@@ -13,6 +13,15 @@ export class ParamError extends Error {
 
 const MAX_SEED = 0xffffffffffff; // ComfyUI's usual upper bound for seed inputs.
 
+/**
+ * True when a filename or subfolder could climb out of the directory it is
+ * meant to name. ComfyUI does its own checking, but our route handlers are the
+ * internet-facing edge of it, and a param value is user input like any other.
+ */
+export function isUnsafePath(value: string): boolean {
+  return value.includes("..") || value.startsWith("/") || value.includes("\\");
+}
+
 function randomSeed(): number {
   return Math.floor(Math.random() * MAX_SEED);
 }
@@ -83,21 +92,23 @@ function coerce(
       throw new ParamError(`${param.label} must be true or false.`, param.id);
     }
 
-    case "image": {
+    // LoadImage and LoadVideo both take a filename in ComfyUI's input
+    // directory rather than the file itself, so the two carry the same shape
+    // of value and the same escape risk.
+    case "image":
+    case "video": {
       const value = typeof raw === "string" ? raw.trim() : "";
       if (!value) {
         if (param.required) {
           throw new ParamError(
-            `${param.label} is required — upload an image first.`,
+            `${param.label} is required — add ${param.type === "image" ? "an image" : "a video"} first.`,
             param.id,
           );
         }
         return "";
       }
-      // The value is a filename destined for a LoadImage node, so it must not
-      // be able to escape ComfyUI's input directory.
-      if (value.includes("..") || value.startsWith("/") || value.includes("\\")) {
-        throw new ParamError(`Invalid image reference.`, param.id);
+      if (isUnsafePath(value)) {
+        throw new ParamError(`Invalid ${param.type} reference.`, param.id);
       }
       return value;
     }

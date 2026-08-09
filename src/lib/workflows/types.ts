@@ -97,13 +97,29 @@ export interface ImageParam extends ParamBase {
   required?: boolean;
 }
 
+/**
+ * A video living in ComfyUI's input directory, which is where a LoadVideo node
+ * looks. Like an image, the stored value is only the filename.
+ *
+ * Two things put one here: an upload, and Remix — which never sends the file
+ * through the browser at all, it asks the server to copy a finished generation
+ * out of ComfyUI's output directory into its input directory.
+ */
+export interface VideoParam extends ParamBase {
+  type: "video";
+  default: "";
+  /** Block submission until a video is chosen. */
+  required?: boolean;
+}
+
 export type ParamDef =
   | TextParam
   | NumberParam
   | SelectParam
   | ToggleParam
   | SeedParam
-  | ImageParam;
+  | ImageParam
+  | VideoParam;
 
 export type ParamValue = string | number | boolean;
 
@@ -123,6 +139,15 @@ export interface WorkflowDef {
   hasAudio?: boolean;
   graph: ComfyGraph;
   params: ParamDef[];
+  /**
+   * Marks this workflow as where the Remix button sends a finished clip, and
+   * names the video param the clip is written into.
+   *
+   * Declared here rather than hardcoded in the UI so the button follows the
+   * registry: swap the reference-to-video workflow for another one and Remix
+   * goes with it. Only the first workflow declaring this is used.
+   */
+  remixTarget?: { videoParam: string };
   /**
    * Structural adjustment after the params are written in, on the cloned graph.
    *

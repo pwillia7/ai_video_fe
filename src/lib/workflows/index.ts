@@ -1,6 +1,7 @@
 import { minimaxH3 } from "./minimax-h3";
 import { minimaxH3ImageToVideo } from "./minimax-h3-i2v";
 import { minimaxH3Reference } from "./minimax-h3-ref";
+import { minimaxH3ReferenceVideo } from "./minimax-h3-ref2v";
 import { toSummary, type WorkflowDef, type WorkflowSummary } from "./types";
 
 /**
@@ -11,6 +12,7 @@ export const WORKFLOWS: WorkflowDef[] = [
   minimaxH3,
   minimaxH3ImageToVideo,
   minimaxH3Reference,
+  minimaxH3ReferenceVideo,
 ];
 
 export function getWorkflow(id: string): WorkflowDef | undefined {

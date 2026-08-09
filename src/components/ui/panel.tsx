@@ -1,19 +1,23 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, Ref } from "react";
 
 export function Panel({
   children,
   className = "",
   padded = true,
   style,
+  ref,
 }: {
   children: ReactNode;
   className?: string;
   padded?: boolean;
   /** Carries the `--delay` custom property for staggered reveals. */
   style?: CSSProperties;
+  /** For scrolling a panel into view. A plain prop, as React 19 allows. */
+  ref?: Ref<HTMLElement>;
 }) {
   return (
     <section
+      ref={ref}
       style={style}
       className={`rounded-xl border border-border-default bg-surface ${
         padded ? "p-4 sm:p-5" : ""

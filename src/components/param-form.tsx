@@ -11,6 +11,7 @@ import {
   TextInput,
   Toggle,
 } from "@/components/ui/inputs";
+import { VideoUpload } from "@/components/ui/video-upload";
 import type { ClientParam, ParamValue } from "@/lib/workflows/types";
 
 const DEFAULT_GROUP = "Settings";
@@ -255,6 +256,19 @@ function Control({
       return (
         <Field id={id} label={param.label} help={param.help} error={error}>
           <ImageUpload
+            id={id}
+            value={String(value ?? "")}
+            onChange={(next) => onChange(param.id, next)}
+            disabled={disabled}
+            describedBy={describedBy}
+          />
+        </Field>
+      );
+
+    case "video":
+      return (
+        <Field id={id} label={param.label} help={param.help} error={error}>
+          <VideoUpload
             id={id}
             value={String(value ?? "")}
             onChange={(next) => onChange(param.id, next)}

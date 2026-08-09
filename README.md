@@ -226,12 +226,12 @@ bad mapping surfaces immediately instead of sending a subtly wrong job to the
 GPU. The same check runs on `/api/workflows` and again before every submit.
 
 Param types available: `text`, `textarea`, `number`, `slider`, `select`,
-`toggle`, `seed`, `image`. Mark a param `advanced: true` to tuck it behind the disclosure;
+`toggle`, `seed`, `image`, `video`. Mark a param `advanced: true` to tuck it behind the disclosure;
 `group` sets the section heading.
 
 ## The bundled workflows
 
-All three target **MiniMax H3** and produce a video with a generated audio
+All four target **MiniMax H3** and produce a video with a generated audio
 track. They share sampling, timing and encoding controls via
 `minimax-common.ts`.
 
@@ -240,10 +240,11 @@ track. They share sampling, timing and encoding controls via
 | `minimax-h3` — text to video | Aspect ratio + megapixels (`ResolutionSelector`) |
 | `minimax-h3-i2v` — image to video | The uploaded image, rescaled by `ImageScaleToTotalPixels` |
 | `minimax-h3-ref` — reference to video | Aspect ratio + megapixels (`ResolutionSelector`) |
+| `minimax-h3-ref2v` — video to video | Aspect ratio + megapixels (`ResolutionSelector`) |
 
 ### The prompt is rewritten before the model sees it
 
-All three graphs run what you type through an LLM first. A
+Every graph runs what you type through an LLM first. A
 `PrimitiveStringMultiline` node holds the raw input, an `OAIAPI_ChatCompletion`
 node expands it into a shot-by-shot description using the shared
 `PROMPT_DIRECTOR` system prompt in `minimax-common.ts`, and only that output
@@ -288,9 +289,35 @@ reading the rescaled upload rather than from any size picker. There is no
 `ResolutionSelector` in this graph at all — an earlier export carried an
 orphaned one, and the current export drops it.
 
+### Remix: video to video
+
+`minimax-h3-ref2v` is the reference graph with a clip wired in — `LoadVideo`
+loads it, `GetVideoComponents` splits it into frames and audio, and both halves
+reach `MiniMaxH3ReferenceToVideo` as `ref_videos.ref_video_0` and
+`ref_audios.ref_audio_0`. Reference images still work and are optional here.
+
+**Remix** on a finished generation is how a clip usually gets there. It selects
+this workflow, loads the clip, carries over the prompt and framing it was made
+with, and stops — nothing is submitted, because the point is to edit before
+running. Which settings travel is the `CARRIED_PARAMS` list in `studio.tsx`;
+the seed deliberately does not, since reusing it would pin the new take to the
+old one's noise.
+
+The copy is the part that needs a route of its own. ComfyUI writes what a
+workflow produces to its **output** directory and only lets loader nodes read
+from its **input** directory, and nothing in its HTTP API moves a file between
+the two. So `POST /api/remix` fetches the clip through `/view` and posts it
+back to `/upload/image` — which is the upload endpoint for any media, there is
+no `/upload/video`. That runs server-side rather than round-tripping through
+the browser: a generated clip is comfortably past the 4.5 MB body cap, and the
+bytes would otherwise cross the user's connection twice for no reason.
+
+Uploading a clip by hand still works, and is what the 4 MB ceiling in
+`video-upload.tsx` is about. Remix never touches it.
+
 ### Audio
 
-All three graphs decode an audio track into `CreateVideo`, so they set
+Every graph decodes an audio track into `CreateVideo`, so they set
 `hasAudio: true`. The result player does not autoplay audio workflows —
 browsers only allow autoplay while muted, which would throw away the
 soundtrack the model just spent minutes generating.

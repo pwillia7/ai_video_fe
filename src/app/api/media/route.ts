@@ -1,21 +1,15 @@
 import { unauthorized } from "@/lib/auth";
 import { contentTypeFor, viewFile } from "@/lib/comfy";
 import { errorResponse } from "@/lib/errors";
-import { ParamError } from "@/lib/params";
+import { isUnsafePath, ParamError } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const ALLOWED_TYPES = new Set(["output", "temp", "input"]);
 
-/**
- * Reject anything that could climb out of ComfyUI's output directory. ComfyUI
- * does its own checking, but this route is the internet-facing edge of it.
- */
 function assertSafePath(value: string, field: string): void {
-  if (value.includes("..") || value.startsWith("/") || value.includes("\\")) {
-    throw new ParamError(`Invalid ${field}.`, field);
-  }
+  if (isUnsafePath(value)) throw new ParamError(`Invalid ${field}.`, field);
 }
 
 /**

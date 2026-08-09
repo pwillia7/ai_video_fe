@@ -1,5 +1,5 @@
 import { unauthorized } from "@/lib/auth";
-import { loadImageRef, uploadImage } from "@/lib/comfy";
+import { inputFileRef, uploadInputFile } from "@/lib/comfy";
 import { errorResponse } from "@/lib/errors";
 import { ParamError } from "@/lib/params";
 
@@ -12,15 +12,20 @@ export const maxDuration = 120;
  * an opaque platform error. The client downscales above this threshold.
  */
 const MAX_BYTES = 4 * 1024 * 1024;
-const ACCEPTED = /^image\//;
+const ACCEPTED = /^(image|video)\//;
 
 /**
  * Relays a browser file upload into ComfyUI's input directory and returns the
- * reference a LoadImage node needs.
+ * reference a LoadImage or LoadVideo node needs.
  *
  * Goes through us rather than straight to ComfyUI for the same reasons as
  * everything else: mixed content blocks an HTTPS page from posting to a plain
  * http:// origin, and the ComfyUI credentials never leave the server.
+ *
+ * Video is accepted here but rarely arrives: 4 MB does not go far, and the
+ * common way to get a clip into a workflow is Remix, which copies one that is
+ * already on the ComfyUI box (see /api/remix) rather than moving bytes through
+ * the browser.
  */
 export async function POST(request: Request) {
   const denied = unauthorized(request);
@@ -31,20 +36,20 @@ export async function POST(request: Request) {
     const file = form.get("file");
 
     if (!(file instanceof File)) {
-      throw new ParamError("No image was included in the upload.", "image");
+      throw new ParamError("No file was included in the upload.", "image");
     }
     if (file.size === 0) {
-      throw new ParamError("That image file is empty.", "image");
+      throw new ParamError("That file is empty.", "image");
     }
     if (file.size > MAX_BYTES) {
       throw new ParamError(
-        `That image is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_BYTES / 1024 / 1024} MB.`,
+        `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_BYTES / 1024 / 1024} MB.`,
         "image",
       );
     }
     if (file.type && !ACCEPTED.test(file.type)) {
       throw new ParamError(
-        `${file.type || "That file"} is not an image.`,
+        `${file.type || "That file"} is not an image or a video.`,
         "image",
       );
     }
@@ -52,10 +57,10 @@ export async function POST(request: Request) {
     // Strip any path the browser may have included; ComfyUI decides the final
     // name and hands it back.
     const safeName = (file.name || "upload.png").split(/[\\/]/).pop()!;
-    const uploaded = await uploadImage(file, safeName);
+    const uploaded = await uploadInputFile(file, safeName);
 
     return Response.json({
-      ref: loadImageRef(uploaded),
+      ref: inputFileRef(uploaded),
       name: uploaded.name,
       subfolder: uploaded.subfolder,
       type: uploaded.type,

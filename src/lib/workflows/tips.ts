@@ -97,6 +97,37 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       { heading: "Length", items: [DURATION_NOTE] },
     ],
   },
+
+  "minimax-h3-ref2v": {
+    sections: [
+      {
+        heading: "Working from a clip",
+        items: [
+          "The reference video supplies motion, framing and audio. Your prompt says what should be different about the new take.",
+          "Remix on a finished generation loads it here, along with the prompt and framing it was made with — so the quickest way to iterate is generate, remix, change one thing.",
+          "A clip from anywhere works too, not only your own generations, as long as it is under the 4 MB upload limit.",
+        ],
+      },
+      {
+        heading: "Your prompt gets expanded first",
+        items: [
+          "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it.",
+          "It is shown your reference images, but not the clip. Anything about the video the rewrite needs to know has to be in what you type.",
+          "<Picture 1> and <Picture 2> tags are carried through the rewrite untouched, so keep using them.",
+        ],
+      },
+      {
+        heading: "Adding reference images",
+        items: [
+          "Optional here — the clip on its own is enough. Add one to bring in a subject the video does not already contain.",
+          "Name each by tag in the order you added it: <Picture 1> for the first, <Picture 2> for the second.",
+          "Say what each reference controls — identity, style, motion, camera, voice. Spelling this out works much better than leaving it implied.",
+        ],
+      },
+      PROMPT_STRUCTURE,
+      { heading: "Length", items: [DURATION_NOTE] },
+    ],
+  },
 };
 
 export function tipsFor(workflowId: string): WorkflowTips | undefined {

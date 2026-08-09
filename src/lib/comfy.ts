@@ -246,32 +246,42 @@ export async function systemStats(): Promise<unknown> {
   return comfyJson<unknown>("/system_stats", { timeoutMs: 8_000 });
 }
 
-export interface UploadedImage {
+export interface UploadedFile {
   name: string;
   subfolder: string;
   type: string;
 }
 
 /**
- * Push an image into ComfyUI's input directory so a LoadImage node can find it.
+ * Push a file into ComfyUI's input directory so a LoadImage or LoadVideo node
+ * can find it.
  *
- * LoadImage takes a filename, not image data, so an image-to-video workflow
- * needs the file to exist server-side before the prompt is queued.
+ * Those nodes take a filename, not file data, so anything the user supplies has
+ * to exist server-side before the prompt is queued.
+ *
+ * The endpoint is /upload/image whatever the media is — ComfyUI writes the
+ * bytes without inspecting them, and its own frontend posts video and audio
+ * here too. There is no /upload/video to use instead.
  */
-export async function uploadImage(
+export async function uploadInputFile(
   file: Blob,
   filename: string,
-): Promise<UploadedImage> {
+  /**
+   * Overwrite an existing file of the same name instead of letting ComfyUI
+   * suffix a fresh copy. Only for content whose name already identifies it —
+   * a generated output being copied back in — so that repeating the operation
+   * does not fill the input directory with duplicates.
+   */
+  { overwrite = false }: { overwrite?: boolean } = {},
+): Promise<UploadedFile> {
   const form = new FormData();
   form.append("image", file, filename);
-  // Let ComfyUI de-duplicate by suffixing rather than clobbering an existing
-  // file that another workflow may still reference.
-  form.append("overwrite", "false");
+  form.append("overwrite", overwrite ? "true" : "false");
   form.append("type", "input");
 
   // Content-Type is deliberately unset: fetch must generate the multipart
   // boundary itself, and supplying the header would break the body framing.
-  return comfyJson<UploadedImage>("/upload/image", {
+  return comfyJson<UploadedFile>("/upload/image", {
     method: "POST",
     body: form,
     timeoutMs: 120_000,
@@ -279,10 +289,10 @@ export async function uploadImage(
 }
 
 /**
- * How LoadImage refers to an uploaded file: bare name at the input root, or
+ * How a loader node refers to an uploaded file: bare name at the input root, or
  * "subfolder/name" when ComfyUI filed it under one.
  */
-export function loadImageRef(uploaded: UploadedImage): string {
+export function inputFileRef(uploaded: UploadedFile): string {
   return uploaded.subfolder
     ? `${uploaded.subfolder}/${uploaded.name}`
     : uploaded.name;

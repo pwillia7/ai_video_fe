@@ -15,6 +15,8 @@ export function GenerationStage({
   estimateSeconds,
   onCancel,
   onReuseSeed,
+  onRemix,
+  remixing = false,
 }: {
   job: Job | null;
   /** Ticking clock, so the elapsed timer advances between poll results. */
@@ -23,13 +25,22 @@ export function GenerationStage({
   estimateSeconds: number | null;
   onCancel: (promptId: string) => void;
   onReuseSeed?: (seed: number) => void;
+  /** Absent when no registered workflow can take a clip as a reference. */
+  onRemix?: (job: Job) => void;
+  /** The copy into ComfyUI's input directory is still in flight. */
+  remixing?: boolean;
 }) {
   return (
     <div className="flex min-h-[320px] flex-col sm:min-h-[420px]">
       {!job ? (
         <Empty />
       ) : job.phase === "done" && job.outputs.length > 0 ? (
-        <Result job={job} onReuseSeed={onReuseSeed} />
+        <Result
+          job={job}
+          onReuseSeed={onReuseSeed}
+          onRemix={onRemix}
+          remixing={remixing}
+        />
       ) : job.phase === "error" ? (
         <Failure job={job} />
       ) : job.phase === "cancelled" || job.phase === "unknown" ? (
@@ -220,16 +231,24 @@ function Closed({ job }: { job: Job }) {
   );
 }
 
+/** What can be fed back in as a reference clip; a still cannot. */
+const REMIXABLE = /\.(mp4|webm|mkv|mov|m4v)$/i;
+
 function Result({
   job,
   onReuseSeed,
+  onRemix,
+  remixing,
 }: {
   job: Job;
   onReuseSeed?: (seed: number) => void;
+  onRemix?: (job: Job) => void;
+  remixing?: boolean;
 }) {
   const [primary, ...rest] = job.outputs;
   const seed = job.resolved?.seed;
   const src = withToken(primary.url);
+  const canRemix = Boolean(onRemix) && REMIXABLE.test(primary.filename);
   const took =
     job.completedAt !== undefined
       ? formatDuration(job.completedAt - job.submittedAt)
@@ -266,6 +285,34 @@ function Result({
           {typeof seed === "number" && onReuseSeed ? (
             <Button size="sm" variant="ghost" onClick={() => onReuseSeed(seed)}>
               Reuse seed
+            </Button>
+          ) : null}
+          {canRemix ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={remixing}
+              onClick={() => onRemix?.(job)}
+              title="Use this clip as the reference for a new generation"
+              icon={
+                <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+                  <path
+                    d="M10 2.5l2 2-2 2M6 13.5l-2-2 2-2"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M12 4.5H6a2.5 2.5 0 0 0-2.5 2.5M4 11.5h6A2.5 2.5 0 0 0 12.5 9"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              }
+            >
+              Remix
             </Button>
           ) : null}
           <a
