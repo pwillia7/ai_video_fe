@@ -34,6 +34,12 @@ export interface Job {
   workflowName: string;
   /** Kept for the history list, where the prompt is the only useful label. */
   prompt: string;
+  /**
+   * The generation this one was remixed from, when it was. Lets the history
+   * show a clip and what came out of it as one family rather than as unrelated
+   * entries that happen to sit near each other.
+   */
+  remixOf?: string;
   hasAudio: boolean;
   submittedAt: number;
   /**
@@ -208,6 +214,102 @@ export function groupByDay(
     label: dayLabel(dayJobs[0].submittedAt, now),
     jobs: dayJobs,
   }));
+}
+
+export interface LineageRow {
+  job: Job;
+  /** 0 for a source, deeper for a remix of a remix. Capped for indentation. */
+  depth: number;
+}
+
+/**
+ * Orders one day's jobs so a remix sits directly beneath what it came from.
+ *
+ * Families are placed by their *newest* member, but read oldest-first inside —
+ * so recent work still surfaces at the top of the list while a source and its
+ * remixes stay together, in the order they actually happened.
+ *
+ * A remix whose source is not in the same day, or has been deleted from
+ * history, is simply a root of its own. Nothing here assumes the chain is
+ * complete, because history is per-device and gets pruned.
+ */
+export function lineageOrder(jobs: Job[]): LineageRow[] {
+  const present = new Map(jobs.map((job) => [job.promptId, job]));
+  const parentOf = (job: Job) =>
+    job.remixOf ? present.get(job.remixOf) : undefined;
+
+  const rootOf = new Map<string, string>();
+  const depthOf = new Map<string, number>();
+
+  for (const job of jobs) {
+    let current = job;
+    let depth = 0;
+    // `seen` guards against a cycle in stored data, which would otherwise be
+    // an infinite loop on a value that came out of localStorage.
+    const seen = new Set([job.promptId]);
+    for (
+      let parent = parentOf(current);
+      parent && !seen.has(parent.promptId);
+      parent = parentOf(current)
+    ) {
+      seen.add(parent.promptId);
+      current = parent;
+      depth += 1;
+    }
+    rootOf.set(job.promptId, current.promptId);
+    depthOf.set(job.promptId, depth);
+  }
+
+  // Insertion order gives families their position: `jobs` arrives newest
+  // first, so a family lands where its most recent member would have.
+  const families = new Map<string, Job[]>();
+  for (const job of jobs) {
+    const root = rootOf.get(job.promptId)!;
+    const existing = families.get(root);
+    if (existing) existing.push(job);
+    else families.set(root, [job]);
+  }
+
+  const rows: LineageRow[] = [];
+  // Shared across families, not per family: a cycle can make two families name
+  // each other's root, and a set scoped to one of them would emit both jobs
+  // twice.
+  const emitted = new Set<string>();
+
+  for (const [rootId, members] of families) {
+    // Siblings under each parent, oldest first, so a family reads downward in
+    // the order it was actually made.
+    const childrenOf = new Map<string, Job[]>();
+    for (const member of members) {
+      if (member.promptId === rootId) continue;
+      const parent =
+        member.remixOf && present.has(member.remixOf) ? member.remixOf : rootId;
+      const siblings = childrenOf.get(parent);
+      if (siblings) siblings.push(member);
+      else childrenOf.set(parent, [member]);
+    }
+    for (const siblings of childrenOf.values()) {
+      siblings.sort((a, b) => a.submittedAt - b.submittedAt);
+    }
+
+    // Depth-first, so a remix of a remix sits under the remix it came from
+    // rather than merely later in the family.
+    const walk = (job: Job) => {
+      if (emitted.has(job.promptId)) return;
+      emitted.add(job.promptId);
+      rows.push({ job, depth: Math.min(depthOf.get(job.promptId) ?? 0, 2) });
+      for (const child of childrenOf.get(job.promptId) ?? []) walk(child);
+    };
+
+    const root = present.get(rootId);
+    if (root) walk(root);
+    // A cycle in stored data can leave members unreachable from the root.
+    // Losing an entry from the history would be worse than showing it flat.
+    for (const member of [...members].sort((a, b) => a.submittedAt - b.submittedAt)) {
+      walk(member);
+    }
+  }
+  return rows;
 }
 
 export function formatWhen(timestamp: number, now = Date.now()): string {

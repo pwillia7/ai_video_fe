@@ -181,6 +181,22 @@ function Workbench({
     [selectedId],
   );
 
+  /**
+   * Swapping the clip out by hand ends the lineage — whatever is generated
+   * next came from a different source, so claiming otherwise in the history
+   * would be worse than showing nothing.
+   */
+  const onParamChange = useCallback(
+    (id: string, value: ParamValue) => {
+      if (selected?.remixTarget?.videoParam === id) {
+        setRemixSourceId(null);
+        setRemixNotice(null);
+      }
+      setValue(id, value);
+    },
+    [selected, setValue],
+  );
+
   const resetToDefaults = useCallback(() => {
     if (!selected) return;
     // The persistence effect writes this straight back out, so the stored copy
@@ -203,6 +219,12 @@ function Workbench({
   const [remixError, setRemixError] = useState<string | null>(null);
   /** What the loaded reference clip was, for the notice above the form. */
   const [remixNotice, setRemixNotice] = useState<string | null>(null);
+  /**
+   * Which generation the loaded clip came from, so the run it produces can be
+   * shown under it in the history. Held past submit on purpose: three
+   * variations on one remix are three children of the same source.
+   */
+  const [remixSourceId, setRemixSourceId] = useState<string | null>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLElement>(null);
@@ -261,6 +283,7 @@ function Workbench({
 
         setSelectedId(target.id);
         setRemixNotice(job.prompt.trim() || job.workflowName);
+        setRemixSourceId(job.promptId);
 
         // On mobile the form sits above the stage the button was pressed in,
         // so without this the settings it just filled in are off-screen.
@@ -329,7 +352,12 @@ function Workbench({
 
   const submit = useCallback(() => {
     if (!selected || jobs.submitting) return;
-    void jobs.submit(selected, values);
+    void jobs.submit(
+      selected,
+      values,
+      // Only meaningful on the workflow the clip was loaded into.
+      selected.remixTarget ? (remixSourceId ?? undefined) : undefined,
+    );
     // The form has been acted on, so the note explaining how it got filled in
     // has served its purpose.
     setRemixNotice(null);
@@ -341,7 +369,7 @@ function Workbench({
         stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
     }
-  }, [selected, values, jobs]);
+  }, [selected, values, jobs, remixSourceId]);
 
   // Cmd/Ctrl+Enter from anywhere fires the run. Held in a ref so the listener
   // is attached once rather than on every keystroke in the prompt box.
@@ -440,6 +468,7 @@ function Workbench({
                   // Choosing a workflow by hand supersedes whatever a remix
                   // set up, so the note about it goes.
                   setRemixNotice(null);
+                  setRemixSourceId(null);
                   setSelectedId(id);
                 }}
               />
@@ -509,7 +538,7 @@ function Workbench({
                 <ParamForm
                   params={selected.params}
                   values={values}
-                  onChange={setValue}
+                  onChange={onParamChange}
                   fieldError={fieldError}
                 />
               </Panel>

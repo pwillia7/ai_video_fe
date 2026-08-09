@@ -205,14 +205,13 @@ const ids: MinimaxNodeIds = {
   duration: "105:111",
   noise: "105:15",
   scheduler: "105:9",
-  sampler: "105:17",
 };
 
 const params: ParamDef[] = [
   promptParam(
     ids,
     DEFAULT_PROMPT,
-    "A one-line idea is enough — a director model expands it into shots, camera moves and audio first. Detail you do give is kept, so say anything you care about.",
+    "One line is enough. A director model fills in the shots, camera and sound, and keeps whatever you do specify.",
     6,
   ),
 
@@ -238,7 +237,7 @@ const params: ParamDef[] = [
     max: 2,
     step: 0.05,
     unit: "MP",
-    help: "Total pixels per frame. The aspect ratio decides the shape, this decides the scale. Higher is slower and heavier on VRAM.",
+    help: "Higher is sharper, and slower.",
     group: "Output",
     targets: [{ node: "115", input: "megapixels" }],
   },
@@ -248,9 +247,8 @@ const params: ParamDef[] = [
 
 export const minimaxH3: WorkflowDef = {
   id: "minimax-h3",
-  name: "MiniMax H3 · Text to Video",
+  name: "Text to Video",
   description: "Video from a text prompt.",
-  tags: ["text-to-video", "audio", "16:9"],
   estimatedSeconds: 180,
   hasAudio: true,
   graph,

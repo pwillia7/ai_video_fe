@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/panel";
 import type { WorkflowSummary } from "@/lib/workflows/types";
 
 /**
@@ -61,16 +60,6 @@ export function WorkflowPicker({
             <p className="mt-1.5 pl-[22px] text-[12px] leading-relaxed text-fg-muted">
               {workflow.description}
             </p>
-
-            {workflow.tags?.length ? (
-              <div className="mt-2 flex flex-wrap gap-1 pl-[22px]">
-                {workflow.tags.map((tag) => (
-                  <Badge key={tag} tone={selected ? "accent" : "neutral"} mono>
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
-            ) : null}
           </button>
         );
       })}

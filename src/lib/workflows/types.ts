@@ -127,8 +127,6 @@ export interface WorkflowDef {
   id: string;
   name: string;
   description: string;
-  /** Short labels shown on the card, e.g. ["text-to-video", "720p"]. */
-  tags?: string[];
   /** Rough wall-clock estimate, used only to pace the progress hint. */
   estimatedSeconds?: number;
   /**

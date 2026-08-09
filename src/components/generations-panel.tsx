@@ -9,6 +9,7 @@ import {
   formatWhen,
   groupByDay,
   isActive,
+  lineageOrder,
   type Job,
 } from "@/lib/jobs";
 
@@ -188,8 +189,23 @@ export function GenerationsPanel({
 
               {open ? (
                 <ul className="flex flex-col gap-1.5">
-                  {group.jobs.map((job) => (
-                    <li key={job.promptId}>
+                  {lineageOrder(group.jobs).map(({ job, depth }) => (
+                    <li
+                      key={job.promptId}
+                      // Indented under whatever it was remixed from, with a
+                      // rule down the left so a source and its takes read as
+                      // one thing rather than as neighbours.
+                      className={
+                        depth > 0
+                          ? "ml-3 border-l border-border-default pl-3"
+                          : undefined
+                      }
+                      style={
+                        depth > 1
+                          ? { marginLeft: `${depth * 0.75}rem` }
+                          : undefined
+                      }
+                    >
                       <Row
                         job={job}
                         now={now}

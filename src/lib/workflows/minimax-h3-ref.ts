@@ -32,7 +32,6 @@ const ids: MinimaxNodeIds = {
   duration: "132",
   noise: "129",
   scheduler: "124",
-  sampler: "123",
 };
 
 /**
@@ -249,7 +248,7 @@ const params: ParamDef[] = [
     label: "Second reference",
     type: "image",
     default: "",
-    help: "Optional. Becomes <Picture 2> in the prompt.",
+    help: "Optional. Refer to it as <Picture 2>.",
     group: "References",
     targets: [{ node: SECOND_REF_NODE, input: "image" }],
   },
@@ -260,7 +259,7 @@ const params: ParamDef[] = [
     default: "match",
     options: [{ value: "match", label: "match" }],
     optionsFrom: { node: REFERENCE_NODE, input: "ref_image_size" },
-    help: "match is faster; max preserves identity better, up to a 2048px short edge.",
+    help: "max keeps more likeness, and is slower.",
     group: "References",
     advanced: true,
     targets: [{ node: REFERENCE_NODE, input: "ref_image_size" }],
@@ -269,7 +268,7 @@ const params: ParamDef[] = [
   promptParam(
     ids,
     "<Picture 1> is a superhero, mid-fight, in the ruins of a city.",
-    "A one line idea is enough — a director model expands it into shots, camera and audio first, and it can see your references. Name them by tag in upload order (<Picture 1>, <Picture 2>) and say what each controls; the tags survive the rewrite.",
+    "One line is enough. Name your references as <Picture 1> and <Picture 2>, in upload order.",
     6,
   ),
 
@@ -295,7 +294,7 @@ const params: ParamDef[] = [
     max: 2,
     step: 0.05,
     unit: "MP",
-    help: "Total pixels per frame. The aspect ratio decides the shape, this decides the scale.",
+    help: "Higher is sharper, and slower.",
     group: "Output",
     targets: [{ node: "115", input: "megapixels" }],
   },
@@ -305,9 +304,8 @@ const params: ParamDef[] = [
 
 export const minimaxH3Reference: WorkflowDef = {
   id: "minimax-h3-ref",
-  name: "MiniMax H3 · Reference to Video",
+  name: "Reference to Video",
   description: "Puts people or objects from your images into a new scene.",
-  tags: ["reference-to-video", "audio"],
   estimatedSeconds: 300,
   hasAudio: true,
   graph,

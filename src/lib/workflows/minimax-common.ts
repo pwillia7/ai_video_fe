@@ -23,8 +23,6 @@ export interface MinimaxNodeIds {
   noise: string;
   /** BasicScheduler. */
   scheduler: string;
-  /** KSamplerSelect. */
-  sampler: string;
 }
 
 /**
@@ -72,14 +70,14 @@ export function durationParam(ids: Pick<MinimaxNodeIds, "duration">): ParamDef {
     max: 20,
     step: 0.5,
     unit: "sec",
-    help: "Frame count is derived from this and snapped to the nearest length the model accepts, so the result can land slightly long.",
+    help: "Snaps to the nearest length the model accepts, so it can land slightly long.",
     group: "Output",
     targets: [{ node: ids.duration, input: "value" }],
   };
 }
 
 export function samplingParams(
-  ids: Pick<MinimaxNodeIds, "noise" | "scheduler" | "sampler">,
+  ids: Pick<MinimaxNodeIds, "noise" | "scheduler">,
   /** Per-graph tuning. The remix graph runs fewer steps than the rest. */
   { steps = 12 }: { steps?: number } = {},
 ): ParamDef[] {
@@ -89,7 +87,7 @@ export function samplingParams(
       label: "Seed",
       type: "seed",
       default: -1,
-      help: "Reuse a seed to reproduce a take. Randomised by default.",
+      help: "Reuse one to get the same take again.",
       group: "Sampling",
       targets: [{ node: ids.noise, input: "noise_seed" }],
     },
@@ -103,17 +101,6 @@ export function samplingParams(
       step: 1,
       group: "Sampling",
       targets: [{ node: ids.scheduler, input: "steps" }],
-    },
-    {
-      id: "sampler_name",
-      label: "Sampler",
-      type: "select",
-      default: "res_multistep",
-      options: [{ value: "res_multistep", label: "res_multistep" }],
-      optionsFrom: { node: ids.sampler, input: "sampler_name" },
-      group: "Sampling",
-      advanced: true,
-      targets: [{ node: ids.sampler, input: "sampler_name" }],
     },
   ];
 }

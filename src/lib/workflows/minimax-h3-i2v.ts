@@ -208,7 +208,6 @@ const ids: MinimaxNodeIds = {
   duration: "105:111",
   noise: "105:15",
   scheduler: "105:9",
-  sampler: "105:17",
 };
 
 const params: ParamDef[] = [
@@ -218,7 +217,7 @@ const params: ParamDef[] = [
     type: "image",
     default: "",
     required: true,
-    help: "The video starts from this image. Its aspect ratio decides the output shape.",
+    help: "The first frame. Its shape decides the video's.",
     group: "Image",
     targets: [{ node: "114", input: "image" }],
   },
@@ -231,7 +230,7 @@ const params: ParamDef[] = [
     max: 2,
     step: 0.05,
     unit: "MP",
-    help: "The upload is rescaled to this many pixels, and the video inherits those dimensions. Higher is slower and heavier on VRAM.",
+    help: "Higher is sharper, and slower.",
     group: "Image",
     targets: [{ node: "119", input: "megapixels" }],
   },
@@ -239,7 +238,7 @@ const params: ParamDef[] = [
   promptParam(
     ids,
     "The subject stands up and starts dancing.",
-    "Say what should happen next, not what the image already shows — a one line idea is enough. A director model expands it into motion, camera and audio first, and it can see your image.",
+    "Say what happens next, not what the image already shows. One line is enough.",
     6,
   ),
 
@@ -250,9 +249,8 @@ const params: ParamDef[] = [
 
 export const minimaxH3ImageToVideo: WorkflowDef = {
   id: "minimax-h3-i2v",
-  name: "MiniMax H3 · Image to Video",
+  name: "Image to Video",
   description: "Your image becomes the first frame of the video.",
-  tags: ["image-to-video", "audio"],
   estimatedSeconds: 300,
   hasAudio: true,
   graph,

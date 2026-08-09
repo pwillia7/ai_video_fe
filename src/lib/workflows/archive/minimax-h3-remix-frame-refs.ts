@@ -56,7 +56,6 @@ const ids: Omit<MinimaxNodeIds, "duration"> = {
   prompt: { node: "138", input: "value" },
   noise: "129",
   scheduler: "124",
-  sampler: "123",
 };
 
 const REFERENCE_NODE = "136";
@@ -333,7 +332,6 @@ export const minimaxH3RemixFrameRefs: WorkflowDef = {
   id: "minimax-h3-ref2v-frame-refs",
   name: "MiniMax H3 · Remix (frame references)",
   description: "Rebuilds a clip you have already made into a new take.",
-  tags: ["video-to-video", "remix", "audio"],
   estimatedSeconds: 480,
   hasAudio: true,
   graph,

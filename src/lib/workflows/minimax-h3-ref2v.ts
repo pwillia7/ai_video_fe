@@ -36,7 +36,6 @@ const ids: Omit<MinimaxNodeIds, "duration"> = {
   prompt: { node: "138", input: "value" },
   noise: "129",
   scheduler: "124",
-  sampler: "123",
 };
 
 const VIDEO_NODE = "154";
@@ -243,7 +242,7 @@ const params: ParamDef[] = [
     type: "video",
     default: "",
     required: true,
-    help: "Remix on a finished generation fills this in, or drop in a clip of your own. Its size and length become the output's, so the control holds it to what the model can render.",
+    help: "Its size and length become the new video's. Up to 768×1344, 20s, 4 MB.",
     group: "Source",
     targets: [{ node: VIDEO_NODE, input: "file" }],
   },
@@ -251,7 +250,7 @@ const params: ParamDef[] = [
   promptParam(
     ids,
     "Make it snow, and dress the man in a heavy winter coat.",
-    "Say only what should change — a remix director turns it into explicit hold-everything-else instructions, so the performance, camera, cuts and dialogue survive.",
+    "Say only what should change. Everything you leave out is held to the clip.",
     6,
   ),
 
@@ -267,9 +266,8 @@ const params: ParamDef[] = [
 
 export const minimaxH3ReferenceVideo: WorkflowDef = {
   id: "minimax-h3-ref2v",
-  name: "MiniMax H3 · Remix",
+  name: "Remix",
   description: "Rebuilds a clip you have already made into a new take.",
-  tags: ["video-to-video", "remix", "audio"],
   estimatedSeconds: 480,
   hasAudio: true,
   graph,
