@@ -404,7 +404,17 @@ function Workbench({
           </div>
         ) : null}
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(320px,380px)_1fr]">
+        {/*
+          minmax(0,1fr) rather than 1fr: a flexible track's automatic minimum
+          is min-content, so the widest unwrappable thing in the column sets a
+          floor the track cannot go below. The history list is full of them —
+          every entry's prompt line is `truncate`, which is white-space:nowrap,
+          so its min-content is the whole prompt however long it runs. One long
+          prompt was widening this track past the page and scrolling the
+          document sideways. Capping the minimum at 0 lets the ellipsis do the
+          job it was there for.
+        */}
+        <div className="grid gap-5 lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]">
           {/* min-w-0: a grid item defaults to min-width:auto and would grow
               past its track to fit wide content such as an image preview. */}
           <div className="flex min-w-0 flex-col gap-5">
@@ -501,7 +511,9 @@ function Workbench({
 
           <div
             ref={stageRef}
-            className="flex scroll-mt-20 flex-col gap-4 lg:sticky lg:top-20 lg:self-start"
+            /* min-w-0 for the same reason as the left column: without it this
+               grid item takes min-width:auto and grows past its track. */
+            className="flex min-w-0 scroll-mt-20 flex-col gap-4 lg:sticky lg:top-20 lg:self-start"
           >
             {/* On mobile this lives in the pinned bar at the bottom instead,
                 so the primary action is never a scroll away. */}
