@@ -243,7 +243,7 @@ track. They share sampling, timing and encoding controls via
 | `minimax-h3` — text to video | Aspect ratio + megapixels (`ResolutionSelector`) |
 | `minimax-h3-i2v` — image to video | The uploaded image, rescaled by `ImageScaleToTotalPixels` |
 | `minimax-h3-ref` — reference to video | Aspect ratio + megapixels (`ResolutionSelector`) |
-| `minimax-h3-ref2v` — remix | The source clip's frames, measured by `GetImageSize` |
+| `minimax-h3-ref2v` — remix | The source clip's frames, measured by `GetImageSizeAndCount` — length included |
 
 ### The prompt is rewritten before the model sees it
 
@@ -314,19 +314,30 @@ derived from that one input:
   `ImageFromBatch` (157-161) peels off one each to fill the five
   `ref_images.ref_image_*` slots. `num_frames` is not a knob — those five nodes
   index the batch by position, so a smaller sample would read past its end.
-- `GetImageSize` (162) measures the first of those frames, and that is the
-  output size. There is no `ResolutionSelector` in this graph: a remix should
-  come back the shape it went in. Same arrangement as the image-to-video graph,
-  for the same reason.
+- `GetImageSizeAndCount` (163) measures the clip's own frames — not the
+  five-frame sample — and supplies all three dimensions of the output: width,
+  height, and length as a frame count. A remix comes back the same shape and
+  the same length as what went in, so this graph has neither a
+  `ResolutionSelector` nor a duration node, and no frame-count expression to
+  derive one from.
+
 - The same five frames go to the rewrite stage, so the director sees the clip
   it is editing.
 
-**The form has no video or image controls, and no size controls either**, and
-that is the point rather than an omission: every one of those inputs is a
-consequence of the clip, so offering pickers would imply choices that do not
-exist. The clip param is marked `hidden` — it still validates and still writes
-to its target, it simply has no control. What stays editable is what the clip
-cannot decide: prompt, duration, frame rate, sampling, encoding.
+**The form has no video, image, size or duration controls**, and that is the
+point rather than an omission: every one of those inputs is a consequence of
+the clip, so offering pickers would imply choices that do not exist. The clip
+param is marked `hidden` — it still validates and still writes to its target,
+it simply has no control. What stays editable is what the clip cannot decide:
+prompt, frame rate, sampling, encoding.
+
+Frame rate is worth a note, because it means something different here. On the
+generating graphs it is paired with a duration and the frame count is rebuilt
+from both, so the clip stays the length you asked for. Here the frame count is
+the source's and fixed, so fps divides into it: the same frames, played faster
+or slower. It stays adjustable rather than pinned to the source's own rate
+because Remix carries fps across, so it already matches unless changed on
+purpose.
 
 **Remix** on a finished generation is the only way in. It selects this
 workflow, loads the clip, carries over the prompt and framing it was made with,

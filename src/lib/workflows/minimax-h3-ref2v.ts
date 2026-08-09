@@ -1,10 +1,7 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
-  FRAME_EXPRESSION,
-  durationParam,
   encodingParams,
-  fpsParam,
   promptParam,
   REMIX_DIRECTOR,
   samplingParams,
@@ -23,10 +20,10 @@ import {
  * - 155 samples five frames spread evenly across it, 156 turns that sample
  *   back into images, and 157-161 peel off one frame each to fill the five
  *   reference-image slots.
- * - 162 measures the first of those frames, and that is the output size. There
- *   is no ResolutionSelector in this graph — a remix should come back the shape
- *   it went in, so aspect ratio and frame size are not controls here. Same
- *   arrangement as the image-to-video graph, for the same reason.
+ * - 163 measures the clip's own frames and supplies all three dimensions of
+ *   the output: width, height, and length as a frame count. So a remix comes
+ *   back the same shape and the same length as what went in, and there is
+ *   neither a ResolutionSelector nor a duration node in this graph.
  * - 156 also feeds the rewrite stage, so the director sees what the clip looks
  *   like rather than working blind from the filename.
  *
@@ -34,11 +31,9 @@ import {
  * are consequences of the clip, not choices. The clip arrives from the Remix
  * button (`remixTarget` below), which is the only way into this workflow.
  */
-const ids: MinimaxNodeIds = {
+const ids: Omit<MinimaxNodeIds, "duration" | "frameExpression"> = {
   prompt: { node: "138", input: "value" },
-  duration: "132",
   video: "130",
-  frameExpression: "131",
   noise: "129",
   scheduler: "124",
   sampler: "123",
@@ -55,6 +50,7 @@ const graph: ComfyGraph = {
       filename_prefix: "video/MiniMax_H3",
       format: "auto",
       codec: "auto",
+      "video-preview": "",
       video: ["130", 0],
     },
     _meta: { title: "Save Video" },
@@ -88,7 +84,7 @@ const graph: ComfyGraph = {
     class_type: "BasicScheduler",
     inputs: {
       scheduler: "simple",
-      steps: 20,
+      steps: 16,
       denoise: 1,
       model: ["127", 0],
     },
@@ -129,7 +125,7 @@ const graph: ComfyGraph = {
   },
   "129": {
     class_type: "RandomNoise",
-    inputs: { noise_seed: 940146333185580 },
+    inputs: { noise_seed: 432597392404604 },
     _meta: { title: "RandomNoise" },
   },
   "130": {
@@ -142,27 +138,15 @@ const graph: ComfyGraph = {
     },
     _meta: { title: "Create Video" },
   },
-  "131": {
-    class_type: "ComfyMathExpression",
-    inputs: {
-      expression: FRAME_EXPRESSION(24),
-      "values.a": ["132", 0],
-    },
-    _meta: { title: "Math Expression" },
-  },
-  "132": {
-    class_type: "PrimitiveFloat",
-    inputs: { value: 5 },
-    _meta: { title: "Float (Duration)" },
-  },
   "136": {
     class_type: "MiniMaxH3ReferenceToVideo",
     inputs: {
       prompt: ["145", 0],
-      // Both from the measured frame, so the remix keeps the source's shape.
-      width: ["162", 0],
-      height: ["162", 1],
-      length: ["131", 1],
+      // All three measured off the clip: outputs 1, 2 and 3 of node 163 are
+      // width, height and frame count.
+      width: ["163", 1],
+      height: ["163", 2],
+      length: ["163", 3],
       ref_image_size: "match",
       clip: ["128", 0],
       vae: ["119", 0],
@@ -235,7 +219,7 @@ const graph: ComfyGraph = {
     inputs: {
       num_frames: 5,
       strategy: "uniform",
-      seed: 0,
+      seed: 848550697915228,
       video: ["154", 0],
     },
     _meta: { title: "Sample Video Frame" },
@@ -271,12 +255,12 @@ const graph: ComfyGraph = {
     _meta: { title: "Get Image from Batch" },
   },
 
-  // The output size, read off the first sampled frame. Any of the five would
-  // do — they come from the same clip.
-  "162": {
-    class_type: "GetImageSize",
-    inputs: { image: ["157", 0] },
-    _meta: { title: "Get Image Size" },
+  // Reads the clip's full frame sequence, not the five-frame sample: the count
+  // has to be the length of the source, not the size of the reference set.
+  "163": {
+    class_type: "GetImageSizeAndCount",
+    inputs: { image: ["153", 0] },
+    _meta: { title: "Get Image Size & Count" },
   },
 };
 
@@ -314,13 +298,36 @@ const params: ParamDef[] = [
     6,
   ),
 
-  // No aspect ratio or frame size here, unlike every other workflow: the
-  // output is measured off the clip by node 162. Length and frame rate stay
-  // adjustable because neither is inherited.
-  durationParam(ids),
-  fpsParam(ids),
+  /**
+   * The only output control left, and it means something different here than
+   * on the other graphs.
+   *
+   * Elsewhere fps is paired with a duration: the frame count is rebuilt from
+   * both, so the clip stays the length you asked for. Here the frame count is
+   * the source's, fixed, so fps divides into it — the same frames played
+   * faster or slower. It is a speed control, and the help says so.
+   *
+   * Left adjustable rather than pinned to the source's own rate because Remix
+   * carries fps over from the generation being remixed, so it already matches
+   * unless someone changes it on purpose.
+   */
+  {
+    id: "fps",
+    label: "Frame rate",
+    type: "number",
+    default: 24,
+    min: 8,
+    max: 60,
+    step: 1,
+    unit: "fps",
+    help: "The remix has as many frames as the clip it came from, so this sets how fast they play — and with it the length. Match the source to keep the timing.",
+    group: "Output",
+    targets: [{ node: ids.video, input: "fps" }],
+  },
 
-  ...samplingParams(ids),
+  // Steps default to 16 rather than the 20 the generating graphs use: a remix
+  // is holding to a source rather than inventing from noise.
+  ...samplingParams(ids, { steps: 16 }),
   ...encodingParams(ids),
 ];
 

@@ -3,10 +3,15 @@ import type { ParamDef } from "./types";
 /**
  * Shared pieces of the MiniMax H3 graphs.
  *
- * The three exports use the same node *types* for sampling, timing and
- * encoding but different node *ids* — the text/image graphs come from a
- * flattened subgraph ("105:9"), the reference graph does not ("124"). So the
- * builders take an id map rather than assuming a naming scheme.
+ * The exports use the same node *types* for sampling, timing and encoding but
+ * different node *ids* — the text/image graphs come from a flattened subgraph
+ * ("105:9"), the reference graphs do not ("124"). So the builders take an id
+ * map rather than assuming a naming scheme.
+ *
+ * This is the full catalogue; each builder asks for the slice it actually
+ * writes to. That matters because not every graph has every node — the remix
+ * graph derives its length from the source clip, so it has no duration node
+ * and no frame-count expression, and declares its ids with those omitted.
  */
 export interface MinimaxNodeIds {
   /** Where the prompt text is written. Sometimes the video node, sometimes a
@@ -44,7 +49,7 @@ export const FRAME_EXPRESSION = (fps: number) =>
   `max(5, round(a * ${fps})) + (5 - (max(5, round(a * ${fps})) % 17)) % 17`;
 
 export function promptParam(
-  ids: MinimaxNodeIds,
+  ids: Pick<MinimaxNodeIds, "prompt">,
   defaultPrompt: string,
   help: string,
   rows = 10,
@@ -63,7 +68,7 @@ export function promptParam(
   };
 }
 
-export function durationParam(ids: MinimaxNodeIds): ParamDef {
+export function durationParam(ids: Pick<MinimaxNodeIds, "duration">): ParamDef {
   return {
     id: "duration",
     label: "Duration",
@@ -79,7 +84,9 @@ export function durationParam(ids: MinimaxNodeIds): ParamDef {
   };
 }
 
-export function fpsParam(ids: MinimaxNodeIds): ParamDef {
+export function fpsParam(
+  ids: Pick<MinimaxNodeIds, "video" | "frameExpression">,
+): ParamDef {
   return {
     id: "fps",
     label: "Frame rate",
@@ -104,7 +111,11 @@ export function fpsParam(ids: MinimaxNodeIds): ParamDef {
   };
 }
 
-export function samplingParams(ids: MinimaxNodeIds): ParamDef[] {
+export function samplingParams(
+  ids: Pick<MinimaxNodeIds, "noise" | "scheduler" | "sampler">,
+  /** Per-graph tuning. The remix graph runs fewer steps than the rest. */
+  { steps = 20 }: { steps?: number } = {},
+): ParamDef[] {
   return [
     {
       id: "seed",
@@ -119,7 +130,7 @@ export function samplingParams(ids: MinimaxNodeIds): ParamDef[] {
       id: "steps",
       label: "Steps",
       type: "slider",
-      default: 20,
+      default: steps,
       min: 4,
       max: 60,
       step: 1,
@@ -163,7 +174,7 @@ export function samplingParams(ids: MinimaxNodeIds): ParamDef[] {
   ];
 }
 
-export function encodingParams(ids: MinimaxNodeIds): ParamDef[] {
+export function encodingParams(ids: Pick<MinimaxNodeIds, "save">): ParamDef[] {
   return [
     {
       id: "format",
