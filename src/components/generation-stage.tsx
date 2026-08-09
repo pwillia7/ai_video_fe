@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge, Dot } from "@/components/ui/panel";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { withToken } from "@/lib/client";
 import { formatDuration, type Job } from "@/lib/jobs";
 
@@ -221,7 +221,7 @@ function Failure({
             is usually what it was run with. */}
         {onShowSettings ? (
           <div className="mt-5">
-            <Button size="sm" variant="ghost" onClick={onShowSettings}>
+            <Button size="sm" variant="quiet" onClick={onShowSettings}>
               View settings
             </Button>
           </div>
@@ -304,12 +304,12 @@ function Result({
 
         <div className="ml-auto flex items-center gap-2">
           {onShowSettings ? (
-            <Button size="sm" variant="ghost" onClick={onShowSettings}>
+            <Button size="sm" variant="quiet" onClick={onShowSettings}>
               Settings
             </Button>
           ) : null}
           {typeof seed === "number" && onReuseSeed ? (
-            <Button size="sm" variant="ghost" onClick={() => onReuseSeed(seed)}>
+            <Button size="sm" variant="quiet" onClick={() => onReuseSeed(seed)}>
               Reuse seed
             </Button>
           ) : null}
@@ -341,12 +341,13 @@ function Result({
               Remix
             </Button>
           ) : null}
+          {/* An anchor, not a button: `download` is what saves the file, and
+              there is no way to keep that on a <button>. Borrowing the button
+              recipe keeps it from drifting out of step with the row. */}
           <a
             href={src}
             download={primary.filename}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border
-              border-border-default bg-surface px-3 text-[13px] font-medium
-              text-fg transition-colors hover:border-border-strong hover:bg-surface-hover"
+            className={buttonClasses({ variant: "secondary", size: "sm" })}
           >
             <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden="true">
               <path

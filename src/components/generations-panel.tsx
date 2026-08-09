@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Dot } from "@/components/ui/panel";
 import { withToken } from "@/lib/client";
 import {
@@ -101,43 +102,48 @@ export function GenerationsPanel({
 
           return (
             <section key={group.key}>
-              <header className="mb-1.5 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setOpenOverrides((previous) => ({
-                      ...previous,
-                      [group.key]: !open,
-                    }))
-                  }
-                  aria-expanded={open}
-                  className="group flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                >
-                  <svg
-                    viewBox="0 0 16 16"
-                    className={`size-3 shrink-0 text-fg-subtle transition-transform duration-200
-                      ${open ? "rotate-90" : ""}`}
-                    aria-hidden="true"
+              {/* The confirmation takes the whole row rather than squeezing in
+                  beside the toggle: the question needs the width, and there is
+                  nothing else worth doing while it is being asked. */}
+              <header className="mb-1.5 flex h-6 items-center gap-2">
+                {confirming ? null : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenOverrides((previous) => ({
+                        ...previous,
+                        [group.key]: !open,
+                      }))
+                    }
+                    aria-expanded={open}
+                    className="group flex min-w-0 flex-1 items-center gap-1.5 text-left"
                   >
-                    <path
-                      d="M6 4l4 4-4 4"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      fill="none"
-                    />
-                  </svg>
-                  <span
-                    className="truncate text-[11px] font-medium uppercase tracking-[0.08em]
-                      text-fg-subtle transition-colors group-hover:text-fg-muted"
-                  >
-                    {group.label}
-                  </span>
-                  <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
-                    {group.jobs.length}
-                  </span>
-                </button>
+                    <svg
+                      viewBox="0 0 16 16"
+                      className={`size-3 shrink-0 text-fg-subtle transition-transform duration-200
+                        ${open ? "rotate-90" : ""}`}
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M6 4l4 4-4 4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        fill="none"
+                      />
+                    </svg>
+                    <span
+                      className="truncate text-[11px] font-medium uppercase tracking-[0.08em]
+                        text-fg-subtle transition-colors group-hover:text-fg-muted"
+                    >
+                      {group.label}
+                    </span>
+                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                      {group.jobs.length}
+                    </span>
+                  </button>
+                )}
 
                 {confirming ? (
                   <ConfirmBar
@@ -155,24 +161,27 @@ export function GenerationsPanel({
                     }}
                   />
                 ) : (
-                  <div className="flex shrink-0 items-center gap-2.5">
+                  <div className="flex shrink-0 items-center gap-1.5">
                     {downloadable.length > 0 ? (
-                      <HeaderAction
+                      <Button
+                        variant="quiet"
+                        size="xs"
                         onClick={() =>
                           setPending({ day: group.key, action: "download" })
                         }
                       >
                         Download
-                      </HeaderAction>
+                      </Button>
                     ) : null}
-                    <HeaderAction
-                      danger
+                    <Button
+                      variant="quiet-danger"
+                      size="xs"
                       onClick={() =>
                         setPending({ day: group.key, action: "delete" })
                       }
                     >
                       Delete
-                    </HeaderAction>
+                    </Button>
                   </div>
                 )}
               </header>
@@ -199,37 +208,16 @@ export function GenerationsPanel({
       </div>
 
       {finishedCount > 0 ? (
-        <button
-          type="button"
+        <Button
+          variant="quiet-danger"
+          size="xs"
+          className="mt-1 self-start"
           onClick={onClearFinished}
-          className="self-start text-[12px] font-medium text-fg-muted
-            transition-colors hover:text-danger"
         >
           Clear {finishedCount} finished
-        </button>
+        </Button>
       ) : null}
     </div>
-  );
-}
-
-function HeaderAction({
-  children,
-  onClick,
-  danger = false,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`shrink-0 text-[11px] font-medium text-fg-subtle transition-colors
-        ${danger ? "hover:text-danger" : "hover:text-fg"}`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -252,18 +240,24 @@ function ConfirmBar({
 }) {
   const noun = `${count} ${count === 1 ? "video" : "videos"}`;
   return (
-    <div className="flex shrink-0 items-center gap-2.5">
-      <span className="text-[11px] text-fg-muted">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <span className="min-w-0 flex-1 truncate text-[11px] text-fg-muted">
         {action === "download"
           ? `Download ${noun}?`
           : /* Naming what survives: the files themselves are on the ComfyUI
                box and this only forgets where they are. */
             `Forget ${noun}? Files stay on the server.`}
       </span>
-      <HeaderAction danger={action === "delete"} onClick={onConfirm}>
+      <Button
+        variant={action === "delete" ? "quiet-danger" : "quiet"}
+        size="xs"
+        onClick={onConfirm}
+      >
         {action === "download" ? "Download" : "Delete"}
-      </HeaderAction>
-      <HeaderAction onClick={onCancel}>Cancel</HeaderAction>
+      </Button>
+      <Button variant="quiet" size="xs" onClick={onCancel}>
+        Cancel
+      </Button>
     </div>
   );
 }

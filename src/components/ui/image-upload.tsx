@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Spinner } from "@/components/ui/button";
+import { Button, Spinner } from "@/components/ui/button";
 import { api, ApiError, withToken } from "@/lib/client";
 
 interface UploadResponse {
@@ -245,17 +245,17 @@ export function ImageUpload({
                 </span>
               ) : null}
               <div className="ml-auto flex shrink-0 gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="quiet"
+                  size="xs"
                   disabled={disabled || uploading}
                   onClick={() => inputRef.current?.click()}
-                  className="text-[11px] font-medium text-fg-muted transition-colors
-                    hover:text-fg disabled:opacity-50"
                 >
                   Replace
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="quiet-danger"
+                  size="xs"
                   disabled={disabled || uploading}
                   onClick={() => {
                     onChange("");
@@ -263,11 +263,9 @@ export function ImageUpload({
                     setNote(null);
                     setDimensions(null);
                   }}
-                  className="text-[11px] font-medium text-fg-muted transition-colors
-                    hover:text-danger disabled:opacity-50"
                 >
                   Remove
-                </button>
+                </Button>
               </div>
             </div>
           </div>

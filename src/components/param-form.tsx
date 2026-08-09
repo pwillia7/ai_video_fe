@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { ImageUpload } from "@/components/ui/image-upload";
 import {
@@ -88,30 +89,33 @@ export function ParamForm({
       })}
 
       {hasAdvanced ? (
-        <button
-          type="button"
+        <Button
+          variant="quiet"
+          size="xs"
+          className="self-start"
+          aria-expanded={showAdvanced}
           onClick={() => setShowAdvanced((previous) => !previous)}
-          className="self-start text-[12px] font-medium text-fg-muted transition-colors
-            hover:text-fg inline-flex items-center gap-1.5"
+          icon={
+            <svg
+              viewBox="0 0 16 16"
+              className={`size-3 shrink-0 transition-transform duration-200 ${
+                showAdvanced ? "rotate-90" : ""
+              }`}
+              aria-hidden="true"
+            >
+              <path
+                d="M6 4l4 4-4 4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+            </svg>
+          }
         >
-          <svg
-            viewBox="0 0 16 16"
-            className={`size-3 transition-transform duration-200 ${
-              showAdvanced ? "rotate-90" : ""
-            }`}
-            aria-hidden="true"
-          >
-            <path
-              d="M6 4l4 4-4 4"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
-          </svg>
           {showAdvanced ? "Hide advanced" : "Advanced"}
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -288,15 +292,14 @@ function Control({
           help={param.help}
           error={error}
           trailing={
-            <button
-              type="button"
+            <Button
+              variant="quiet"
+              size="xs"
               disabled={disabled}
               onClick={() => onChange(param.id, isRandom ? 0 : -1)}
-              className="text-[11px] font-medium text-fg-muted transition-colors
-                hover:text-accent disabled:opacity-50"
             >
               {isRandom ? "Set manually" : "Randomise"}
-            </button>
+            </Button>
           }
         >
           {isRandom ? (

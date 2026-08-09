@@ -456,19 +456,19 @@ function Workbench({
                   title="Settings"
                   hint={selected.name}
                   action={
-                    <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex shrink-0 items-center gap-2">
                       {tips ? (
-                        <button
-                          type="button"
+                        <Button
+                          variant="quiet"
+                          size="xs"
                           onClick={() => setTipsOpen(true)}
-                          className="shrink-0 whitespace-nowrap text-[12px] font-medium
-                            text-fg-muted transition-colors hover:text-accent"
                         >
                           Tips
-                        </button>
+                        </Button>
                       ) : null}
-                      <button
-                        type="button"
+                      <Button
+                        variant="quiet"
+                        size="xs"
                         onClick={resetToDefaults}
                         disabled={isDefaults}
                         title={
@@ -476,12 +476,9 @@ function Workbench({
                             ? "Already at the defaults"
                             : "Put every setting on this workflow back to its default"
                         }
-                        className="shrink-0 whitespace-nowrap text-[12px] font-medium
-                          text-fg-muted transition-colors hover:text-fg
-                          disabled:opacity-40 disabled:hover:text-fg-muted"
                       >
                         Restore defaults
-                      </button>
+                      </Button>
                     </div>
                   }
                 />
@@ -496,14 +493,14 @@ function Workbench({
                       is loaded as the reference below — change anything you
                       like, then generate.
                     </span>
-                    <button
-                      type="button"
+                    <Button
+                      variant="quiet"
+                      size="xs"
+                      className="shrink-0"
                       onClick={() => setRemixNotice(null)}
-                      aria-label="Dismiss"
-                      className="shrink-0 font-medium text-fg-muted transition-colors hover:text-fg"
                     >
                       Dismiss
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
 
@@ -555,14 +552,14 @@ function Workbench({
                   bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
               >
                 <span className="min-w-0 flex-1">{jobs.submitError}</span>
-                <button
-                  type="button"
+                <Button
+                  variant="danger"
+                  size="xs"
+                  className="shrink-0"
                   onClick={jobs.dismissSubmitError}
-                  aria-label="Dismiss"
-                  className="shrink-0 font-medium hover:underline"
                 >
                   Dismiss
-                </button>
+                </Button>
               </div>
             ) : null}
 
@@ -572,14 +569,14 @@ function Workbench({
                   bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
               >
                 <span className="min-w-0 flex-1">{remixError}</span>
-                <button
-                  type="button"
+                <Button
+                  variant="danger"
+                  size="xs"
+                  className="shrink-0"
                   onClick={() => setRemixError(null)}
-                  aria-label="Dismiss"
-                  className="shrink-0 font-medium hover:underline"
                 >
                   Dismiss
-                </button>
+                </Button>
               </div>
             ) : null}
 

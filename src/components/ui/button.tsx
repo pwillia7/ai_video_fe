@@ -1,25 +1,70 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
-type Size = "sm" | "md" | "lg";
+type Variant = "primary" | "secondary" | "quiet" | "quiet-danger" | "danger";
+type Size = "xs" | "sm" | "md" | "lg";
 
+/**
+ * Four weights, and the gap between them is what makes a screen readable: one
+ * primary action, a bordered secondary, and quiet actions for everything that
+ * should be reachable without competing.
+ *
+ * Every variant carries a border at rest, including the quiet one. That is the
+ * point of it — a bare label with a hover colour reads as text until you happen
+ * to point at it, so the affordance only exists for people who already suspect
+ * it is there. A hairline costs almost nothing visually and says "control"
+ * immediately, which is how the rest of this interface draws its edges.
+ */
 const VARIANTS: Record<Variant, string> = {
   // Geist's primary is a solid fill that inverts on hover rather than dimming.
   primary:
     "bg-accent text-accent-fg border border-accent hover:bg-accent-hover hover:border-accent-hover",
   secondary:
     "bg-surface text-fg border border-border-default hover:border-border-strong hover:bg-surface-hover",
-  ghost:
-    "bg-transparent text-fg-muted border border-transparent hover:bg-surface-hover hover:text-fg",
+  quiet:
+    "bg-transparent text-fg-muted border border-border-default hover:border-border-strong hover:bg-surface-hover hover:text-fg",
+  // Destructive, but not shouting about it until you reach for it. Its own
+  // variant rather than a className override on `quiet`: two hover:border-*
+  // utilities have no defined precedence, so which one won would come down to
+  // the order Tailwind happened to emit them in.
+  "quiet-danger":
+    "bg-transparent text-fg-muted border border-border-default hover:border-danger hover:bg-surface-hover hover:text-danger",
   danger:
     "bg-transparent text-danger border border-border-default hover:border-danger hover:bg-surface-hover",
 };
 
+/**
+ * `xs` is for actions that sit inside another component's furniture — a panel
+ * header, a day divider, the footer of a file preview. It is deliberately small
+ * enough to read as chrome rather than as content, while still clearing a
+ * usable hit area.
+ */
 const SIZES: Record<Size, string> = {
-  sm: "h-8 px-3 text-[13px] rounded-md gap-1.5",
+  xs: "h-6 px-2 text-[11px] rounded gap-1",
+  sm: "h-7 px-2.5 text-[12px] rounded-md gap-1.5",
   md: "h-10 px-4 text-sm rounded-md gap-2",
   lg: "h-12 px-5 text-[15px] rounded-lg gap-2",
 };
+
+const BASE = `inline-flex items-center justify-center font-medium tracking-[-0.01em]
+  transition-colors duration-150 select-none whitespace-nowrap
+  disabled:opacity-45 disabled:pointer-events-none`;
+
+/**
+ * The same recipe as a class string, for the handful of controls that have to
+ * be an anchor rather than a button — a download link cannot be a <button>
+ * without losing what makes it a link.
+ */
+export function buttonClasses({
+  variant = "secondary",
+  size = "md",
+  className = "",
+}: {
+  variant?: Variant;
+  size?: Size;
+  className?: string;
+} = {}): string {
+  return `${BASE} ${SIZES[size]} ${VARIANTS[variant]} ${className}`;
+}
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
@@ -43,12 +88,9 @@ export function Button({
       {...rest}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={`inline-flex items-center justify-center font-medium tracking-[-0.01em]
-        transition-colors duration-150 select-none whitespace-nowrap
-        disabled:opacity-45 disabled:pointer-events-none
-        ${SIZES[size]} ${VARIANTS[variant]} ${className}`}
+      className={buttonClasses({ variant, size, className })}
     >
-      {loading ? <Spinner /> : icon}
+      {loading ? <Spinner className={size === "xs" ? "size-3" : ""} /> : icon}
       {children}
     </button>
   );
