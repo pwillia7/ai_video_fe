@@ -330,9 +330,11 @@ const params: ParamDef[] = [
     targets: [{ node: ids.video, input: "fps" }],
   },
 
-  // Steps default to 16 rather than the 20 the generating graphs use: a remix
-  // is holding to a source rather than inventing from noise.
-  ...samplingParams(ids, { steps: 16 }),
+  // Half what the generating graphs use: a remix is holding to a source rather
+  // than inventing from noise, so it converges in fewer steps. This is the
+  // number that ships; node 124's literal is whatever the export happened to
+  // carry and never reaches ComfyUI.
+  ...samplingParams(ids, { steps: 10 }),
   ...encodingParams(ids),
 ];
 
