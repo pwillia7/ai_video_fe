@@ -243,7 +243,7 @@ track. They share sampling, timing and encoding controls via
 | `minimax-h3` — text to video | Aspect ratio + megapixels (`ResolutionSelector`) |
 | `minimax-h3-i2v` — image to video | The uploaded image, rescaled by `ImageScaleToTotalPixels` |
 | `minimax-h3-ref` — reference to video | Aspect ratio + megapixels (`ResolutionSelector`) |
-| `minimax-h3-ref2v` — remix | Aspect ratio + megapixels (`ResolutionSelector`) |
+| `minimax-h3-ref2v` — remix | The source clip's frames, measured by `GetImageSize` |
 
 ### The prompt is rewritten before the model sees it
 
@@ -314,15 +314,19 @@ derived from that one input:
   `ImageFromBatch` (157-161) peels off one each to fill the five
   `ref_images.ref_image_*` slots. `num_frames` is not a knob — those five nodes
   index the batch by position, so a smaller sample would read past its end.
+- `GetImageSize` (162) measures the first of those frames, and that is the
+  output size. There is no `ResolutionSelector` in this graph: a remix should
+  come back the shape it went in. Same arrangement as the image-to-video graph,
+  for the same reason.
 - The same five frames go to the rewrite stage, so the director sees the clip
   it is editing.
 
-**The form has no video or image controls**, and that is the point rather than
-an omission: every one of those inputs is a consequence of the clip, so
-offering pickers would imply choices that do not exist. The clip param is
-marked `hidden` — it still validates and still writes to its target, it simply
-has no control. Everything else stays editable: prompt, duration, framing,
-sampling, encoding.
+**The form has no video or image controls, and no size controls either**, and
+that is the point rather than an omission: every one of those inputs is a
+consequence of the clip, so offering pickers would imply choices that do not
+exist. The clip param is marked `hidden` — it still validates and still writes
+to its target, it simply has no control. What stays editable is what the clip
+cannot decide: prompt, duration, frame rate, sampling, encoding.
 
 **Remix** on a finished generation is the only way in. It selects this
 workflow, loads the clip, carries over the prompt and framing it was made with,

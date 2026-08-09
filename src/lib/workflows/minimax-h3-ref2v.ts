@@ -23,6 +23,10 @@ import {
  * - 155 samples five frames spread evenly across it, 156 turns that sample
  *   back into images, and 157-161 peel off one frame each to fill the five
  *   reference-image slots.
+ * - 162 measures the first of those frames, and that is the output size. There
+ *   is no ResolutionSelector in this graph — a remix should come back the shape
+ *   it went in, so aspect ratio and frame size are not controls here. Same
+ *   arrangement as the image-to-video graph, for the same reason.
  * - 156 also feeds the rewrite stage, so the director sees what the clip looks
  *   like rather than working blind from the filename.
  *
@@ -54,15 +58,6 @@ const graph: ComfyGraph = {
       video: ["130", 0],
     },
     _meta: { title: "Save Video" },
-  },
-  "115": {
-    class_type: "ResolutionSelector",
-    inputs: {
-      aspect_ratio: "16:9 (Widescreen)",
-      megapixels: 0.4,
-      multiple: 32,
-    },
-    _meta: { title: "Resolution Selector (Size)" },
   },
   "119": {
     class_type: "VAELoader",
@@ -164,13 +159,9 @@ const graph: ComfyGraph = {
     class_type: "MiniMaxH3ReferenceToVideo",
     inputs: {
       prompt: ["145", 0],
-      width: ["115", 0],
-      // Linked, where the export carried a literal 768 with width still wired
-      // to the selector. That pairing cannot produce the aspect the control
-      // promises — 0.4 MP at 16:9 is about 848x480, and 848x768 is nearly
-      // square. Reconnected on the assumption the link was dropped by
-      // accident; pin it back to 768 if it was not.
-      height: ["115", 1],
+      // Both from the measured frame, so the remix keeps the source's shape.
+      width: ["162", 0],
+      height: ["162", 1],
       length: ["131", 1],
       ref_image_size: "match",
       clip: ["128", 0],
@@ -279,6 +270,14 @@ const graph: ComfyGraph = {
     inputs: { batch_index: 4, length: 1, image: ["156", 0] },
     _meta: { title: "Get Image from Batch" },
   },
+
+  // The output size, read off the first sampled frame. Any of the five would
+  // do — they come from the same clip.
+  "162": {
+    class_type: "GetImageSize",
+    inputs: { image: ["157", 0] },
+    _meta: { title: "Get Image Size" },
+  },
 };
 
 const params: ParamDef[] = [
@@ -315,46 +314,11 @@ const params: ParamDef[] = [
     6,
   ),
 
+  // No aspect ratio or frame size here, unlike every other workflow: the
+  // output is measured off the clip by node 162. Length and frame rate stay
+  // adjustable because neither is inherited.
   durationParam(ids),
-  {
-    id: "aspect_ratio",
-    label: "Aspect ratio",
-    type: "select",
-    default: "16:9 (Widescreen)",
-    options: [{ value: "16:9 (Widescreen)", label: "16:9 (Widescreen)" }],
-    optionsFrom: { node: "115", input: "aspect_ratio" },
-    help: "Not inherited from the clip — set it to match, or crop deliberately.",
-    group: "Output",
-    targets: [{ node: "115", input: "aspect_ratio" }],
-  },
-  {
-    id: "megapixels",
-    label: "Frame size",
-    type: "slider",
-    default: 0.4,
-    min: 0.1,
-    max: 2,
-    step: 0.05,
-    unit: "MP",
-    help: "Total pixels per frame. The aspect ratio decides the shape, this decides the scale.",
-    group: "Output",
-    targets: [{ node: "115", input: "megapixels" }],
-  },
   fpsParam(ids),
-  {
-    id: "multiple",
-    label: "Size rounding",
-    type: "slider",
-    default: 32,
-    min: 8,
-    max: 64,
-    step: 8,
-    unit: "px",
-    help: "Rounds width and height to a multiple of this.",
-    group: "Output",
-    advanced: true,
-    targets: [{ node: "115", input: "multiple" }],
-  },
 
   ...samplingParams(ids),
   ...encodingParams(ids),

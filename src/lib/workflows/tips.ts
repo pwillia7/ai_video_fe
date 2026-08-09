@@ -120,9 +120,9 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       {
         heading: "What carries over, and what does not",
         items: [
-          "Prompt, duration, aspect ratio, frame size and frame rate come across from the generation you remixed. Change any of them before running.",
-          "The seed does not. Reusing it would pin the new take to the old one's noise, which is the opposite of what a remix is for.",
-          "Aspect ratio is not read from the clip either — set it to match the source, or change it deliberately to reframe.",
+          "There is no aspect ratio or frame size to set. The remix is measured off the clip's own frames, so it comes back the shape it went in.",
+          "Prompt, duration and frame rate come across from the generation you remixed, since the clip cannot supply those. Change any of them before running.",
+          "The seed does not carry over. Reusing it would pin the new take to the old one's noise, which is the opposite of what a remix is for.",
         ],
       },
       PROMPT_STRUCTURE,

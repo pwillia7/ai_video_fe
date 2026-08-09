@@ -37,16 +37,14 @@ interface ConfigPayload {
 
 /**
  * Params a remix inherits from the generation it came from, where both
- * workflows happen to declare the same id. Framing and timing, so the new take
- * matches the clip it references — see `remix` below for what is left out.
+ * workflows happen to declare the same id.
+ *
+ * Short, because the remix graph reads the frame size off the clip itself —
+ * nothing about framing needs carrying. What is left is what the clip cannot
+ * tell it: the prompt, and the timing. See `remix` below for what is
+ * deliberately excluded.
  */
-const CARRIED_PARAMS = new Set([
-  "prompt",
-  "duration",
-  "aspect_ratio",
-  "megapixels",
-  "fps",
-]);
+const CARRIED_PARAMS = new Set(["prompt", "duration", "fps"]);
 
 type Boot =
   | { kind: "loading" }
@@ -249,11 +247,11 @@ function Workbench({
         setValuesByWorkflow((previous) => {
           const next = { ...previous[target.id], [videoParam]: ref };
 
-          // Carry across the settings that describe the shot, so the remix
-          // starts out matching the clip it came from rather than reverting to
-          // whatever was last used here. The seed is deliberately not among
-          // them: reusing it would pin the new take to the old one's noise,
-          // which is the opposite of what a remix is for.
+          // Carry across what the clip cannot supply on its own, so the remix
+          // starts out matching the generation it came from rather than
+          // reverting to whatever was last used here. The seed is deliberately
+          // not among them: reusing it would pin the new take to the old one's
+          // noise, which is the opposite of what a remix is for.
           for (const param of target.params) {
             if (!CARRIED_PARAMS.has(param.id)) continue;
             const carried = job.resolved?.[param.id];
