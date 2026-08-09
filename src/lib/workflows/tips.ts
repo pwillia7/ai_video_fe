@@ -103,27 +103,26 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       {
         heading: "Working from a clip",
         items: [
-          "The reference video supplies motion, framing and audio. Your prompt says what should be different about the new take.",
-          "Remix on a finished generation loads it here, along with the prompt and framing it was made with — so the quickest way to iterate is generate, remix, change one thing.",
-          "A clip from anywhere works too, not only your own generations, as long as it is under the 4 MB upload limit.",
+          "There is nothing to upload and nothing to wire up. Press Remix on a finished generation and the clip arrives here with the prompt and framing it was made with.",
+          "The clip supplies the motion, the framing and the audio. Five frames sampled evenly across it become the reference images, so the model has the look of the whole thing rather than just its first moment.",
+          "The quickest way to iterate is generate, remix, change one thing.",
         ],
       },
       {
         heading: "Your prompt gets expanded first — differently here",
         items: [
           "The other workflows run a director model that fills in everything you left unsaid. This one runs a remix director instead, which does close to the opposite: it reads what you type as a change and writes out instructions to hold everything else to the source.",
-          "So “make him a pirate” becomes: keep the performance, camera, cuts, environment and dialogue, change the costume. Short instructions work well; you are describing a delta, not a scene.",
-          "It will not invent replacement dialogue just because someone is speaking — the clip's own audio supplies the words unless you ask for different ones.",
-          "It is shown your reference images, but not the clip. It refers to the source as <Video 1> and <Audio 1> rather than describing contents it cannot see.",
-          "<Picture 1> and <Picture 2> tags are carried through the rewrite untouched, so keep using them.",
+          "So “make him a pirate” becomes: keep the performance, camera, cuts, environment and dialogue, change the costume. Short instructions work well — you are describing a delta, not a scene.",
+          "It will not invent replacement dialogue just because someone is speaking. The clip's own audio supplies the words unless you ask for different ones.",
+          "It sees the same five sampled frames the model does, and refers to the source as <Video 1> and <Audio 1>.",
         ],
       },
       {
-        heading: "Adding reference images",
+        heading: "What carries over, and what does not",
         items: [
-          "Optional here — the clip on its own is enough. Add one to bring in a subject the video does not already contain.",
-          "Name each by tag in the order you added it: <Picture 1> for the first, <Picture 2> for the second.",
-          "Say what each reference controls — identity, style, motion, camera, voice. Spelling this out works much better than leaving it implied.",
+          "Prompt, duration, aspect ratio, frame size and frame rate come across from the generation you remixed. Change any of them before running.",
+          "The seed does not. Reusing it would pin the new take to the old one's noise, which is the opposite of what a remix is for.",
+          "Aspect ratio is not read from the clip either — set it to match the source, or change it deliberately to reframe.",
         ],
       },
       PROMPT_STRUCTURE,

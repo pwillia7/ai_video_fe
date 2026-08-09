@@ -185,10 +185,18 @@ function Workbench({
     if (!selected) return;
     // The persistence effect writes this straight back out, so the stored copy
     // is reset too rather than reappearing on the next load.
-    setValuesByWorkflow((previous) => ({
-      ...previous,
-      [selectedId]: defaultValuesFor(selected),
-    }));
+    setValuesByWorkflow((previous) => {
+      const values = defaultValuesFor(selected);
+      // Hidden params survive. The button restores the controls the user can
+      // see; clearing the remix clip along with them would empty the workflow
+      // with no visible way to put it back.
+      for (const param of selected.params) {
+        if (!param.hidden) continue;
+        const kept = previous[selectedId]?.[param.id];
+        if (kept !== undefined) values[param.id] = kept;
+      }
+      return { ...previous, [selectedId]: values };
+    });
   }, [selected, selectedId]);
 
   // The workflow that takes a finished clip as a reference, if one is
@@ -294,11 +302,17 @@ function Workbench({
     setTipsOpen(false);
   }, [selectedId]);
 
-  /** Nothing to restore when the form already matches the defaults. */
+  /**
+   * Nothing to restore when the form already matches the defaults. Judged on
+   * the visible controls alone, since those are the only ones the button
+   * touches — a loaded remix clip must not keep it lit forever.
+   */
   const isDefaults = useMemo(() => {
     if (!selected) return true;
     const defaults = defaultValuesFor(selected);
-    return Object.keys(defaults).every((key) => values[key] === defaults[key]);
+    return selected.params.every(
+      (param) => param.hidden || values[param.id] === defaults[param.id],
+    );
   }, [selected, values]);
 
   // Which generation the stage is showing. Follows the newest submission so a
@@ -312,10 +326,19 @@ function Workbench({
   const viewedJob =
     jobs.jobs.find((job) => job.promptId === viewedId) ?? jobs.jobs[0] ?? null;
 
+  /**
+   * A validation failure only becomes a field error if the field is actually
+   * on screen. A hidden param has nowhere to hang the message, so letting it
+   * be claimed here would swallow it — those fall through to the banner.
+   */
   const fieldError = useMemo(() => {
     if (!jobs.submitError || !jobs.submitErrorField) return null;
+    const target = selected?.params.find(
+      (param) => param.id === jobs.submitErrorField,
+    );
+    if (!target || target.hidden) return null;
     return { field: jobs.submitErrorField, message: jobs.submitError };
-  }, [jobs.submitError, jobs.submitErrorField]);
+  }, [jobs.submitError, jobs.submitErrorField, selected]);
 
   const submit = useCallback(() => {
     if (!selected || jobs.submitting) return;
@@ -475,6 +498,25 @@ function Workbench({
                     </div>
                   }
                 />
+                {/*
+                  This workflow has no way to load a clip from the form — the
+                  input is set by Remix and everything else is derived from it
+                  — so picking it from the list lands on a form that cannot be
+                  submitted. Say why here rather than at submit time.
+                */}
+                {selected.remixTarget &&
+                !values[selected.remixTarget.videoParam] ? (
+                  <div
+                    className="mb-5 rounded-lg border border-dashed border-border-strong
+                      bg-bg-subtle p-3 text-[12px] leading-relaxed text-fg-muted"
+                  >
+                    No clip loaded. This workflow rebuilds a video you have
+                    already made — open a finished generation and press{" "}
+                    <span className="font-medium text-fg">Remix</span> to bring
+                    it here.
+                  </div>
+                ) : null}
+
                 {remixNotice && selected.id === remixWorkflow?.id ? (
                   <div
                     className="mb-5 flex items-start gap-3 rounded-lg border border-accent/40
@@ -539,7 +581,7 @@ function Workbench({
               </span>
             </div>
 
-            {jobs.submitError && !jobs.submitErrorField ? (
+            {jobs.submitError && !fieldError ? (
               <div
                 className="flex items-start gap-3 rounded-lg border border-danger/40
                   bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"

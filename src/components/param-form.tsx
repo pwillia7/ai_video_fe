@@ -11,7 +11,6 @@ import {
   TextInput,
   Toggle,
 } from "@/components/ui/inputs";
-import { VideoUpload } from "@/components/ui/video-upload";
 import type { ClientParam, ParamValue } from "@/lib/workflows/types";
 
 const DEFAULT_GROUP = "Settings";
@@ -32,10 +31,14 @@ export function ParamForm({
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Preserve declaration order of both groups and params within them.
+  // Preserve declaration order of both groups and params within them. Hidden
+  // params are dropped here rather than at each use: they still submit, they
+  // just have no control, so nothing downstream should have to think about a
+  // group that turns out to be empty.
   const groups = useMemo(() => {
     const ordered = new Map<string, ClientParam[]>();
     for (const param of params) {
+      if (param.hidden) continue;
       const key = param.group ?? DEFAULT_GROUP;
       const existing = ordered.get(key);
       if (existing) existing.push(param);
@@ -44,7 +47,9 @@ export function ParamForm({
     return [...ordered.entries()];
   }, [params]);
 
-  const hasAdvanced = params.some((param) => param.advanced);
+  const hasAdvanced = params.some(
+    (param) => param.advanced && !param.hidden,
+  );
 
   return (
     <div className="flex flex-col gap-7">
@@ -265,18 +270,13 @@ function Control({
         </Field>
       );
 
+    // No control, by design. The only video input in the registry is the remix
+    // clip, which the app sets from a finished generation — every other input
+    // on that graph is derived from it, so a picker would misrepresent it.
+    // Declared `hidden`, so this branch is not reached; it exists to keep the
+    // switch honest rather than silently rendering nothing.
     case "video":
-      return (
-        <Field id={id} label={param.label} help={param.help} error={error}>
-          <VideoUpload
-            id={id}
-            value={String(value ?? "")}
-            onChange={(next) => onChange(param.id, next)}
-            disabled={disabled}
-            describedBy={describedBy}
-          />
-        </Field>
-      );
+      return null;
 
     case "seed": {
       const current = Number(value ?? param.default);

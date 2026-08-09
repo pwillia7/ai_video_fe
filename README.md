@@ -227,7 +227,10 @@ GPU. The same check runs on `/api/workflows` and again before every submit.
 
 Param types available: `text`, `textarea`, `number`, `slider`, `select`,
 `toggle`, `seed`, `image`, `video`. Mark a param `advanced: true` to tuck it behind the disclosure;
-`group` sets the section heading.
+`group` sets the section heading. `hidden: true` removes the control entirely
+while still validating and writing the value — for an input the app sets on the
+user's behalf, such as the remix clip. `video` is only ever used that way today,
+so it has no control of its own.
 
 ## The bundled workflows
 
@@ -240,7 +243,7 @@ track. They share sampling, timing and encoding controls via
 | `minimax-h3` — text to video | Aspect ratio + megapixels (`ResolutionSelector`) |
 | `minimax-h3-i2v` — image to video | The uploaded image, rescaled by `ImageScaleToTotalPixels` |
 | `minimax-h3-ref` — reference to video | Aspect ratio + megapixels (`ResolutionSelector`) |
-| `minimax-h3-ref2v` — video to video | Aspect ratio + megapixels (`ResolutionSelector`) |
+| `minimax-h3-ref2v` — remix | Aspect ratio + megapixels (`ResolutionSelector`) |
 
 ### The prompt is rewritten before the model sees it
 
@@ -299,19 +302,40 @@ reading the rescaled upload rather than from any size picker. There is no
 `ResolutionSelector` in this graph at all — an earlier export carried an
 orphaned one, and the current export drops it.
 
-### Remix: video to video
+### Remix
 
-`minimax-h3-ref2v` is the reference graph with a clip wired in — `LoadVideo`
-loads it, `GetVideoComponents` splits it into frames and audio, and both halves
-reach `MiniMaxH3ReferenceToVideo` as `ref_videos.ref_video_0` and
-`ref_audios.ref_audio_0`. Reference images still work and are optional here.
+`minimax-h3-ref2v` takes a clip and rebuilds it. Everything the graph needs is
+derived from that one input:
 
-**Remix** on a finished generation is how a clip usually gets there. It selects
-this workflow, loads the clip, carries over the prompt and framing it was made
-with, and stops — nothing is submitted, because the point is to edit before
-running. Which settings travel is the `CARRIED_PARAMS` list in `studio.tsx`;
-the seed deliberately does not, since reusing it would pin the new take to the
-old one's noise.
+- `LoadVideo` (154) loads it, and `GetVideoComponents` (153) splits it into
+  frames and audio, which become `ref_videos.ref_video_0` and
+  `ref_audios.ref_audio_0`.
+- `VideoFrameSample` (155) takes five frames spread evenly across it, and
+  `ImageFromBatch` (157-161) peels off one each to fill the five
+  `ref_images.ref_image_*` slots. `num_frames` is not a knob — those five nodes
+  index the batch by position, so a smaller sample would read past its end.
+- The same five frames go to the rewrite stage, so the director sees the clip
+  it is editing.
+
+**The form has no video or image controls**, and that is the point rather than
+an omission: every one of those inputs is a consequence of the clip, so
+offering pickers would imply choices that do not exist. The clip param is
+marked `hidden` — it still validates and still writes to its target, it simply
+has no control. Everything else stays editable: prompt, duration, framing,
+sampling, encoding.
+
+**Remix** on a finished generation is the only way in. It selects this
+workflow, loads the clip, carries over the prompt and framing it was made with,
+and stops — nothing is submitted, because the point is to edit before running.
+Which settings travel is the `CARRIED_PARAMS` list in `studio.tsx`; the seed
+deliberately does not, since reusing it would pin the new take to the old one's
+noise.
+
+`hidden` costs three small accommodations elsewhere, all in `studio.tsx`:
+"Restore defaults" leaves hidden values alone (it restores what you can see,
+and wiping the clip would strand the form), `isDefaults` ignores them for the
+same reason, and a validation error naming a hidden param falls through to the
+banner rather than being attached to a field that is not on screen.
 
 The copy is the part that needs a route of its own. ComfyUI writes what a
 workflow produces to its **output** directory and only lets loader nodes read
@@ -321,9 +345,6 @@ back to `/upload/image` — which is the upload endpoint for any media, there is
 no `/upload/video`. That runs server-side rather than round-tripping through
 the browser: a generated clip is comfortably past the 4.5 MB body cap, and the
 bytes would otherwise cross the user's connection twice for no reason.
-
-Uploading a clip by hand still works, and is what the 4 MB ceiling in
-`video-upload.tsx` is about. Remix never touches it.
 
 ### Audio
 

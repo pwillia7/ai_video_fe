@@ -1,5 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
-import type { ParamDef, ParamValue, WorkflowDef } from "./types";
+import type { ParamDef, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   durationParam,
@@ -12,19 +12,23 @@ import {
 } from "./minimax-common";
 
 /**
- * MiniMax H3 reference-to-video, driven by a clip.
+ * MiniMax H3 remix: rebuild a clip you already have.
  *
- * The same reference node as minimax-h3-ref, with a video wired into it: node
- * 154 loads the clip, 153 splits it into frames and audio, and both halves go
- * to the reference node as `ref_videos.ref_video_0` and `ref_audios.ref_audio_0`.
- * Reference images still work and are additive, so this graph carries them too
- * — optional here, where they are the whole point of the image-only workflow.
+ * The reference node is the same one the image-driven workflow uses, but
+ * nothing here is supplied by hand. The clip goes in at node 154 and the graph
+ * derives everything else from it:
  *
- * This is where the Remix button sends a finished generation (`remixTarget`
- * below). ComfyUI keeps produced files in its output directory and only reads
- * loaders from its input directory, so /api/remix copies the clip across
- * first; by the time the value reaches node 154 it is an ordinary input
- * filename, indistinguishable from an upload.
+ * - 153 splits the clip into frames and audio, which become the video and
+ *   audio references.
+ * - 155 samples five frames spread evenly across it, 156 turns that sample
+ *   back into images, and 157-161 peel off one frame each to fill the five
+ *   reference-image slots.
+ * - 156 also feeds the rewrite stage, so the director sees what the clip looks
+ *   like rather than working blind from the filename.
+ *
+ * That is why the form has no image controls and no video picker: those inputs
+ * are consequences of the clip, not choices. The clip arrives from the Remix
+ * button (`remixTarget` below), which is the only way into this workflow.
  */
 const ids: MinimaxNodeIds = {
   prompt: { node: "138", input: "value" },
@@ -38,30 +42,7 @@ const ids: MinimaxNodeIds = {
 };
 
 const REFERENCE_NODE = "136";
-const BATCH_NODE = "146";
-const REWRITE_NODE = "145";
 const VIDEO_NODE = "154";
-
-/**
- * The two reference-image slots, in the order the model numbers them. Both the
- * reference node and the batch that shows the images to the rewrite stage read
- * from the same LoadImage, so dropping a slot means clearing it in both places
- * before the loader itself can go.
- */
-const IMAGE_SLOTS = [
-  {
-    param: "reference_image_1",
-    node: "137",
-    referenceInput: "ref_images.ref_image_0",
-    batchInput: "images.image0",
-  },
-  {
-    param: "reference_image_2",
-    node: "139",
-    referenceInput: "ref_images.ref_image_1",
-    batchInput: "images.image1",
-  },
-] as const;
 
 const graph: ComfyGraph = {
   "92": {
@@ -184,46 +165,40 @@ const graph: ComfyGraph = {
     inputs: {
       prompt: ["145", 0],
       width: ["115", 0],
+      // Linked, where the export carried a literal 768 with width still wired
+      // to the selector. That pairing cannot produce the aspect the control
+      // promises — 0.4 MP at 16:9 is about 848x480, and 848x768 is nearly
+      // square. Reconnected on the assumption the link was dropped by
+      // accident; pin it back to 768 if it was not.
       height: ["115", 1],
       length: ["131", 1],
       ref_image_size: "match",
       clip: ["128", 0],
       vae: ["119", 0],
       audio_vae: ["120", 0],
-      "ref_images.ref_image_0": ["137", 0],
-      "ref_images.ref_image_1": ["139", 0],
+      "ref_images.ref_image_0": ["157", 0],
+      "ref_images.ref_image_1": ["158", 0],
+      "ref_images.ref_image_2": ["159", 0],
+      "ref_images.ref_image_3": ["160", 0],
+      "ref_images.ref_image_4": ["161", 0],
       "ref_videos.ref_video_0": ["153", 0],
       "ref_audios.ref_audio_0": ["153", 1],
     },
     _meta: { title: "MiniMax H3 Reference to Video" },
-  },
-  "137": {
-    class_type: "LoadImage",
-    inputs: { image: "" },
-    _meta: { title: "Load Image" },
   },
   "138": {
     class_type: "PrimitiveStringMultiline",
     inputs: { value: "" },
     _meta: { title: "Input Text (Prompt)" },
   },
-  "139": {
-    class_type: "LoadImage",
-    inputs: { image: "" },
-    _meta: { title: "Load Image" },
-  },
 
-  // The prompt-rewrite stage, as in the other MiniMax graphs: 138 holds what
-  // the user typed and 145 expands it into what node 136 actually reads. 146
-  // shows it any reference images; it cannot see the clip, so the prompt is
-  // the only place the video's contents can be described.
+  // The prompt-rewrite stage: 138 holds what the user typed and 145 expands it
+  // into what node 136 actually reads.
   //
-  // The system prompt is the one thing here that differs from the other
-  // graphs. REMIX_DIRECTOR treats what the user typed as a change to an
-  // existing video rather than a scene to invent, which is the whole point of
-  // this workflow — and it knows the rewrite is blind to the clip, so it
-  // writes preservation instructions against <Video 1> and <Audio 1> instead
-  // of describing contents it cannot see.
+  // The system prompt is what sets this graph apart from the other three.
+  // REMIX_DIRECTOR reads the input as a change to an existing video rather
+  // than a scene to invent, and writes out instructions to hold everything
+  // else to the source — which is the whole point of the workflow.
   "144": {
     class_type: "OAIAPI_Client",
     inputs: {
@@ -242,18 +217,12 @@ const graph: ComfyGraph = {
       prompt: ["138", 0],
       system_prompt: REMIX_DIRECTOR,
       client: ["144", 0],
-      images: ["146", 0],
+      // The sampled frames, so the rewrite can see the clip it is editing.
+      images: ["156", 0],
     },
     _meta: { title: "OpenAI API - Chat Completion" },
   },
-  "146": {
-    class_type: "BatchImagesNode",
-    inputs: {
-      "images.image0": ["137", 0],
-      "images.image1": ["139", 0],
-    },
-    _meta: { title: "Batch Images" },
-  },
+
   "153": {
     class_type: "GetVideoComponents",
     inputs: { video: ["154", 0] },
@@ -266,6 +235,50 @@ const graph: ComfyGraph = {
     inputs: { file: "", "video-preview": "" },
     _meta: { title: "Load Video" },
   },
+
+  // Five evenly-spaced frames, one per reference slot below. `num_frames` is
+  // not a knob: 157-161 index this batch by position, so asking for fewer
+  // frames would leave ImageFromBatch reading past the end of it.
+  "155": {
+    class_type: "VideoFrameSample",
+    inputs: {
+      num_frames: 5,
+      strategy: "uniform",
+      seed: 0,
+      video: ["154", 0],
+    },
+    _meta: { title: "Sample Video Frame" },
+  },
+  "156": {
+    class_type: "GetVideoComponents",
+    inputs: { video: ["155", 0] },
+    _meta: { title: "Get Video Components" },
+  },
+  "157": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 0, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
+  "158": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 1, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
+  "159": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 2, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
+  "160": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 3, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
+  "161": {
+    class_type: "ImageFromBatch",
+    inputs: { batch_index: 4, length: 1, image: ["156", 0] },
+    _meta: { title: "Get Image from Batch" },
+  },
 };
 
 const params: ParamDef[] = [
@@ -275,27 +288,12 @@ const params: ParamDef[] = [
     type: "video",
     default: "",
     required: true,
-    help: "The clip the new video is built from — its motion, framing and audio. Remix on a finished generation fills this in for you.",
+    // Plumbing, not a control. Remix writes the clip here; the form never
+    // shows it, because every other input this graph has is derived from it
+    // and offering a picker would imply otherwise.
+    hidden: true,
     group: "References",
     targets: [{ node: VIDEO_NODE, input: "file" }],
-  },
-  {
-    id: "reference_image_1",
-    label: "Reference image",
-    type: "image",
-    default: "",
-    help: "Optional. A subject to carry into the scene, as <Picture 1>.",
-    group: "References",
-    targets: [{ node: IMAGE_SLOTS[0].node, input: "image" }],
-  },
-  {
-    id: "reference_image_2",
-    label: "Second reference",
-    type: "image",
-    default: "",
-    help: "Optional. Becomes <Picture 2> in the prompt.",
-    group: "References",
-    targets: [{ node: IMAGE_SLOTS[1].node, input: "image" }],
   },
   {
     id: "ref_image_size",
@@ -304,7 +302,7 @@ const params: ParamDef[] = [
     default: "match",
     options: [{ value: "match", label: "match" }],
     optionsFrom: { node: REFERENCE_NODE, input: "ref_image_size" },
-    help: "match is faster; max preserves identity better, up to a 2048px short edge.",
+    help: "How the frames sampled from your clip are fed back in. match is faster; max preserves detail better, up to a 2048px short edge.",
     group: "References",
     advanced: true,
     targets: [{ node: REFERENCE_NODE, input: "ref_image_size" }],
@@ -313,7 +311,7 @@ const params: ParamDef[] = [
   promptParam(
     ids,
     "Make it snow, and dress the man in a heavy winter coat.",
-    "Say only what should change — a remix director turns it into explicit hold-everything-else instructions, so the performance, camera, cuts and dialogue survive. Reference images still need naming by tag in upload order (<Picture 1>, <Picture 2>).",
+    "Say only what should change — a remix director turns it into explicit hold-everything-else instructions, so the performance, camera, cuts and dialogue survive.",
     6,
   ),
 
@@ -325,6 +323,7 @@ const params: ParamDef[] = [
     default: "16:9 (Widescreen)",
     options: [{ value: "16:9 (Widescreen)", label: "16:9 (Widescreen)" }],
     optionsFrom: { node: "115", input: "aspect_ratio" },
+    help: "Not inherited from the clip — set it to match, or crop deliberately.",
     group: "Output",
     targets: [{ node: "115", input: "aspect_ratio" }],
   },
@@ -363,52 +362,12 @@ const params: ParamDef[] = [
 
 export const minimaxH3ReferenceVideo: WorkflowDef = {
   id: "minimax-h3-ref2v",
-  name: "MiniMax H3 · Video to Video",
-  description: "Rebuilds a clip you already have into a new take.",
+  name: "MiniMax H3 · Remix",
+  description: "Rebuilds a clip you have already made into a new take.",
   tags: ["video-to-video", "remix", "audio"],
   estimatedSeconds: 180,
   hasAudio: true,
   graph,
   params,
   remixTarget: { videoParam: "reference_video" },
-
-  /**
-   * Prune the reference-image slots that went unused.
-   *
-   * A blank slot is not the same as an absent one: leaving a LoadImage with an
-   * empty filename fails validation, and leaving the link in place would tell
-   * the model to expect a subject that is not there. Both consumers have to be
-   * cleared before the loader goes, or the queued graph would point at a node
-   * that no longer exists — which ComfyUI rejects outright.
-   *
-   * The used images are compacted into the low slots rather than left where
-   * they were declared, so that supplying only the second one still yields a
-   * <Picture 1>. Otherwise the prompt's tags would silently be off by one.
-   */
-  finalize(graph, values) {
-    const supplied = IMAGE_SLOTS.map((slot) => values[slot.param])
-      .map((value: ParamValue | undefined) =>
-        typeof value === "string" ? value.trim() : "",
-      )
-      .filter(Boolean);
-
-    IMAGE_SLOTS.forEach((slot, index) => {
-      const image = supplied[index];
-      if (image) {
-        graph[slot.node].inputs.image = image;
-        return;
-      }
-      delete graph[REFERENCE_NODE].inputs[slot.referenceInput];
-      delete graph[BATCH_NODE].inputs[slot.batchInput];
-      delete graph[slot.node];
-    });
-
-    // With no images at all there is nothing to batch. The rewrite stage's
-    // `images` input is optional — the text-to-video graph omits it entirely —
-    // so it goes too rather than pointing at a node that has been removed.
-    if (supplied.length === 0) {
-      delete graph[BATCH_NODE];
-      delete graph[REWRITE_NODE].inputs.images;
-    }
-  },
 };
