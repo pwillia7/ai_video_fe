@@ -34,12 +34,15 @@ const VARIANTS: Record<Variant, string> = {
 
 /**
  * `xs` is for actions that sit inside another component's furniture — a panel
- * header, a day divider, the footer of a file preview. It is deliberately small
- * enough to read as chrome rather than as content, while still clearing a
- * usable hit area.
+ * header, a day divider, the footer of a file preview.
+ *
+ * It shares its type size with `sm` rather than stepping down again: 11px read
+ * as a footnote next to the 12px controls it sits beside, and small text is
+ * where legibility goes first. The two differ in density — how much room the
+ * action takes — not in how readable it is.
  */
 const SIZES: Record<Size, string> = {
-  xs: "h-6 px-2 text-[11px] rounded gap-1",
+  xs: "h-6 px-2 text-[12px] rounded gap-1",
   sm: "h-7 px-2.5 text-[12px] rounded-md gap-1.5",
   md: "h-10 px-4 text-sm rounded-md gap-2",
   lg: "h-12 px-5 text-[15px] rounded-lg gap-2",
