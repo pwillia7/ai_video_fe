@@ -114,6 +114,8 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         items: [
           "The other workflows run a director model that fills in everything you left unsaid. This one runs a remix director instead, which does close to the opposite: it reads what you type as a change and writes out instructions to hold everything else to the source.",
           "So “make him a pirate” becomes: keep the performance, camera, cuts, environment and dialogue, change the costume. Short instructions work well — you are describing a delta, not a scene.",
+          "How much changes follows how much you ask for. A costume note touches the costume; “turn this into claymation” or “set this underwater” is licensed to re-render nearly everything while the performance, staging and timing survive. Ask small for small.",
+          "Sound moves with the world. Change the weather, the room or the medium and the soundtrack follows — but the words spoken, the voices speaking them and the music stay put unless you say otherwise.",
           "It will not invent replacement dialogue just because someone is speaking. The clip's own audio supplies the words unless you ask for different ones.",
           "It is shown five frames sampled evenly across the clip, so it can write about what is actually there. Those frames are for the director only — the model itself works from the clip — and it refers to the source as <Video 1> and <Audio 1>.",
         ],

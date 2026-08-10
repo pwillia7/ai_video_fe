@@ -264,17 +264,29 @@ with each other either:
 
 - **Remix** runs `REMIX_DIRECTOR`. What you type is a *delta*, and every detail
   the rewrite invents overwrites something the source already decided. So it
-  inverts the default — preserve by instruction, change only what was asked
-  for, and never write replacement dialogue merely because someone is speaking,
-  since the clip's own audio already holds the words.
+  inverts the default — preserve by instruction, and never write replacement
+  dialogue merely because someone is speaking, since the clip's own audio
+  already holds the words. How much it changes is proportional to how much you
+  asked for: a costume note reaches the costume, while "turn this into
+  claymation" is licensed to re-render nearly every surface. Sound moves with
+  the world — new weather, room or medium changes what the scene sounds like —
+  while the words, voices and music hold unless asked otherwise.
 - **Extend** runs `EXTEND_DIRECTOR`. Nothing about the source changes there;
   time moves forward, and what you type is what happens *next*. Most of it is
   spent on the seam: no establishing shot, no fade, no cut, no resetting
   characters into neutral poses, and motion already underway carried through
   the join. It also holds the previous clip's dialogue to the previous clip.
 
-All three live in `minimax-common.ts` and are workflow data: kept verbatim, not
-tidied.
+All three live in `minimax-common.ts` and are workflow data: treat them as data,
+not prose to tidy.
+
+Two are verbatim from the ComfyUI exports. `REMIX_DIRECTOR` is **not** — it was
+pinned near "preserve everything", roughly Sora's mildest remix setting, where
+its own remix ran a dial from there up to replacing whole buildings. Held that
+low, a sweeping request came back as the source with a wash over it, and the
+soundtrack never moved even when the world it was recorded in did. The edits are
+marked in the file. If the ComfyUI workflow is re-exported over it they will be
+lost, so the better fix is to make the same edit on the ComfyUI side.
 
 Two consequences:
 
