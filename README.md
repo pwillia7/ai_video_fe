@@ -1,16 +1,277 @@
 # Soran’t
 
-A small Next.js app for driving video generation on a ComfyUI instance. Deploys
-to Vercel; the ComfyUI box stays where it is.
+A small Next.js front end for driving video generation on your own ComfyUI
+instance. Deploys to Vercel; the ComfyUI box stays where it is.
 
-It ships five MiniMax H3 workflows — text to video, image to video, reference to
-video, **Remix** (rebuild a clip you already made) and **Extend** (carry one on
-past where it stopped) — each with a hand-picked set of controls rather than the
+Five MiniMax H3 workflows — text to video, image to video, reference to video,
+**Remix** (rebuild a clip you already made) and **Extend** (carry one on past
+where it stopped) — each with a hand-picked set of controls rather than the
 whole graph. Generations queue, run in the background, and stay in a per-device
-history you can replay, download or feed back in.
+history you can replay, download or feed straight back in.
 
-It is a front end and nothing more: no model weights, no inference, no database.
-Everything expensive happens on your ComfyUI machine.
+It is a front end and nothing else: no model weights, no inference, no
+database. Everything expensive happens on your ComfyUI machine.
+
+---
+
+## Quick start
+
+### Let an agent do it
+
+This repo ships a setup skill for [Claude
+Code](https://claude.com/claude-code). Clone the repo, open it, and run:
+
+```
+/setup
+```
+
+It walks the whole thing: checks your ComfyUI has the right custom nodes and
+model files, works out how to make it reachable from Vercel, handles the
+`.env.local` escaping trap that catches nearly everyone, verifies a generation
+locally, and then deploys. It reads the actual errors and tells you which pack
+is missing rather than leaving you with a class name.
+
+The skill lives in [`.claude/skills/setup/`](.claude/skills/setup/SKILL.md), so
+it is also just a readable checklist if you would rather follow it yourself.
+
+### Or by hand
+
+Four steps, in this order. Doing them out of order is the usual reason a setup
+fails confusingly.
+
+1. [Get ComfyUI ready](#1-get-comfyui-ready) — two node packs, five model files
+2. [Make ComfyUI reachable](#2-make-comfyui-reachable) — only if deploying
+3. [Run it locally](#3-run-it-locally)
+4. [Deploy to Vercel](#4-deploy-to-vercel)
+
+---
+
+## 1. Get ComfyUI ready
+
+This is the part that takes effort. The app itself is a few minutes.
+
+You need a **recent ComfyUI** — the workflows use MiniMax H3
+(`MiniMaxH3ImageToVideo`, `MiniMaxH3ReferenceToVideo`) and the newer video nodes
+(`LoadVideo`, `CreateVideo`, `GetVideoComponents`, `VideoFrameSample`). All are
+built in, but only on a build new enough to have them. If the checker below
+reports those missing, update ComfyUI rather than hunting for node packs.
+
+### Custom nodes
+
+25 of the 30 node classes these graphs use are ComfyUI built-ins. Five are not.
+Both packs install from ComfyUI Manager by name:
+
+| Pack | Provides | Needed by |
+| --- | --- | --- |
+| [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow |
+| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate` | Remix, Extend |
+
+**The OpenAI pack is not optional.** Every graph runs what you type through an
+LLM before the video model sees it ([details](#the-prompt-is-rewritten-before-the-model-sees-it)),
+so without those nodes nothing generates at all.
+
+That pack reads its API key from the **ComfyUI host's own environment** — the
+graphs ship `api_key: "-"` and this app never handles a key. Point `base_url` at
+any OpenAI-compatible server (Ollama, vLLM, LM Studio) if you would rather not
+use OpenAI; that is a one-line edit in `src/lib/workflows/`.
+
+Restart ComfyUI after installing.
+
+### Models
+
+Five files, named literally in the graphs. Get them from ComfyUI's [MiniMax H3
+tutorial](https://docs.comfy.org/tutorials/video/minimax/minimax-h3), which is
+also the current word on what the model needs from your GPU.
+
+| File | Goes in | Used by |
+| --- | --- | --- |
+| `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | text/image to video, Extend |
+| `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | reference to video, Remix |
+| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | all five |
+| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | all five |
+| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | all five |
+
+**The filenames have to match**, because they are values inside the graph rather
+than choices in the UI. If your build is named or quantised differently, edit
+the `unet_name` / `clip_name` / `vae_name` in the relevant
+`src/lib/workflows/*.ts` — one line, and it survives re-downloading models.
+
+---
+
+## 2. Make ComfyUI reachable
+
+**Running locally only?** `http://localhost:8188` works. Skip to
+[step 3](#3-run-it-locally).
+
+**Deploying to Vercel?** ComfyUI has to be reachable *from Vercel's servers*. A
+Vercel function is not on your network, so `localhost` and `192.168.x.x` cannot
+work — this is the single most common deployment failure.
+
+Three ways, best first.
+
+### Tailscale Funnel — recommended
+
+Real TLS, no open inbound ports, and it survives your home IP changing. Funnel
+routes by SNI and terminates TLS **on your own machine**, so Tailscale relays the
+encrypted stream without decrypting it. Full walkthrough
+[below](#putting-comfyui-behind-https-tailscale-funnel).
+
+Short version, on the ComfyUI host:
+
+```shell
+tailscale funnel --bg --https=443 localhost:8188
+tailscale funnel status     # gives you https://your-box.your-tailnet.ts.net
+```
+
+That hostname is your `COMFY_URL`.
+
+> **Funnel is public, not private.** That is the point — Vercel cannot reach a
+> tailnet. `COMFY_API_TOKEN` is what guards it. (Tailscale *Serve* is the
+> private variant and will not work here.)
+
+### Dynamic DNS + port forward
+
+Most home connections get a new IP periodically, so a bare address goes stale.
+DDNS keeps a hostname pointed at whatever your IP currently is.
+
+1. **Pick a provider** — [DuckDNS](https://www.duckdns.org) (free, simple),
+   [No-IP](https://www.noip.com), or [Afraid.org](https://freedns.afraid.org).
+   Check your router first: many have DDNS built in under WAN settings, which
+   saves running a client.
+2. **Register a hostname** and set up updating — router-side if it offers it,
+   otherwise the provider's updater client on the ComfyUI machine.
+3. **Forward a port** on your router to the ComfyUI machine's port `8188`.
+4. `COMFY_URL` is `http://your-host.duckdns.org:<external-port>`.
+
+Two things worth being blunt about:
+
+- **A forwarded port is not TLS.** Forwarding 8443 to ComfyUI does not put
+  encryption in front of it; the number implies nothing on its own. The app
+  works fine over plain HTTP because all ComfyUI traffic is server-side and
+  mixed-content rules never apply — but your bearer token and every prompt cross
+  the internet in cleartext. Rotate the token if it has ever gone over plain HTTP.
+- **This exposes ComfyUI to the internet.** ComfyUI-Login
+  ([step 3](#3-run-it-locally)) is not optional once you do this.
+
+### Raw public IP
+
+Only if your ISP gives you a static IP. Same port forward, and `COMFY_URL` is
+`http://<your-ip>:<port>`. It breaks the day the IP changes, which is why DDNS
+exists — check with your ISP before relying on it.
+
+---
+
+## 3. Run it locally
+
+```bash
+pnpm install
+cp .env.example .env.local
+```
+
+Fill in `.env.local`:
+
+| Variable | |
+| --- | --- |
+| `COMFY_URL` | Base URL of ComfyUI, no trailing slash. **Required.** Default port is `8188`. |
+| `COMFY_API_TOKEN` | The ComfyUI-Login token. See the escaping trap below. |
+| `APP_ACCESS_TOKEN` | Shared secret gating this app. Optional locally, **required before deploying**. `openssl rand -hex 32` |
+| `GENERATION_TIMEOUT_SECONDS` | How long the UI waits before giving up. Default 1800. |
+| `COMFY_BASIC_AUTH` | Optional `user:password` if ComfyUI sits behind basic auth. |
+| `COMFY_AUTH_HEADER_NAME` / `_VALUE` | Optional custom auth header. |
+
+### Authentication, and the `$` trap
+
+If ComfyUI is reachable from the internet, install
+[ComfyUI-Login](https://github.com/liusida/ComfyUI-Login) — otherwise anyone who
+finds the URL can queue jobs on your GPU. Set a password; the bcrypt hash it
+prints to the console *is* your `COMFY_API_TOKEN` (not the password).
+
+That hash starts with `$2b$`, and dotenv treats `$2b` as a variable reference —
+pasted raw it is silently blanked, and you get an auth failure with a token that
+*looks* right in the file. Escape every `$`:
+
+```bash
+# console shows: $2b$12$AbCdEf...
+COMFY_API_TOKEN=\$2b\$12\$AbCdEf...
+```
+
+**Values set in the Vercel dashboard or via `vercel env add` are literal — do
+not escape them there.** Getting this backwards either way is the usual cause of
+"works locally, 401s in production."
+
+### Check it before you generate
+
+```bash
+pnpm check:nodes       # asks YOUR ComfyUI for every class + model the graphs name
+pnpm check:workflows   # definitions agree with their graphs; needs no ComfyUI
+pnpm dev
+```
+
+`check:nodes` is worth running first — the alternative is finding out several
+minutes into a job. It names the pack each class came from, so a miss tells you
+what to install.
+
+Open <http://localhost:3000>. The header pill should read **Ready**. Then run
+one generation — **Text to Video** is the cheapest test, since it needs no
+upload. That proves the models load and the OpenAI key on your ComfyUI host
+works, which no static check can.
+
+---
+
+## 4. Deploy to Vercel
+
+Do this once a local generation has actually succeeded. Deploying something
+that has never worked just moves the debugging somewhere with worse feedback.
+
+```bash
+pnpm i -g vercel
+vercel login
+vercel link
+```
+
+Environment — **no `$` escaping here**, these are literal:
+
+```bash
+vercel env add COMFY_URL production          # the PUBLIC url from step 2
+vercel env add COMFY_API_TOKEN production
+vercel env add APP_ACCESS_TOKEN production
+vercel deploy --prod
+```
+
+Then load it, enter the `APP_ACCESS_TOKEN` at the gate, confirm the pill reads
+**Ready**, and generate once.
+
+Connecting the GitHub repo instead gives you push-to-deploy — see [how deploys
+happen](#how-deploys-happen) for what that means for branch protection and
+public forks.
+
+> **Set `APP_ACCESS_TOKEN`.** Vercel Authentication does not cover production
+> deployments on Hobby or Pro, so production is publicly reachable and that
+> token is the only thing standing between the internet and your GPU.
+
+---
+
+## Troubleshooting
+
+| Symptom | Look at |
+| --- | --- |
+| Pill reads **Offline** | `COMFY_URL`; is ComfyUI running; is the port reachable from where the app runs |
+| Pill reads **Auth failed** | `COMFY_API_TOKEN`; the `$` escaping; is ComfyUI-Login enabled |
+| Works locally, fails deployed | `COMFY_URL` is probably still `localhost` — or `$` got escaped in Vercel, where it should not be |
+| Valid token still rejected | ComfyUI started with `--enable-cors-header <specific-origin>` makes the bearer check unreachable. Drop the flag or set it to `*`. [Why](#if-a-correct-token-is-still-rejected) |
+| Generation fails naming a node class | `pnpm check:nodes` — a pack is missing |
+| Generation fails mentioning the LLM | The OpenAI key on your ComfyUI host, not this app |
+| A job shows as **Lost** | ComfyUI restarted and dropped its history |
+
+`/api/health` is the fastest single source of truth: it reports `reachable`,
+`authorized` and `secure` separately, so it distinguishes "cannot connect" from
+"connected but refused."
+
+---
+
+# How it works
+
+Everything below is detail. You do not need it to run the thing.
 
 ## How it fits together
 
@@ -34,302 +295,6 @@ returns as soon as ComfyUI accepts the job, then the client polls
 `/api/status`. A multi-minute render would outlive any function timeout, and
 ComfyUI already owns the queue and history, so there is no server-side job
 state to keep.
-
-## What you need on the ComfyUI side
-
-This is the part that actually takes effort. The app is a few minutes; getting
-ComfyUI able to run these graphs is the rest.
-
-**A recent ComfyUI.** The bundled workflows use MiniMax H3 (`MiniMaxH3ImageToVideo`,
-`MiniMaxH3ReferenceToVideo`) and the newer video nodes (`LoadVideo`, `CreateVideo`,
-`GetVideoComponents`, `VideoFrameSample`). All are built in, but only on a build
-new enough to have them — if `pnpm check:nodes` reports them missing, update
-ComfyUI before hunting for node packs.
-
-**A GPU that can hold the models below.** They are quantised builds for a reason.
-ComfyUI's own [MiniMax H3 tutorial](https://docs.comfy.org/tutorials/video/minimax/minimax-h3)
-is the current word on what the model needs; this repo does not second-guess it.
-
-### Custom nodes
-
-Twenty-five of the thirty node classes these graphs use are ComfyUI built-ins.
-Five are not, and come from two packs — both installable from the ComfyUI
-Manager by name:
-
-| Pack | Provides | Used by |
-| --- | --- | --- |
-| [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow — this is the prompt-rewrite stage |
-| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate` | Remix, Extend |
-
-The OpenAI pack is not optional. Every graph runs what you type through an LLM
-before the video model sees it (see [below](#the-prompt-is-rewritten-before-the-model-sees-it)),
-and without those nodes nothing generates at all. It reads the API key from the
-ComfyUI host's own environment — the graphs ship `api_key: "-"` and this app
-never handles it. Point `base_url` at any OpenAI-compatible server if you would
-rather not use OpenAI's.
-
-Optionally, [ComfyUI-Login](https://github.com/liusida/ComfyUI-Login) if your
-ComfyUI is reachable from the internet — which it must be for a Vercel
-deployment to reach it. See [authentication](#comfyui-login-authentication).
-
-### Models
-
-Five files, named literally in the graphs:
-
-| File | Goes in | Used by |
-| --- | --- | --- |
-| `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | text/image to video, Extend |
-| `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | reference to video, Remix |
-| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | all five |
-| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | all five |
-| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | all five |
-
-Get them from the ComfyUI MiniMax H3 tutorial linked above. **The filenames have
-to match**, because they are values in the graph, not choices in the UI. If your
-build is named differently or quantised differently, either rename the file or
-edit the `unet_name` / `clip_name` / `vae_name` in the relevant
-`src/lib/workflows/*.ts` — the latter is one line and survives updates better.
-
-### Check before you generate
-
-```bash
-pnpm check:nodes
-```
-
-Asks your ComfyUI whether every class and model file the workflows name is
-actually there, and prints which pack each class came from. Run it before the
-first generation — the alternative is finding out several minutes into a job.
-
-## Setup
-
-```bash
-pnpm install
-cp .env.example .env.local   # then fill in COMFY_URL and COMFY_API_TOKEN
-pnpm dev
-```
-
-`.env.local`:
-
-| Variable | Purpose |
-| --- | --- |
-| `COMFY_URL` | Base URL of ComfyUI, no trailing slash. Required. |
-| `COMFY_API_TOKEN` | Token for the ComfyUI-Login node. See the escaping warning below. |
-| `APP_ACCESS_TOKEN` | Optional shared secret. When set, every `/api/*` call needs it and the UI asks for it once. |
-| `GENERATION_TIMEOUT_SECONDS` | How long the UI waits before giving up. Default 1800. |
-| `COMFY_BASIC_AUTH` | Optional `user:password` if ComfyUI sits behind basic auth. |
-| `COMFY_AUTH_HEADER_NAME` / `_VALUE` | Optional custom auth header. |
-
-Only `COMFY_URL` is strictly required. Running with no `APP_ACCESS_TOKEN` leaves
-the app open, which is fine on localhost and a bad idea anywhere else — anyone
-who finds the URL can drive your GPU.
-
-### First run, in order
-
-1. Install the two custom node packs and the five model files, then restart
-   ComfyUI.
-2. If ComfyUI is not on the same machine as your browser, enable ComfyUI-Login
-   and keep the token it prints.
-3. `pnpm install`, then `cp .env.example .env.local` and fill in `COMFY_URL`
-   and `COMFY_API_TOKEN`.
-4. `pnpm check:nodes` — every class and model file accounted for.
-5. `pnpm check:workflows` — the definitions agree with their own graphs.
-6. `pnpm dev`, open `http://localhost:3000`. The header pill should read
-   **Ready**.
-7. Generate. Text to Video is the cheapest first test; it needs no upload.
-
-If the pill reads **Offline**, `COMFY_URL` is wrong or ComfyUI is not running.
-If it reads **Auth failed**, the token is wrong — start with the escaping trap
-below, which catches most of them. `/api/health` says which in plain JSON.
-
-## ComfyUI-Login authentication
-
-Set up for [liusida/ComfyUI-Login](https://github.com/liusida/ComfyUI-Login). Every
-outbound call carries `Authorization: Bearer <COMFY_API_TOKEN>`. The token value is
-the bcrypt hash the node prints to the ComfyUI console when you set a password.
-
-The Bearer header is used rather than the `?token=` query form the README also
-offers, because a bcrypt hash contains `/` and `+` that need URL escaping, and
-because query strings land in access logs.
-
-### The `$` escaping trap
-
-The token starts with `$2b$`, and dotenv treats `$2b` as a variable reference.
-Pasted raw into `.env.local` it is silently blanked out, and you get a confusing
-auth failure with a token that *looks* correct in the file. Escape every `$`:
-
-```bash
-# console shows: $2b$12$AbCdEf...
-COMFY_API_TOKEN=\$2b\$12\$AbCdEf...
-```
-
-Values set in the Vercel dashboard or via `vercel env add` are literal — do **not**
-escape them there.
-
-`comfyApiToken()` logs a warning if the token does not start with `$2`, which is
-the signature of exactly this mistake.
-
-### How auth failures surface
-
-An auth failure from ComfyUI is reported as **502, never 401**. A 401 from this
-app's own API means the caller's `APP_ACCESS_TOKEN` is wrong, and the UI reacts by
-clearing it and showing the token gate — which would be entirely the wrong
-response to *our* token being misconfigured.
-
-Three refusal shapes are handled, each with its own message, and all report
-`reachable: true, authorized: false` so the header pill reads **Auth failed**
-rather than **Offline**:
-
-| ComfyUI responds | Detected as |
-| --- | --- |
-| `401` / `403` | token rejected or missing |
-| `302 → /login` | redirect chasing is disabled, so this cannot masquerade as success |
-| `200` with `text/html` | login page served instead of JSON |
-
-The last two matter because without the guards a login wall would either return
-HTML through a followed redirect or parse-error as `Unexpected token <`.
-
-Verified against a mock reproducing all four cases, and then against a live
-instance with the login node enabled: unauthenticated calls redirect to
-`/login`, a wrong token is rejected, and the correct token authenticates.
-
-Note that some builds of the login node return **302 for every `Accept` header**,
-including `application/json`, where newer source returns 401 JSON to non-HTML
-clients. Following that redirect yields `200 text/html`, which is precisely the
-`Unexpected token <` the redirect guard exists to prevent.
-
-### If a correct token is still rejected
-
-Bearer auth sits behind a CORS condition in the plugin:
-
-```python
-if args.enable_cors_header is None or args.enable_cors_header == '*' or args.enable_cors_header == request.headers.get('Origin'):
-```
-
-Server-side `fetch` sends no `Origin` header, so starting ComfyUI with
-`--enable-cors-header <specific-origin>` makes the Bearer check unreachable and
-a valid token fails. Drop the flag or set it to `*`.
-
-## Putting ComfyUI behind HTTPS (Tailscale Funnel)
-
-A ComfyUI reached over plain HTTP works fine here — all ComfyUI traffic is
-server-side, so mixed-content rules never apply. Beware of assuming otherwise
-from a port number: forwarding 8443 to ComfyUI's aiohttp listener does not put
-TLS in front of it, and the number implies nothing on its own. What plain HTTP
-costs you is
-confidentiality of the Bearer token and your prompts in transit.
-
-[Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel) fixes
-that and lets you close the forwarded port entirely. Funnel routes by SNI and
-terminates TLS **on your own machine**, so Tailscale relays the encrypted stream
-without decrypting it.
-
-> **Funnel is public, not private.** It puts the service on the open internet by
-> name — that is the point, since Vercel's functions are not on your tailnet.
-> `COMFY_API_TOKEN` is still doing the access control. (Tailscale *Serve* is the
-> tailnet-private variant, which Vercel could not reach.)
-
-Run these on the machine that hosts ComfyUI (the steps below name the Windows
-installer; the Tailscale commands are the same on macOS and Linux):
-
-1. Find the port ComfyUI actually listens on **locally** — its own default is
-   `8188`. If you reach it on some other port from outside, that is a forward
-   in front of it, and Funnel needs the local one.
-
-2. Install Tailscale and sign in.
-
-3. In the admin console → **DNS**, enable **MagicDNS** and **HTTPS
-   Certificates**. Funnel will not issue a certificate without both.
-
-4. In the admin console → **Access Controls**, grant the funnel attribute:
-
-   ```json
-   "nodeAttrs": [
-     {
-       "target": ["autogroup:member"],
-       "attr":   ["funnel"],
-     },
-   ],
-   ```
-
-5. Start the funnel, pointing at ComfyUI's **local** port:
-
-   ```shell
-   tailscale funnel --bg --https=443 localhost:8188
-   ```
-
-   `--bg` persists it across reboots. Funnel only permits public ports `443`,
-   `8443` and `10000`.
-
-6. Get the public hostname:
-
-   ```shell
-   tailscale funnel status
-   ```
-
-   It looks like `https://your-box.your-tailnet.ts.net`.
-
-7. Point the app at it — no code changes, just the env var:
-
-   ```bash
-   vercel env rm COMFY_URL production
-   vercel env add COMFY_URL production   # https://your-box.your-tailnet.ts.net
-   ```
-
-   Update `.env.local` too for local development.
-
-8. Confirm it took: the header pill should read **Ready** with no unlocked
-   padlock. `/api/health` returns `"secure": true`.
-
-9. Now close the 8443 port-forward on your router. Funnel is outbound-only, so
-   nothing needs to be exposed inbound any more — this is the bigger win.
-
-To undo: `tailscale funnel --https=443 localhost:8188 off`.
-
-## Adding your own workflow
-
-The registry lives in `src/lib/workflows/`. A workflow is the ComfyUI graph
-**verbatim** plus a declaration of which node inputs the UI may drive — the
-graph is never rewritten by hand.
-
-`archive/` holds superseded graphs that are worth keeping to compare against.
-They are complete workflow definitions and still typecheck, but nothing imports
-them, so they are neither validated by `check:workflows` nor bundled. Adding one
-back is a single line in `index.ts`.
-
-1. In ComfyUI: **Workflow → Export (API)**. You get a flat map of
-   `node id -> { class_type, inputs }`, where `["1", 0]` means output 0 of node 1.
-2. Drop it into a new file next to `minimax-h3.ts` as the `graph`.
-3. Declare `params`, pointing each control at the node inputs it writes:
-
-```ts
-{
-  id: "prompt",
-  label: "Prompt",
-  type: "textarea",
-  default: "",
-  group: "Prompt",
-  targets: [{ node: "3", input: "text" }],
-}
-```
-
-One control can drive several inputs, and a `transform` on a target derives what
-each one receives — so a single value can go to one node as a number and to
-another baked into a formula string.
-
-4. Register it in `src/lib/workflows/index.ts`.
-5. Run the validator:
-
-```bash
-pnpm check:workflows
-```
-
-It resolves every `target` against the graph and fails on anything stale, so a
-bad mapping surfaces immediately instead of sending a subtly wrong job to the
-GPU. The same check runs on `/api/workflows` and again before every submit.
-
-Param types available: `text`, `textarea`, `number`, `slider`, `select`,
-`toggle`, `seed`, `image`, `video`. Mark a param `advanced: true` to tuck it behind the disclosure;
-`group` sets the section heading.
 
 ## The bundled workflows
 
@@ -534,57 +499,51 @@ Every graph decodes an audio track into `CreateVideo`, so they set
 browsers only allow autoplay while muted, which would throw away the
 soundtrack the model just spent minutes generating.
 
-## How deploys happen
+## Adding your own workflow
 
-Connect the GitHub repo to a Vercel project and you get the usual arrangement:
+The registry lives in `src/lib/workflows/`. A workflow is the ComfyUI graph
+**verbatim** plus a declaration of which node inputs the UI may drive — the
+graph is never rewritten by hand.
 
-- **Push to `main` → production**
-- **Push to any other branch → a preview deployment**, protected by Vercel
-  Authentication (a Vercel login is required to view it)
+`archive/` holds superseded graphs that are worth keeping to compare against.
+They are complete workflow definitions and still typecheck, but nothing imports
+them, so they are neither validated by `check:workflows` nor bundled. Adding one
+back is a single line in `index.ts`.
 
-Worth knowing before you wire that up: Vercel Authentication does not cover
-production deployments on the Hobby and Pro plans, so production is publicly
-reachable and gated only by whatever `APP_ACCESS_TOKEN` you set. A push to
-`main` is therefore a public release — work on a branch and merge when you mean
-it, and do not deploy without that token set.
+1. In ComfyUI: **Workflow → Export (API)**. You get a flat map of
+   `node id -> { class_type, inputs }`, where `["1", 0]` means output 0 of node 1.
+2. Drop it into a new file next to `minimax-h3.ts` as the `graph`.
+3. Declare `params`, pointing each control at the node inputs it writes:
 
-`vercel deploy` and `vercel deploy --prod` still work for deploying the working
-tree directly, without a commit.
-
-## Deploying manually
-
-```bash
-vercel link
-vercel env add COMFY_URL production          # http://your-comfyui-host:8188
-vercel env add COMFY_API_TOKEN production    # the $2b$... hash, unescaped here
-vercel env add APP_ACCESS_TOKEN production   # openssl rand -hex 32
-vercel deploy --prod
+```ts
+{
+  id: "prompt",
+  label: "Prompt",
+  type: "textarea",
+  default: "",
+  group: "Prompt",
+  targets: [{ node: "3", input: "text" }],
+}
 ```
 
-## Security
+One control can drive several inputs, and a `transform` on a target derives what
+each one receives — so a single value can go to one node as a number and to
+another baked into a formula string.
 
-The ComfyUI-Login node closes the biggest hole — unauthenticated job submission
-on a public endpoint. Two things it does not fix:
+4. Register it in `src/lib/workflows/index.ts`.
+5. Run the validator:
 
-- **Traffic is plain HTTP until you move to Funnel** (see above). The Bearer
-  token and your prompts cross the internet in cleartext, so the token is
-  sniffable in transit and replayable.
-- **The token is a bcrypt hash used as a static bearer credential**, so it does
-  not rotate and does not expire. Treat it as a long-lived secret — and rotate
-  it if it has ever been sent over plain HTTP.
+```bash
+pnpm check:workflows
+```
 
-`APP_ACCESS_TOKEN` protects *this app*; `COMFY_API_TOKEN` protects ComfyUI. They
-are independent, and ComfyUI stays directly reachable regardless of the former.
+It resolves every `target` against the graph and fails on anything stale, so a
+bad mapping surfaces immediately instead of sending a subtly wrong job to the
+GPU. The same check runs on `/api/workflows` and again before every submit.
 
-## Scripts
-
-| Command | |
-| --- | --- |
-| `pnpm dev` | Dev server |
-| `pnpm build` | Production build |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm check:workflows` | Validate param→graph mappings. Needs nothing but this repo. |
-| `pnpm check:nodes` | Ask your ComfyUI whether it has the classes and models the graphs name. Needs `COMFY_URL`. |
+Param types available: `text`, `textarea`, `number`, `slider`, `select`,
+`toggle`, `seed`, `image`, `video`. Mark a param `advanced: true` to tuck it behind the disclosure;
+`group` sets the section heading.
 
 ## Queueing, history and leaving it running
 
@@ -652,6 +611,176 @@ few minutes — so a notification can lag the actual finish by up to that long.
 The poll fires immediately on `visibilitychange`, so the moment you look at the
 tab the state is correct regardless.
 
+## ComfyUI-Login authentication
+
+Set up for [liusida/ComfyUI-Login](https://github.com/liusida/ComfyUI-Login). Every
+outbound call carries `Authorization: Bearer <COMFY_API_TOKEN>`. The token value is
+the bcrypt hash the node prints to the ComfyUI console when you set a password.
+
+The Bearer header is used rather than the `?token=` query form the README also
+offers, because a bcrypt hash contains `/` and `+` that need URL escaping, and
+because query strings land in access logs.
+
+### How auth failures surface
+
+An auth failure from ComfyUI is reported as **502, never 401**. A 401 from this
+app's own API means the caller's `APP_ACCESS_TOKEN` is wrong, and the UI reacts by
+clearing it and showing the token gate — which would be entirely the wrong
+response to *our* token being misconfigured.
+
+Three refusal shapes are handled, each with its own message, and all report
+`reachable: true, authorized: false` so the header pill reads **Auth failed**
+rather than **Offline**:
+
+| ComfyUI responds | Detected as |
+| --- | --- |
+| `401` / `403` | token rejected or missing |
+| `302 → /login` | redirect chasing is disabled, so this cannot masquerade as success |
+| `200` with `text/html` | login page served instead of JSON |
+
+The last two matter because without the guards a login wall would either return
+HTML through a followed redirect or parse-error as `Unexpected token <`.
+
+Verified against a mock reproducing all four cases, and then against a live
+instance with the login node enabled: unauthenticated calls redirect to
+`/login`, a wrong token is rejected, and the correct token authenticates.
+
+Note that some builds of the login node return **302 for every `Accept` header**,
+including `application/json`, where newer source returns 401 JSON to non-HTML
+clients. Following that redirect yields `200 text/html`, which is precisely the
+`Unexpected token <` the redirect guard exists to prevent.
+
+### If a correct token is still rejected
+
+Bearer auth sits behind a CORS condition in the plugin:
+
+```python
+if args.enable_cors_header is None or args.enable_cors_header == '*' or args.enable_cors_header == request.headers.get('Origin'):
+```
+
+Server-side `fetch` sends no `Origin` header, so starting ComfyUI with
+`--enable-cors-header <specific-origin>` makes the Bearer check unreachable and
+a valid token fails. Drop the flag or set it to `*`.
+
+## Putting ComfyUI behind HTTPS (Tailscale Funnel)
+
+A ComfyUI reached over plain HTTP works fine here — all ComfyUI traffic is
+server-side, so mixed-content rules never apply. Beware of assuming otherwise
+from a port number: forwarding 8443 to ComfyUI's aiohttp listener does not put
+TLS in front of it, and the number implies nothing on its own. What plain HTTP
+costs you is
+confidentiality of the Bearer token and your prompts in transit.
+
+[Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel) fixes
+that and lets you close the forwarded port entirely. Funnel routes by SNI and
+terminates TLS **on your own machine**, so Tailscale relays the encrypted stream
+without decrypting it.
+
+> **Funnel is public, not private.** It puts the service on the open internet by
+> name — that is the point, since Vercel's functions are not on your tailnet.
+> `COMFY_API_TOKEN` is still doing the access control. (Tailscale *Serve* is the
+> tailnet-private variant, which Vercel could not reach.)
+
+Run these on the machine that hosts ComfyUI (the steps below name the Windows
+installer; the Tailscale commands are the same on macOS and Linux):
+
+1. Find the port ComfyUI actually listens on **locally** — its own default is
+   `8188`. If you reach it on some other port from outside, that is a forward
+   in front of it, and Funnel needs the local one.
+
+2. Install Tailscale and sign in.
+
+3. In the admin console → **DNS**, enable **MagicDNS** and **HTTPS
+   Certificates**. Funnel will not issue a certificate without both.
+
+4. In the admin console → **Access Controls**, grant the funnel attribute:
+
+   ```json
+   "nodeAttrs": [
+     {
+       "target": ["autogroup:member"],
+       "attr":   ["funnel"],
+     },
+   ],
+   ```
+
+5. Start the funnel, pointing at ComfyUI's **local** port:
+
+   ```shell
+   tailscale funnel --bg --https=443 localhost:8188
+   ```
+
+   `--bg` persists it across reboots. Funnel only permits public ports `443`,
+   `8443` and `10000`.
+
+6. Get the public hostname:
+
+   ```shell
+   tailscale funnel status
+   ```
+
+   It looks like `https://your-box.your-tailnet.ts.net`.
+
+7. Point the app at it — no code changes, just the env var:
+
+   ```bash
+   vercel env rm COMFY_URL production
+   vercel env add COMFY_URL production   # https://your-box.your-tailnet.ts.net
+   ```
+
+   Update `.env.local` too for local development.
+
+8. Confirm it took: the header pill should read **Ready** with no unlocked
+   padlock. `/api/health` returns `"secure": true`.
+
+9. Now close any port-forward you had pointing at ComfyUI. Funnel is
+   outbound-only, so nothing needs to be exposed inbound any more — this is the
+   bigger win, and the reason to prefer it over DDNS.
+
+To undo: `tailscale funnel --https=443 localhost:8188 off`.
+
+## How deploys happen
+
+Connect the GitHub repo to a Vercel project and you get the usual arrangement:
+
+- **Push to `main` → production**
+- **Push to any other branch → a preview deployment**, protected by Vercel
+  Authentication (a Vercel login is required to view it)
+
+Worth knowing before you wire that up: Vercel Authentication does not cover
+production deployments on the Hobby and Pro plans, so production is publicly
+reachable and gated only by whatever `APP_ACCESS_TOKEN` you set. A push to
+`main` is therefore a public release — work on a branch and merge when you mean
+it, and do not deploy without that token set.
+
+`vercel deploy` and `vercel deploy --prod` still work for deploying the working
+tree directly, without a commit.
+
+## Security
+
+The ComfyUI-Login node closes the biggest hole — unauthenticated job submission
+on a public endpoint. Two things it does not fix:
+
+- **Traffic is plain HTTP until you move to Funnel** (see above). The Bearer
+  token and your prompts cross the internet in cleartext, so the token is
+  sniffable in transit and replayable.
+- **The token is a bcrypt hash used as a static bearer credential**, so it does
+  not rotate and does not expire. Treat it as a long-lived secret — and rotate
+  it if it has ever been sent over plain HTTP.
+
+`APP_ACCESS_TOKEN` protects *this app*; `COMFY_API_TOKEN` protects ComfyUI. They
+are independent, and ComfyUI stays directly reachable regardless of the former.
+
+## Scripts
+
+| Command | |
+| --- | --- |
+| `pnpm dev` | Dev server |
+| `pnpm build` | Production build |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm check:workflows` | Validate param→graph mappings. Needs nothing but this repo. |
+| `pnpm check:nodes` | Ask your ComfyUI whether it has the classes and models the graphs name. Needs `COMFY_URL`. |
+
 ## Known limits
 
 - **Progress is an estimate.** ComfyUI exposes step-level progress over its
@@ -670,5 +799,10 @@ MIT — see [LICENSE](LICENSE).
 
 The workflow graphs under `src/lib/workflows/` are ComfyUI exports and are
 covered by the same licence, but the things they *name* are not: the MiniMax H3
-weights, the Qwen3-VL text encoder and the custom node packs each carry their own
-terms. Check those before redistributing anything built on them.
+weights, the Qwen3-VL text encoder and the custom node packs each carry their
+own terms. Check those before redistributing anything built on them.
+
+## Support
+
+If this saved you an afternoon, you can
+[buy me a coffee](https://buymeacoffee.com/reticulated). ☕
