@@ -70,12 +70,77 @@ Both packs install from ComfyUI Manager by name:
 LLM before the video model sees it ([details](#the-prompt-is-rewritten-before-the-model-sees-it)),
 so without those nodes nothing generates at all.
 
-That pack reads its API key from the **ComfyUI host's own environment** — the
-graphs ship `api_key: "-"` and this app never handles a key. Point `base_url` at
-any OpenAI-compatible server (Ollama, vLLM, LM Studio) if you would rather not
-use OpenAI; that is a one-line edit in `src/lib/workflows/`.
-
 Restart ComfyUI after installing.
+
+### The LLM key, and a one-line patch you have to apply
+
+The rewrite stage needs an API key, and **this app deliberately never sends
+one**. The key lives on the ComfyUI host and never crosses the network from
+Vercel. Two steps make that work.
+
+**1. Put the key in ComfyUI's environment.** It has to be set in the shell that
+actually launches ComfyUI — setting it in a different terminal does nothing,
+which is an easy hour to lose.
+
+```bash
+export OPENAI_API_KEY=sk-...     # macOS / Linux, same shell as ComfyUI
+python main.py
+```
+
+```powershell
+$env:OPENAI_API_KEY = "sk-..."   # Windows PowerShell
+python main.py
+```
+
+Running ComfyUI under systemd or a service manager? Use its own environment
+mechanism (`Environment=` in the unit file) rather than a login shell.
+
+**2. Patch the node pack to read it.** This is the part that will otherwise
+waste your afternoon. The graphs ship `api_key: "-"`, which is the pack's
+"no key needed" placeholder — but its `Client` node passes that string straight
+to the OpenAI library, and the library only falls back to `OPENAI_API_KEY` when
+the key is `None`. A literal `"-"` is not `None`, so the fallback never fires
+and you get a 401 from OpenAI partway through a job.
+
+In `custom_nodes/comfyui-openai-api/client.py`, add the `os` import at the top
+(upstream does not have it) and make `execute` fall through:
+
+```python
+import os   # <- add this alongside the existing imports
+
+    @classmethod
+    def execute(cls, base_url: str, max_retries: int, timeout: int, api_key: str | None = None) -> io.NodeOutput:
+        return io.NodeOutput(
+            OpenAI(
+                api_key=(
+                    api_key
+                    if api_key and api_key != "-"
+                    else os.environ.get("OPENAI_API_KEY")
+                ),
+                base_url=base_url,
+                max_retries=max_retries,
+                timeout=timeout
+            )
+        )
+```
+
+Restart ComfyUI. **Updating the pack overwrites this**, so if generations start
+failing after a ComfyUI Manager update, check here first.
+
+### Which model the rewrite asks for
+
+All five graphs request `model: "gpt-5.6-terra"`. If your account cannot reach
+that model the job fails at the rewrite step, which reads as a generic node
+error rather than anything about models. Change it to one your key can actually
+use — it appears once per file in `src/lib/workflows/`:
+
+```bash
+grep -rn 'model: "' src/lib/workflows/*.ts
+```
+
+Not using OpenAI at all? Point `base_url` at any OpenAI-compatible server
+(Ollama, vLLM, LM Studio) in the same files. Those usually need no key, in which
+case the stock `api_key: "-"` is correct and you can skip the patch above.
 
 ### Models
 
@@ -260,7 +325,8 @@ public forks.
 | Works locally, fails deployed | `COMFY_URL` is probably still `localhost` — or `$` got escaped in Vercel, where it should not be |
 | Valid token still rejected | ComfyUI started with `--enable-cors-header <specific-origin>` makes the bearer check unreachable. Drop the flag or set it to `*`. [Why](#if-a-correct-token-is-still-rejected) |
 | Generation fails naming a node class | `pnpm check:nodes` — a pack is missing |
-| Generation fails mentioning the LLM | The OpenAI key on your ComfyUI host, not this app |
+| Job dies partway with a 401 from OpenAI | `OPENAI_API_KEY` on the ComfyUI host, and [the `client.py` patch](#the-llm-key-and-a-one-line-patch-you-have-to-apply). A pack update reverts it |
+| Job dies at the rewrite step, no clear reason | [The model name](#which-model-the-rewrite-asks-for) — your key may not reach `gpt-5.6-terra` |
 | A job shows as **Lost** | ComfyUI restarted and dropped its history |
 
 `/api/health` is the fastest single source of truth: it reports `reachable`,
@@ -356,10 +422,13 @@ Two consequences:
 - **The prompt param targets the input node, not the video node.** On these
   graphs `MiniMaxH3ImageToVideo.prompt` is a link, not a value. Writing to it
   would be overwritten at execution time and the user's text would vanish.
-- **`api_key` is `"-"` in every export.** The ComfyUI host supplies the real
-  key; nothing about it lives in this app. If that host cannot reach the API,
-  the rewrite node fails and takes the whole job with it — there is no bypass
-  wired into these graphs.
+- **`api_key` is `"-"` in every export**, and that is deliberate: the key stays
+  on the ComfyUI host and never crosses the network from Vercel. It also means
+  the node pack needs [the small patch](#the-llm-key-and-a-one-line-patch-you-have-to-apply)
+  that makes `"-"` fall through to `OPENAI_API_KEY`, because upstream sends the
+  placeholder to OpenAI as if it were a real key. If the host cannot reach the
+  API the rewrite node fails and takes the whole job with it — there is no
+  bypass wired into these graphs.
 
 ### Image to video
 

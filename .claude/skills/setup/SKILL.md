@@ -48,11 +48,60 @@ Tell them plainly what has to be true, then let them go do it:
 The other 25 node classes are ComfyUI built-ins. If those come back missing,
 their ComfyUI is too old — updating is the fix, not hunting for packs.
 
-**An OpenAI API key on the ComfyUI host.** The rewrite nodes read it from
-ComfyUI's own environment. This app never handles it and the graphs ship
-`api_key: "-"` on purpose. If they would rather not use OpenAI, the `base_url`
-in the graphs points at any OpenAI-compatible server (Ollama, vLLM, LM Studio) —
-that is an edit to `src/lib/workflows/*.ts`, not a setting.
+**An LLM key on the ComfyUI host, plus a patch.** Do not skip this. It is the
+most likely reason a setup that looks correct fails partway through its first
+generation, and nothing in `check:nodes` can catch it.
+
+The app never sends a key — it stays on the ComfyUI host rather than crossing
+the network from Vercel. Two things have to be true:
+
+1. **`OPENAI_API_KEY` is set in the environment ComfyUI actually launches in.**
+   Not a different terminal, not their shell profile if ComfyUI runs as a
+   service. Same shell as `python main.py`, or `Environment=` in the systemd
+   unit.
+
+2. **`custom_nodes/comfyui-openai-api/client.py` is patched to read it.** The
+   graphs ship `api_key: "-"` (the pack's "no key needed" placeholder), and the
+   node hands that straight to the OpenAI library, which only falls back to the
+   environment when the key is `None`. `"-"` is not `None`, so without this
+   patch the fallback never fires and OpenAI returns 401 mid-job.
+
+   Upstream does not import `os`, so that line is part of the patch:
+
+   ```python
+   import os   # add alongside the existing imports
+
+       @classmethod
+       def execute(cls, base_url: str, max_retries: int, timeout: int, api_key: str | None = None) -> io.NodeOutput:
+           return io.NodeOutput(
+               OpenAI(
+                   api_key=(
+                       api_key
+                       if api_key and api_key != "-"
+                       else os.environ.get("OPENAI_API_KEY")
+                   ),
+                   base_url=base_url,
+                   max_retries=max_retries,
+                   timeout=timeout
+               )
+           )
+   ```
+
+   Offer to apply this for them if the file is reachable — check whether it is
+   already patched first, since re-applying it is not idempotent. Tell them a
+   pack update through ComfyUI Manager overwrites it.
+
+Restart ComfyUI after either change.
+
+**Using a local LLM instead?** Point `base_url` at any OpenAI-compatible server
+(Ollama, vLLM, LM Studio) in `src/lib/workflows/*.ts`. Those generally need no
+key, so the stock `api_key: "-"` is right and the patch above is unnecessary.
+
+**The model name will bite some people.** Every graph asks for
+`model: "gpt-5.6-terra"`. If their account cannot reach it the job dies at the
+rewrite step with an error that says nothing about models. If they hit that,
+have them change it to a model their key can use — once per file in
+`src/lib/workflows/`.
 
 **Five model files**, named literally in the graphs:
 
