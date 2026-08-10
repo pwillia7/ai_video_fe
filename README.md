@@ -3,6 +3,10 @@
 A small Next.js front end for driving video generation on your own ComfyUI
 instance. Deploys to Vercel; the ComfyUI box stays where it is.
 
+![The Extend workflow running: workflow picker and settings on the left, the
+finished clip and generation history on the
+right](https://i.imgur.com/cUqFq7x.png)
+
 Five MiniMax H3 workflows — text to video, image to video, reference to video,
 **Remix** (rebuild a clip you already made) and **Extend** (carry one on past
 where it stopped) — each with a hand-picked set of controls rather than the
@@ -18,21 +22,26 @@ database. Everything expensive happens on your ComfyUI machine.
 
 ### Let an agent do it
 
-This repo ships a setup skill for [Claude
-Code](https://claude.com/claude-code). Clone the repo, open it, and run:
+This repo ships a setup runbook written for coding agents:
+[`docs/agent-setup.md`](docs/agent-setup.md). Clone the repo, open it in
+whatever agent you use, and ask it to set the project up.
 
-```
-/setup
-```
+| Agent | How it finds the runbook |
+| --- | --- |
+| [Claude Code](https://claude.com/claude-code) | `/setup`, or via `CLAUDE.md` |
+| Codex, Cursor, Jules, Zed, Amp… | `AGENTS.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
+| Anything else | Point it at `docs/agent-setup.md` |
 
 It walks the whole thing: checks your ComfyUI has the right custom nodes and
-model files, works out how to make it reachable from Vercel, handles the
-`.env.local` escaping trap that catches nearly everyone, verifies a generation
-locally, and then deploys. It reads the actual errors and tells you which pack
-is missing rather than leaving you with a class name.
+model files, applies the node patch the LLM stage needs, works out how to make
+ComfyUI reachable from Vercel, handles the `.env.local` escaping trap that
+catches nearly everyone, verifies a generation locally, then deploys. It reads
+the actual errors — a missing node comes back as the pack you need to install
+rather than a class name.
 
-The skill lives in [`.claude/skills/setup/`](.claude/skills/setup/SKILL.md), so
-it is also just a readable checklist if you would rather follow it yourself.
+The runbook is plain markdown with nothing tool-specific in it, so it doubles as
+a checklist if you would rather do it yourself.
 
 ### Or by hand
 
