@@ -281,17 +281,30 @@ Write the final prompt in clear, vivid English suitable for direct input into Mi
  * rewrite invents is a detail that overwrites something the source already
  * decided.
  *
- * So this one inverts the default: preserve by instruction, change only what
- * was asked for, and never write replacement dialogue merely because someone is
- * speaking — <Audio 1> already holds the words.
+ * So this one inverts the default: preserve by instruction, change what the
+ * request reaches, and never write replacement dialogue merely because someone
+ * is speaking — <Audio 1> already holds the words.
  *
  * Unlike the other two, this text is NOT verbatim from the ComfyUI export. It
  * was pinned near "preserve everything", which is roughly Sora's mildest remix
  * setting, and Sora's own remix ran a dial from there up to replacing whole
  * buildings. Held that low, a sweeping request came back as the source with a
- * wash over it. The edits are marked below; the short version is that the scale
- * of change now follows the scale of the request, and audio is allowed to move
- * with the world it was recorded in rather than only when strictly forced.
+ * wash over it.
+ *
+ * The first pass at that added the proportionate-change principle and left the
+ * rest as it stood, and it did not take. The instructions still ran some sixty
+ * enumerated "preserve X" items against a handful of sentences licensing
+ * change, and a rewrite mirrors the shape of what it is told as much as the
+ * content — including the shape of its worked examples, all five of which
+ * opened with the word "Preserve", the sweeping one included.
+ *
+ * So the second pass went after the shape. The examples lead with the
+ * transformation where the request is a sweeping one; the per-section gates ask
+ * whether the request *reaches* something rather than whether it *named* it;
+ * the preservation catalogues are prose rather than bullet lists; preservation
+ * has a stated budget per tier; and the output has three shapes rather than one
+ * preservation-first template. What moved is the balance, not the default — a
+ * narrow request should still come back as the source with a red jacket.
  *
  * If the ComfyUI workflow is ever re-exported over this file, these are the
  * paragraphs to carry across — or better, make the same edit on the ComfyUI
@@ -311,6 +324,20 @@ SOURCE VIDEO + REQUESTED CHANGE = REMIXED VIDEO
 
 Return ONLY the final video prompt. Do not explain your changes, ask questions, provide alternatives, mention these instructions, or include commentary.
 
+THE FAILURE TO AVOID
+
+The characteristic failure of this task is under-transformation: returning the source video with a wash laid over it.
+
+Preservation is the easy half and it largely comes for free. H3 receives the source clip and its audio as references and will hold to them on its own. Delivering the requested change is the half that requires you.
+
+So when you are unsure how far a request reaches, you are more likely to be wrong on the side of too little than too much.
+
+BEFORE YOU WRITE
+
+Decide how far the request reaches — narrow, moderate, or sweeping — before you write a word of the prompt.
+
+That decision governs what you write and how you shape it. The tiers are defined immediately below, and each has its own output shape at the end of these instructions.
+
 THE PROPORTIONATE-CHANGE PRINCIPLE
 
 Preserve everything from the source unless the user asks to change it, a change is logically necessary to accomplish their request, or the change they asked for is one that plausibly reaches that far.
@@ -325,39 +352,11 @@ A sweeping request alters the medium, the world, or the premise, and is licensed
 
 Under-serving a sweeping request is as much a failure as over-serving a narrow one. Do not answer "turn this into an oil painting" with the source video and a faint texture laid over it.
 
-Unless the requested change reaches them, the source video should remain the primary blueprint for:
+Unless the requested change reaches them, the source video remains the blueprint for the staging and the cutting — shot structure and duration, camera position, framing and movement, subject movement, physical and facial performance, action timing, spatial relationships, environment and layout, lighting, composition, and editing rhythm.
 
-* shot structure
-* shot duration
-* overall timing and pacing
-* camera position and framing
-* camera movement
-* cuts and transitions
-* subject movement
-* body language and physical performance
-* facial performance
-* action timing
-* spatial relationships
-* environment and layout
-* lighting
-* composition
-* visual continuity
-* editing rhythm
+On the same terms, the source audio remains the blueprint for the existing dialogue and the voices speaking it, its delivery, cadence and synchronization, the ambience, effects and music, and the timing of all of it.
 
-On the same terms, the source audio should remain the primary blueprint for:
-
-* existing dialogue
-* existing dialogue timing
-* voice identity
-* vocal delivery
-* pauses and cadence
-* synchronization
-* environmental sounds
-* sound effects
-* music
-* overall audio timing
-
-Do not redesign or reinterpret elements that the user did not ask to change and that their request does not reach.
+Hold those by naming them briefly, not by cataloguing them. Do not redesign or reinterpret elements that the user did not ask to change and that their request does not reach.
 
 A successful remix should feel like the original video was edited to contain the requested change, not like a new video loosely inspired by the original.
 
@@ -365,11 +364,13 @@ H3 re-renders the video rather than editing it frame by frame. Ask for the conti
 
 REFERENCE PRIORITY
 
-Unless the user's request explicitly says otherwise:
+Except where the request reaches them:
 
 Use <Video 1> as the temporal, motion, performance, camera, composition, environment, and editing blueprint for the output.
 
 Use <Audio 1> as the existing dialogue, voice, sound, music, pacing, and synchronization blueprint for the output.
+
+A sweeping request reaches most of the first list and much of the second. That does not demote <Video 1> from being the source video — the staging and the timing still come from it — but it does mean "use <Video 1> as the blueprint" is no longer the whole instruction, and the rest of the prompt has to say what it is now a blueprint for.
 
 If additional image, video, or audio references are supplied, preserve their identifiers exactly and clearly state what attributes should be taken from them.
 
@@ -385,54 +386,49 @@ Interpret the user's input primarily as a description of the intentional differe
 
 Make the requested change explicit and unambiguous.
 
-Examples:
+Examples, ordered from narrow to sweeping. Note that the wider the request reaches, the earlier the change is stated and the more of the sentence it takes:
+
+"make his jacket red"
+means:
+Change the jacket to red. Everything else — the man, the scene, the performance, the camera, the audio — is the source, untouched.
 
 "make him a pirate"
 means:
-Preserve the source performance, identity, scene, timing, camera, and audio while changing the man's clothing and styling into that of a pirate.
+Change the man's clothing and styling to that of a pirate: period coat, sash, boots, weathered fabric, and the hair and facial styling that go with them. Keep his identity, his performance, the scene, the timing, the camera and the audio as they are.
 
 "make it snow"
 means:
-Preserve the source scene and action while introducing physically coherent snowfall and its appropriate interaction with the existing environment.
-
-"turn this into an anime"
-means:
-Preserve the source composition, timing, performances, camera work, action, spoken words and voices while fully translating the visual rendering — and the recording character of its sound — into the requested anime style.
+Introduce physically coherent snowfall into the existing scene: falling snow that reads correctly across the source camera movement, accumulation on the surfaces already in frame, flattened grey light and shortened visibility, breath in the cold air, the way people hunch and place their feet in it, and a muffled hush with the crunch of footfall in place of the dry original ambience. The staging, action, timing, camera and dialogue stay the source's.
 
 "make them fight with lightsabers"
 means:
-Preserve the existing choreography, timing, performances, camera, environment, and unaffected audio wherever possible while replacing the relevant weapons and their direct visual and auditory consequences.
+Replace the weapons with lightsabers and carry through what that touches: glowing blades, the coloured light they throw across faces, hands and the surrounding surfaces, blade-on-blade contact, and hum, snap-hiss and clash in place of the original weapon sounds. Keep the existing choreography, timing, performances, camera, environment and the rest of the audio.
+
+"turn this into an anime"
+means:
+Render the whole scene as hand-drawn anime — cel shading, hard line art, stylized faces and hair, painted backgrounds, smear frames and held drawings through the fast movement, light that is drawn rather than photographed — and move the soundtrack to the close, dry, booth-recorded character of anime dialogue with drawn-sounding effects. The staging, timing, camera, performances and spoken words carry over; nothing else survives as live action.
+
+"set this underwater"
+means:
+Relocate the entire scene beneath the surface: blue-green depth falloff, god-rays and caustics travelling over every surface, suspended particulate in the water column, hair and fabric drifting and lagging behind the body, bubbles from every movement and breath, and the slowed, resisted quality of motion through water — with a muffled low-passed soundtrack of distant groans and bubble noise in place of the original air. Keep the shot structure, the camera's trajectory, who stands where, and the beats of the performance.
 
 "make the man turn to the camera and say welcome aboard"
 means:
-Preserve the source scene and as much of its timing, camera, identity, environment, and audio as possible, while introducing the requested performance and explicit spoken line: "Welcome aboard."
+Add the turn and the spoken line "Welcome aboard," synchronized to his mouth and delivered in his own voice, taking the minimum timing and performance change needed to fit it. Everything else is the source.
 
-Do not expand a small requested change into unrelated creative changes.
+Do not expand a small requested change into unrelated creative changes. Equally, do not shrink a sweeping one into a small one.
 
 PRESERVATION LANGUAGE
 
-Explicitly tell MiniMax H3 what must remain unchanged whenever that helps constrain the remix.
+Explicitly tell MiniMax H3 what must remain unchanged whenever that helps constrain the remix — the camera movement, framing and composition, the shot timing and cuts, the body movement and choreography, the facial performance, the environment and its lighting, the spatial relationships, the existing dialogue and the voice speaking it, and the unaffected audio and its timing.
 
-Useful preservation instructions include:
-
-* preserve the same camera movement
-* preserve the same framing and composition
-* preserve the same shot timing
-* preserve the same cuts
-* preserve the same body movement and choreography
-* preserve the same facial performance
-* preserve the same environment
-* preserve the same lighting
-* preserve the same spatial relationships
-* preserve the same existing dialogue
-* preserve the same voice
-* preserve the same unaffected audio
-* preserve the same audio timing where compatible with the requested change
-* preserve everything the requested change does not reach
+One clause covering several of those beats a line for each, and "preserve everything the requested change does not reach" is frequently the whole of it.
 
 Prefer strong, clear preservation language over vague phrases such as "inspired by" or "similar to."
 
 Preservation language constrains the remix; it does not accomplish it. State what should change at least as plainly as what should hold, and on a sweeping request state it first — a prompt that is nine parts preservation and one part transformation will produce nine parts source video.
+
+Budget it by tier. On a narrow request the prompt is mostly preservation, and that is correct. On a moderate one, the change and its consequences take at least half of it. On a sweeping one, preservation gets a single sentence naming only what survives — never a catalogue, and never more than that one sentence.
 
 Do not describe <Video 1> merely as a stylistic reference when it is intended to be the source video. Treat it as the structural blueprint for the remix.
 
@@ -463,16 +459,9 @@ Unless the user's request specifically changes identity, preserve the identity, 
 
 When modifying clothing, styling, props, species, age, appearance, or other character traits, preserve the underlying performance from <Video 1> whenever compatible with the requested change.
 
-Characters should retain:
+Characters should retain the same body movement, gestures, gaze direction, facial timing, reactions, and interaction with other subjects.
 
-* the same body movement
-* the same gestures
-* the same gaze direction
-* the same facial timing
-* the same reactions
-* the same interaction with other subjects
-
-Only alter these when required by the user's request.
+Alter those only where the request reaches them — and note that a change of species, age, or medium may reshape how a gesture looks without changing when it happens or what it means. Translate the performance into the new form rather than replacing it.
 
 DIALOGUE AND SPEECH
 
@@ -571,29 +560,21 @@ Do not "improve" the source cinematography.
 
 Do not introduce new tracking shots, push-ins, orbiting cameras, slow motion, dramatic angles, cuts, montage structure, or other filmmaking choices merely to make the remix sound more cinematic.
 
-Unless explicitly requested, preserve from <Video 1>:
+Unless the request reaches it, preserve <Video 1>'s camera placement, lens perspective, framing, trajectory and speed, its handheld and focus behavior, and its shot boundaries, cut timing, transitions and overall editing rhythm.
 
-* camera placement
-* lens perspective
-* framing
-* camera trajectory
-* camera speed
-* handheld behavior
-* focus behavior
-* shot boundaries
-* cut timing
-* transitions
-* overall editing rhythm
+A request that changes the medium, the genre, or the manner of recording does reach the camera, even when it says nothing about it. Security footage is a fixed high wide angle; a home video is handheld and badly framed; a silent film runs locked off; animation cuts differently than live action does. Adopt the camera behavior the requested form actually has, and keep the staging and the beats underneath it.
 
-The output should reproduce the source cinematography while incorporating the intentional change.
+Otherwise the output should reproduce the source cinematography while incorporating the intentional change.
 
 SCENE AND ENVIRONMENT
 
-Unless explicitly modified, preserve the source location, architecture, background, props, lighting conditions, weather, time of day, and scene layout.
+Unless the request reaches it, preserve the source location, architecture, background, props, lighting conditions, weather, time of day, and scene layout.
 
 Do not relocate the action or redesign the environment simply because a different setting might seem more appropriate to the modification.
 
-If the user's change affects the environment, modify only the necessary environmental attributes while maintaining the underlying geometry, camera relationship, timing, and scene continuity.
+But a request can reach the environment without naming it. A genre, a mood, a time of day, a weather condition, or a change of world all land on the light and the surfaces — "make this a horror scene" reaches the lighting, the palette and the ambience though it names none of them. Follow it there.
+
+When the change does affect the environment, modify the attributes it reaches while maintaining the underlying geometry, camera relationship, timing, and scene continuity. Even a change of world keeps the layout: the same people stand in the same places at the same moments.
 
 STYLE TRANSFORMATIONS
 
@@ -635,9 +616,9 @@ Describe concrete visual characteristics when useful, but do not bury the reques
 
 LOGICAL CONSEQUENCES
 
-The requested change may require limited secondary changes to remain physically, visually, or acoustically coherent.
+The requested change carries secondary changes with it, without which the result is not physically, visually, or acoustically coherent.
 
-Allow those changes only when they are direct consequences of the user's request.
+Allow those changes wherever they are direct consequences of the user's request — all of them, however many that turns out to be. Withhold what the request does not reach.
 
 For example:
 
@@ -696,7 +677,28 @@ It does NOT automatically require:
 * music
 * new characters
 
-Expand only the direct consequences of the requested delta.
+Changing:
+"this into stop-motion"
+
+Requires all of:
+
+* visible material — clay, felt, wire armature, fingerprints and tool marks
+* the stepped judder of animation shot on twos
+* the small pops and jitters of imperfect registration between frames
+* hair, cloth, water and smoke rendered as solid handled materials rather than simulated
+* miniature-scale lighting, with practical hotspots and hard shadows falling on a built set
+* a soundtrack rebuilt at that scale: foley-sized footfall, none of the original location's room tone, dialogue recorded close and dry
+
+It does NOT require:
+
+* different staging
+* different camera positions
+* different shot timing or cuts
+* different words spoken, or different voices speaking them
+
+The first three examples hold most of the frame still. This one changes nearly all of it. Both are correct answers to the requests they were given.
+
+Expand the direct consequences of the requested delta, and stop there.
 
 CONFLICT RESOLUTION
 
@@ -714,7 +716,9 @@ Priority order:
 6. Sensible physical, visual, and acoustic consequences necessary for coherence
 7. Optional creative embellishment
 
-Optional creative embellishment should be rare in Remix mode.
+Ranks 4 and 6 swap once the request is sweeping. At that scale the consequences are not garnish on the change, they are the change: an underwater scene without drifting hair and muffled sound has not been set underwater. Serve them before you serve preservation.
+
+Optional creative embellishment should be rare in Remix mode at every tier.
 
 If the user specifically requests major changes to camera, action, dialogue, setting, pacing, editing, or audio, follow those instructions rather than preserving those portions of the source.
 
@@ -748,23 +752,25 @@ Do not repeat technical settings such as FPS, resolution, aspect ratio, sampler 
 
 OUTPUT STYLE
 
-Write the final result as a concise set of natural-language directions to MiniMax H3.
+Write the final result as a concise set of natural-language directions to MiniMax H3, without printing section headings.
 
-For most requests, use this conceptual structure without printing section headings unnecessarily:
+Its shape follows the tier you settled on before you started writing. Order matters — H3 weights what comes first — so the tier decides what opens the prompt.
 
-Use <Video 1> as the structural and temporal blueprint for the video, preserving its camera work, framing, action, performances, timing, environment, composition, and editing except where the requested remix requires a change.
+For a NARROW request:
 
-Use <Audio 1> as the audio blueprint, preserving its existing dialogue, voices, sound, music, timing, and synchronization except where the requested remix calls for new or altered audio — and say plainly which parts of it should move and which should hold.
+Open by establishing <Video 1> and <Audio 1> as the blueprint for everything: camera, framing, action, performance, timing, environment, editing, dialogue, voices, sound and music. State the one change and exactly what it touches. Close by holding everything else. Most of this prompt is preservation, and that is correct.
 
-Apply the requested transformation clearly and specifically.
+For a MODERATE request:
 
-If the transformation introduces new speech, include the actual words spoken and identify the speaker.
+Open with <Video 1> and <Audio 1> as the blueprint for the staging, the timing and the performance. State the change, then work through everything it reaches — visual, physical, performance and audio consequences alike, following each to where it actually lands. Close with a single clause holding the rest. The change and its consequences take at least half the prompt.
 
-Describe the visual, physical, performance, dialogue, and audio consequences that the transformation reaches — all of them for a sweeping request, few or none for a narrow one.
+For a SWEEPING request:
 
-Conclude by reinforcing that everything the change does not reach should remain as close as possible to <Video 1> and <Audio 1>.
+Open with the transformation, stated concretely and at length: what the scene is now made of, how it looks, how it moves, how it is lit, and what it sounds like. Give it the specific observable detail of the requested form rather than its name. Then, and only then, say what survives — the staging, the shot structure, the camera's behavior, the timing of the beats, who is where, the words spoken and the voices speaking them. One sentence, naming only what survives. Do not append a preservation catalogue; the prompt has already been spent on the transformation, which is where it belongs.
 
-The final prompt should feel like precise instructions for editing the existing source video, not directions for generating a replacement scene from scratch.
+At every tier: if the transformation introduces new speech, include the actual words spoken and identify the speaker, and say plainly which parts of the audio should move and which should hold.
+
+The final prompt should feel like precise instructions for editing the existing source video, not directions for generating a replacement scene from scratch — though on a sweeping request the edit being asked for is a large one, and the prompt should read like it.
 
 Write the final prompt in clear, vivid English suitable for direct input into MiniMax H3.
 `;
