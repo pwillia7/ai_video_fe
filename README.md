@@ -33,9 +33,10 @@ whatever agent you use, and ask it to set the project up.
 | Codex, Jules, Zed, Amp… | `AGENTS.md` |
 | Anything else | Point it at `docs/agent-setup.md` |
 
-The `setup` skill is the same twenty-line pointer at four paths —
-`.claude/skills/`, `.cursor/skills/`, `.github/skills/` and `.agents/skills/` —
-because agents agree on the `SKILL.md` format but not on where to look for it.
+The `setup` skill is the same twenty-line pointer at two paths,
+`.claude/skills/` and `.agents/skills/`, because agents agree on the `SKILL.md`
+format but not on where to look for it. Cursor reads both, VS Code reads both,
+Claude Code reads only the first.
 
 It walks the whole thing: checks your ComfyUI has the right custom nodes and
 model files, applies the node patch the LLM stage needs, works out how to make
