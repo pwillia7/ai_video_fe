@@ -228,12 +228,14 @@ without decrypting it.
 > `COMFY_API_TOKEN` is still doing the access control. (Tailscale *Serve* is the
 > tailnet-private variant, which Vercel could not reach.)
 
-Run these on the **Windows box** that hosts ComfyUI:
+Run these on the machine that hosts ComfyUI (the steps below name the Windows
+installer; the Tailscale commands are the same on macOS and Linux):
 
-1. Find the port ComfyUI actually listens on locally. Publicly it is 8443, but
-   that is your router's forward — ComfyUI's own default is `8188`.
+1. Find the port ComfyUI actually listens on **locally** — its own default is
+   `8188`. If you reach it on some other port from outside, that is a forward
+   in front of it, and Funnel needs the local one.
 
-2. Install Tailscale for Windows and sign in.
+2. Install Tailscale and sign in.
 
 3. In the admin console → **DNS**, enable **MagicDNS** and **HTTPS
    Certificates**. Funnel will not issue a certificate without both.
