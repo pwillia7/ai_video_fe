@@ -3,6 +3,15 @@
 A small Next.js app for driving video generation on a ComfyUI instance. Deploys
 to Vercel; the ComfyUI box stays where it is.
 
+It ships five MiniMax H3 workflows — text to video, image to video, reference to
+video, **Remix** (rebuild a clip you already made) and **Extend** (carry one on
+past where it stopped) — each with a hand-picked set of controls rather than the
+whole graph. Generations queue, run in the background, and stay in a per-device
+history you can replay, download or feed back in.
+
+It is a front end and nothing more: no model weights, no inference, no database.
+Everything expensive happens on your ComfyUI machine.
+
 ## How it fits together
 
 ```
@@ -26,11 +35,76 @@ returns as soon as ComfyUI accepts the job, then the client polls
 ComfyUI already owns the queue and history, so there is no server-side job
 state to keep.
 
+## What you need on the ComfyUI side
+
+This is the part that actually takes effort. The app is a few minutes; getting
+ComfyUI able to run these graphs is the rest.
+
+**A recent ComfyUI.** The bundled workflows use MiniMax H3 (`MiniMaxH3ImageToVideo`,
+`MiniMaxH3ReferenceToVideo`) and the newer video nodes (`LoadVideo`, `CreateVideo`,
+`GetVideoComponents`, `VideoFrameSample`). All are built in, but only on a build
+new enough to have them — if `pnpm check:nodes` reports them missing, update
+ComfyUI before hunting for node packs.
+
+**A GPU that can hold the models below.** They are quantised builds for a reason.
+ComfyUI's own [MiniMax H3 tutorial](https://docs.comfy.org/tutorials/video/minimax/minimax-h3)
+is the current word on what the model needs; this repo does not second-guess it.
+
+### Custom nodes
+
+Twenty-five of the thirty node classes these graphs use are ComfyUI built-ins.
+Five are not, and come from two packs — both installable from the ComfyUI
+Manager by name:
+
+| Pack | Provides | Used by |
+| --- | --- | --- |
+| [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow — this is the prompt-rewrite stage |
+| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate` | Remix, Extend |
+
+The OpenAI pack is not optional. Every graph runs what you type through an LLM
+before the video model sees it (see [below](#the-prompt-is-rewritten-before-the-model-sees-it)),
+and without those nodes nothing generates at all. It reads the API key from the
+ComfyUI host's own environment — the graphs ship `api_key: "-"` and this app
+never handles it. Point `base_url` at any OpenAI-compatible server if you would
+rather not use OpenAI's.
+
+Optionally, [ComfyUI-Login](https://github.com/liusida/ComfyUI-Login) if your
+ComfyUI is reachable from the internet — which it must be for a Vercel
+deployment to reach it. See [authentication](#comfyui-login-authentication).
+
+### Models
+
+Five files, named literally in the graphs:
+
+| File | Goes in | Used by |
+| --- | --- | --- |
+| `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | text/image to video, Extend |
+| `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | reference to video, Remix |
+| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | all five |
+| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | all five |
+| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | all five |
+
+Get them from the ComfyUI MiniMax H3 tutorial linked above. **The filenames have
+to match**, because they are values in the graph, not choices in the UI. If your
+build is named differently or quantised differently, either rename the file or
+edit the `unet_name` / `clip_name` / `vae_name` in the relevant
+`src/lib/workflows/*.ts` — the latter is one line and survives updates better.
+
+### Check before you generate
+
+```bash
+pnpm check:nodes
+```
+
+Asks your ComfyUI whether every class and model file the workflows name is
+actually there, and prints which pack each class came from. Run it before the
+first generation — the alternative is finding out several minutes into a job.
+
 ## Setup
 
 ```bash
 pnpm install
-cp .env.example .env.local   # already created with your endpoint
+cp .env.example .env.local   # then fill in COMFY_URL and COMFY_API_TOKEN
 pnpm dev
 ```
 
@@ -44,6 +118,28 @@ pnpm dev
 | `GENERATION_TIMEOUT_SECONDS` | How long the UI waits before giving up. Default 1800. |
 | `COMFY_BASIC_AUTH` | Optional `user:password` if ComfyUI sits behind basic auth. |
 | `COMFY_AUTH_HEADER_NAME` / `_VALUE` | Optional custom auth header. |
+
+Only `COMFY_URL` is strictly required. Running with no `APP_ACCESS_TOKEN` leaves
+the app open, which is fine on localhost and a bad idea anywhere else — anyone
+who finds the URL can drive your GPU.
+
+### First run, in order
+
+1. Install the two custom node packs and the five model files, then restart
+   ComfyUI.
+2. If ComfyUI is not on the same machine as your browser, enable ComfyUI-Login
+   and keep the token it prints.
+3. `pnpm install`, then `cp .env.example .env.local` and fill in `COMFY_URL`
+   and `COMFY_API_TOKEN`.
+4. `pnpm check:nodes` — every class and model file accounted for.
+5. `pnpm check:workflows` — the definitions agree with their own graphs.
+6. `pnpm dev`, open `http://localhost:3000`. The header pill should read
+   **Ready**.
+7. Generate. Text to Video is the cheapest first test; it needs no upload.
+
+If the pill reads **Offline**, `COMFY_URL` is wrong or ComfyUI is not running.
+If it reads **Auth failed**, the token is wrong — start with the escaping trap
+below, which catches most of them. `/api/health` says which in plain JSON.
 
 ## ComfyUI-Login authentication
 
@@ -92,12 +188,12 @@ rather than **Offline**:
 The last two matter because without the guards a login wall would either return
 HTML through a followed redirect or parse-error as `Unexpected token <`.
 
-Verified against a mock reproducing all four cases, and then against the live
+Verified against a mock reproducing all four cases, and then against a live
 instance with the login node enabled: unauthenticated calls redirect to
 `/login`, a wrong token is rejected, and the correct token authenticates.
 
-Note this build of the login node returns **302 for every `Accept` header**,
-including `application/json` — newer source returns 401 JSON to non-HTML
+Note that some builds of the login node return **302 for every `Accept` header**,
+including `application/json`, where newer source returns 401 JSON to non-HTML
 clients. Following that redirect yields `200 text/html`, which is precisely the
 `Unexpected token <` the redirect guard exists to prevent.
 
@@ -111,15 +207,15 @@ if args.enable_cors_header is None or args.enable_cors_header == '*' or args.ena
 
 Server-side `fetch` sends no `Origin` header, so starting ComfyUI with
 `--enable-cors-header <specific-origin>` makes the Bearer check unreachable and
-a valid token fails. Drop the flag or set it to `*`. (Not currently an issue on
-this instance — verified.)
+a valid token fails. Drop the flag or set it to `*`.
 
 ## Putting ComfyUI behind HTTPS (Tailscale Funnel)
 
-As shipped, `COMFY_URL` is plain HTTP. Nothing serves TLS on 8443 — that port is
-forwarded straight to ComfyUI's aiohttp listener, and the number `8443` implies
-nothing on its own. The app works regardless, because all ComfyUI traffic is
-server-side and mixed-content rules do not apply; what plain HTTP costs you is
+A ComfyUI reached over plain HTTP works fine here — all ComfyUI traffic is
+server-side, so mixed-content rules never apply. Beware of assuming otherwise
+from a port number: forwarding 8443 to ComfyUI's aiohttp listener does not put
+TLS in front of it, and the number implies nothing on its own. What plain HTTP
+costs you is
 confidentiality of the Bearer token and your prompts in transit.
 
 [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel) fixes
@@ -438,16 +534,17 @@ soundtrack the model just spent minutes generating.
 
 ## How deploys happen
 
-The GitHub repo is connected to the Vercel project, so:
+Connect the GitHub repo to a Vercel project and you get the usual arrangement:
 
-- **Push to `main` → production**, live at `ai-video-fe.vercel.app`
+- **Push to `main` → production**
 - **Push to any other branch → a preview deployment**, protected by Vercel
   Authentication (a Vercel login is required to view it)
 
-Production is publicly reachable and gated only by `APP_ACCESS_TOKEN`, because
-Vercel Authentication cannot cover production deployments on the Pro plan. A
-push to `main` is therefore a public release — work on a branch and merge when
-you mean it.
+Worth knowing before you wire that up: Vercel Authentication does not cover
+production deployments on the Hobby and Pro plans, so production is publicly
+reachable and gated only by whatever `APP_ACCESS_TOKEN` you set. A push to
+`main` is therefore a public release — work on a branch and merge when you mean
+it, and do not deploy without that token set.
 
 `vercel deploy` and `vercel deploy --prod` still work for deploying the working
 tree directly, without a commit.
@@ -484,7 +581,8 @@ are independent, and ComfyUI stays directly reachable regardless of the former.
 | `pnpm dev` | Dev server |
 | `pnpm build` | Production build |
 | `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm check:workflows` | Validate param→graph mappings |
+| `pnpm check:workflows` | Validate param→graph mappings. Needs nothing but this repo. |
+| `pnpm check:nodes` | Ask your ComfyUI whether it has the classes and models the graphs name. Needs `COMFY_URL`. |
 
 ## Queueing, history and leaving it running
 
@@ -563,3 +661,12 @@ tab the state is correct regardless.
 - **History is per device.** It lives in `localStorage`, so it does not follow
   you between desktop and phone. Making it portable would mean real storage
   (Vercel Blob) and a decision about retention.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+The workflow graphs under `src/lib/workflows/` are ComfyUI exports and are
+covered by the same licence, but the things they *name* are not: the MiniMax H3
+weights, the Qwen3-VL text encoder and the custom node packs each carry their own
+terms. Check those before redistributing anything built on them.

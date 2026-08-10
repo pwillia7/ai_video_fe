@@ -304,6 +304,13 @@ export interface NodeSchema {
     required?: Record<string, unknown>;
     optional?: Record<string, unknown>;
   };
+  /**
+   * Where the class comes from: "nodes" and friends for built-ins,
+   * "custom_nodes.<pack>..." for everything installed. `check:nodes` reads this
+   * to say which pack supplies each class the graphs need.
+   */
+  python_module?: string;
+  display_name?: string;
 }
 
 // /object_info for the whole install is multiple megabytes, so fetch per class

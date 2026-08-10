@@ -6,9 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "check:workflows": "tsx scripts/check-workflows.ts"
+    "check:workflows": "tsx scripts/check-workflows.ts",
+    "check:nodes": "tsx scripts/check-nodes.ts"
   },
   "dependencies": {
     "geist": "^1.7.2",
