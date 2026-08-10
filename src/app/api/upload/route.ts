@@ -25,9 +25,9 @@ const ACCEPTED = /^(image|video)\//;
  * Video arrives here only when the user picks a clip by hand. Resolution and
  * duration are checked in the browser before the upload starts, because both
  * need a decoder to read and the browser already has one — see
- * video-upload.tsx. Remix does not come through this route at all; it copies a
- * clip already sitting on the ComfyUI box (see /api/remix), which is how it
- * sidesteps the size cap below.
+ * video-upload.tsx. Remix and Extend do not come through this route at all;
+ * they copy a clip already sitting on the ComfyUI box (see /api/remix), which
+ * is how they sidestep the size cap below.
  */
 export async function POST(request: Request) {
   const denied = unauthorized(request);

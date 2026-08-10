@@ -235,7 +235,7 @@ Param types available: `text`, `textarea`, `number`, `slider`, `select`,
 
 ## The bundled workflows
 
-All four target **MiniMax H3** and produce a video with a generated audio
+All five target **MiniMax H3** and produce a video with a generated audio
 track. They share sampling, timing and encoding controls via
 `minimax-common.ts`.
 
@@ -245,6 +245,7 @@ track. They share sampling, timing and encoding controls via
 | `minimax-h3-i2v` — image to video | The uploaded image, rescaled by `ImageScaleToTotalPixels` |
 | `minimax-h3-ref` — reference to video | Aspect ratio + megapixels (`ResolutionSelector`) |
 | `minimax-h3-ref2v` — remix | The source clip's frames, measured by `GetImageSizeAndCount` — length included |
+| `minimax-h3-extend` — extend | The source clip's **last frame**, measured by `GetImageSize` |
 
 ### The prompt is rewritten before the model sees it
 
@@ -255,15 +256,25 @@ the video node. The image and reference workflows also hand their uploads to
 the rewrite, so it can describe what is actually in frame.
 
 **Which system prompt depends on the workflow**, and the difference is not
-cosmetic. The three generating graphs use `PROMPT_DIRECTOR`, which fills in
-everything you left unsaid — camera, performance, dialogue, sound design — from
-a one-line idea. Video to video uses `REMIX_DIRECTOR` instead, because that
-behaviour is actively wrong once there is a source clip: what you type is a
-*delta*, and every detail the rewrite invents overwrites something the source
-already decided. `REMIX_DIRECTOR` inverts it — preserve by instruction, change
-only what was asked for, and never write replacement dialogue merely because
-someone is speaking, since the clip's own audio already holds the words. Both
-live in `minimax-common.ts` and are workflow data: kept verbatim, not tidied.
+cosmetic. The three graphs that invent a scene use `PROMPT_DIRECTOR`, which
+fills in everything you left unsaid — camera, performance, dialogue, sound
+design — from a one-line idea. The two that start from a clip do not, because
+that behaviour is actively wrong once a source exists, and they do not agree
+with each other either:
+
+- **Remix** runs `REMIX_DIRECTOR`. What you type is a *delta*, and every detail
+  the rewrite invents overwrites something the source already decided. So it
+  inverts the default — preserve by instruction, change only what was asked
+  for, and never write replacement dialogue merely because someone is speaking,
+  since the clip's own audio already holds the words.
+- **Extend** runs `EXTEND_DIRECTOR`. Nothing about the source changes there;
+  time moves forward, and what you type is what happens *next*. Most of it is
+  spent on the seam: no establishing shot, no fade, no cut, no resetting
+  characters into neutral poses, and motion already underway carried through
+  the join. It also holds the previous clip's dialogue to the previous clip.
+
+All three live in `minimax-common.ts` and are workflow data: kept verbatim, not
+tidied.
 
 Two consequences:
 
@@ -348,9 +359,9 @@ there is no point sending a file that was never going to work.
 **Remix** on a finished generation is the quickest way in. It selects this
 workflow, loads the clip, carries the prompt it was made with across, and
 stops — nothing is submitted, because the point is to edit before running.
-Which settings travel is the `CARRIED_PARAMS` list in `studio.tsx`; the seed
-deliberately does not, since reusing it would pin the new take to the old one's
-noise.
+Which settings travel is the `carry` list on the workflow's own `clipTarget`;
+the seed deliberately does not, since reusing it would pin the new take to the
+old one's noise.
 
 The copy is the part that needs a route of its own. ComfyUI writes what a
 workflow produces to its **output** directory and only lets loader nodes read
@@ -359,7 +370,52 @@ the two. So `POST /api/remix` fetches the clip through `/view` and posts it
 back to `/upload/image` — which is the upload endpoint for any media, there is
 no `/upload/video`. That runs server-side rather than round-tripping through
 the browser: a generated clip is comfortably past the 4.5 MB body cap, and the
-bytes would otherwise cross the user's connection twice for no reason.
+bytes would otherwise cross the user's connection twice for no reason. Extend
+uses the same route: the two differ in what they do with a clip, not in how it
+reaches ComfyUI's input directory.
+
+### Extend
+
+`minimax-h3-extend` keeps a clip running past where it stopped. Structurally it
+is the image-to-video graph with the clip's own last frame standing in for an
+upload, plus a join on the way out:
+
+- `LoadVideo` (126) and `GetVideoComponents` (127) split the clip, and
+  `RandomImageFromBatch` (128) takes the **last frame** of that sequence
+  (`start_index: -1`, `num_frames: 1`). That one frame is the whole bridge —
+  `MiniMaxH3ImageToVideo` gets it as `first_frame`, `GetImageSize` (120)
+  measures it for the output size, and the prompt director is shown it. Nothing
+  else about the source reaches the model.
+- The `105:*` nodes are the same sampler stack and the same duration →
+  frame-count expression as the other generating graphs.
+- `BatchImagesNode` (131) concatenates the source frames with the generated
+  ones, `AudioConcatenate` (135) does the same to the two audio tracks, and
+  137/138 save the result. **The output is the whole video**, not the segment
+  on its own — which is what lets an extension be extended again with no
+  reassembly by hand.
+
+Two consequences worth knowing before changing anything:
+
+- **Duration times the addition, not the result.** Ask for 5 seconds on a
+  10-second clip and 15 seconds come back. The control is relabelled *Added
+  time* for exactly this reason. Sampling cost stays flat as the clip grows,
+  since only the new segment is ever generated; the decode and re-encode of the
+  join do not.
+- **The prompt does not carry over from the source**, which is the one place
+  Extend deliberately differs from Remix. The text that made the source
+  describes the source, and `EXTEND_DIRECTOR` reads its input as what happens
+  next — handing it the old prompt would ask the clip to do again what it just
+  did. That is why `carry` lives on each workflow's `clipTarget` rather than
+  being one list in the UI.
+
+Both buttons are registry-driven: a workflow declares
+`clipTarget: { action, videoParam, carry? }`, and `studio.tsx` finds the
+destination for each action rather than naming a workflow id. Registering a
+different graph behind Extend moves the button with it, and a build with no
+workflow declaring an action simply does not render that button. In the
+history, whatever a hand-off produces is threaded under the generation it came
+from (`derivedFrom` on the job, `lineageOrder` in `jobs.ts`) — the same
+indentation serves remixes and extensions.
 
 ### Audio
 

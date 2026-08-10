@@ -35,11 +35,11 @@ export interface Job {
   /** Kept for the history list, where the prompt is the only useful label. */
   prompt: string;
   /**
-   * The generation this one was remixed from, when it was. Lets the history
-   * show a clip and what came out of it as one family rather than as unrelated
-   * entries that happen to sit near each other.
+   * The generation whose clip this one was made from — remixed or extended.
+   * Lets the history show a clip and what came out of it as one family rather
+   * than as unrelated entries that happen to sit near each other.
    */
-  remixOf?: string;
+  derivedFrom?: string;
   hasAudio: boolean;
   submittedAt: number;
   /**
@@ -71,9 +71,18 @@ export function readJobs(): Job[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as Job[];
+    const parsed = JSON.parse(raw) as Array<Job & { remixOf?: string }>;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((job) => typeof job?.promptId === "string");
+    return parsed
+      .filter((job) => typeof job?.promptId === "string")
+      // History written before Extend existed keyed the lineage on `remixOf`,
+      // back when a remix was the only way one generation could come from
+      // another. Read it forward rather than dropping those threads.
+      .map(({ remixOf, ...job }) =>
+        job.derivedFrom === undefined && remixOf !== undefined
+          ? { ...job, derivedFrom: remixOf }
+          : job,
+      );
   } catch {
     return [];
   }
@@ -218,25 +227,26 @@ export function groupByDay(
 
 export interface LineageRow {
   job: Job;
-  /** 0 for a source, deeper for a remix of a remix. Capped for indentation. */
+  /** 0 for a source, deeper for a take on a take. Capped for indentation. */
   depth: number;
 }
 
 /**
- * Orders one day's jobs so a remix sits directly beneath what it came from.
+ * Orders one day's jobs so a remix or extension sits directly beneath what it
+ * came from.
  *
  * Families are placed by their *newest* member, but read oldest-first inside —
- * so recent work still surfaces at the top of the list while a source and its
- * remixes stay together, in the order they actually happened.
+ * so recent work still surfaces at the top of the list while a source and what
+ * came out of it stay together, in the order they actually happened.
  *
- * A remix whose source is not in the same day, or has been deleted from
+ * A derived job whose source is not in the same day, or has been deleted from
  * history, is simply a root of its own. Nothing here assumes the chain is
  * complete, because history is per-device and gets pruned.
  */
 export function lineageOrder(jobs: Job[]): LineageRow[] {
   const present = new Map(jobs.map((job) => [job.promptId, job]));
   const parentOf = (job: Job) =>
-    job.remixOf ? present.get(job.remixOf) : undefined;
+    job.derivedFrom ? present.get(job.derivedFrom) : undefined;
 
   const rootOf = new Map<string, string>();
   const depthOf = new Map<string, number>();
@@ -283,7 +293,9 @@ export function lineageOrder(jobs: Job[]): LineageRow[] {
     for (const member of members) {
       if (member.promptId === rootId) continue;
       const parent =
-        member.remixOf && present.has(member.remixOf) ? member.remixOf : rootId;
+        member.derivedFrom && present.has(member.derivedFrom)
+          ? member.derivedFrom
+          : rootId;
       const siblings = childrenOf.get(parent);
       if (siblings) siblings.push(member);
       else childrenOf.set(parent, [member]);

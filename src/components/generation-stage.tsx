@@ -4,6 +4,7 @@ import { Badge, Dot } from "@/components/ui/panel";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { withToken } from "@/lib/client";
 import { formatDuration, type Job } from "@/lib/jobs";
+import type { ClipAction } from "@/lib/workflows/types";
 
 /**
  * The canvas: whichever generation is being viewed. Progress while it runs,
@@ -15,9 +16,10 @@ export function GenerationStage({
   estimateSeconds,
   onCancel,
   onReuseSeed,
-  onRemix,
+  clipActions,
+  onClipAction,
   onShowSettings,
-  remixing = false,
+  busyAction = null,
 }: {
   job: Job | null;
   /** Ticking clock, so the elapsed timer advances between poll results. */
@@ -26,12 +28,16 @@ export function GenerationStage({
   estimateSeconds: number | null;
   onCancel: (promptId: string) => void;
   onReuseSeed?: (seed: number) => void;
-  /** Absent when no registered workflow can take a clip as a reference. */
-  onRemix?: (job: Job) => void;
+  /**
+   * Which hand-offs a registered workflow actually offers, in the order they
+   * should appear. Empty when none does, which is what removes the buttons.
+   */
+  clipActions?: readonly ClipAction[];
+  onClipAction?: (job: Job, action: ClipAction) => void;
   /** Opens the record of what this generation was run with. */
   onShowSettings?: () => void;
-  /** The copy into ComfyUI's input directory is still in flight. */
-  remixing?: boolean;
+  /** The hand-off whose copy into ComfyUI's input directory is in flight. */
+  busyAction?: ClipAction | null;
 }) {
   return (
     <div className="flex min-h-[320px] flex-col sm:min-h-[420px]">
@@ -41,9 +47,10 @@ export function GenerationStage({
         <Result
           job={job}
           onReuseSeed={onReuseSeed}
-          onRemix={onRemix}
+          clipActions={clipActions}
+          onClipAction={onClipAction}
           onShowSettings={onShowSettings}
-          remixing={remixing}
+          busyAction={busyAction}
         />
       ) : job.phase === "error" ? (
         <Failure job={job} onShowSettings={onShowSettings} />
@@ -250,26 +257,86 @@ function Closed({ job }: { job: Job }) {
   );
 }
 
-/** What can be fed back in as a reference clip; a still cannot. */
-const REMIXABLE = /\.(mp4|webm|mkv|mov|m4v)$/i;
+/** What can be fed back into another workflow as a clip; a still cannot. */
+const REUSABLE = /\.(mp4|webm|mkv|mov|m4v)$/i;
+
+/**
+ * The label and icon for each hand-off. Keyed by action so the buttons are
+ * rendered from whatever the registry offers rather than written out one by
+ * one — registering a workflow for a new action is all it takes to get one.
+ */
+const CLIP_BUTTONS: Record<
+  ClipAction,
+  { label: string; title: string; icon: React.ReactNode }
+> = {
+  remix: {
+    label: "Remix",
+    title: "Rebuild this clip into a new take",
+    icon: (
+      <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+        <path
+          d="M10 2.5l2 2-2 2M6 13.5l-2-2 2-2"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M12 4.5H6a2.5 2.5 0 0 0-2.5 2.5M4 11.5h6A2.5 2.5 0 0 0 12.5 9"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  extend: {
+    label: "Extend",
+    title: "Carry on from where this clip ends",
+    icon: (
+      // The clip, then the seam it continues past.
+      <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+        <rect
+          x="2"
+          y="4"
+          width="6"
+          height="8"
+          rx="1.5"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M9.5 8h4M12 6l2 2-2 2"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+};
 
 function Result({
   job,
   onReuseSeed,
-  onRemix,
+  clipActions,
+  onClipAction,
   onShowSettings,
-  remixing,
+  busyAction,
 }: {
   job: Job;
   onReuseSeed?: (seed: number) => void;
-  onRemix?: (job: Job) => void;
+  clipActions?: readonly ClipAction[];
+  onClipAction?: (job: Job, action: ClipAction) => void;
   onShowSettings?: () => void;
-  remixing?: boolean;
+  busyAction?: ClipAction | null;
 }) {
   const [primary, ...rest] = job.outputs;
   const seed = job.resolved?.seed;
   const src = withToken(primary.url);
-  const canRemix = Boolean(onRemix) && REMIXABLE.test(primary.filename);
+  const offered =
+    onClipAction && REUSABLE.test(primary.filename) ? (clipActions ?? []) : [];
   const took =
     job.completedAt !== undefined
       ? formatDuration(job.completedAt - job.submittedAt)
@@ -313,34 +380,26 @@ function Result({
               Reuse seed
             </Button>
           ) : null}
-          {canRemix ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={remixing}
-              onClick={() => onRemix?.(job)}
-              title="Use this clip as the reference for a new generation"
-              icon={
-                <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
-                  <path
-                    d="M10 2.5l2 2-2 2M6 13.5l-2-2 2-2"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M12 4.5H6a2.5 2.5 0 0 0-2.5 2.5M4 11.5h6A2.5 2.5 0 0 0 12.5 9"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              }
-            >
-              Remix
-            </Button>
-          ) : null}
+          {offered.map((action) => {
+            const button = CLIP_BUTTONS[action];
+            return (
+              <Button
+                key={action}
+                size="sm"
+                variant="secondary"
+                loading={busyAction === action}
+                // One copy at a time: both buttons move the same bytes out of
+                // ComfyUI's output directory, and the second would land on a
+                // form the first is still filling in.
+                disabled={busyAction !== null && busyAction !== action}
+                onClick={() => onClipAction?.(job, action)}
+                title={button.title}
+                icon={button.icon}
+              >
+                {button.label}
+              </Button>
+            );
+          })}
           {/* An anchor, not a button: `download` is what saves the file, and
               there is no way to keep that on a <button>. Borrowing the button
               recipe keeps it from drifting out of step with the row. */}

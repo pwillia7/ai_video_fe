@@ -136,6 +136,44 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       PROMPT_STRUCTURE,
     ],
   },
+
+  "minimax-h3-extend": {
+    sections: [
+      {
+        heading: "Working from a clip",
+        items: [
+          "Two ways in. Press Extend on a finished generation and the clip arrives ready to continue, or drop a video of your own into the Source panel.",
+          "Only the clip's last frame reaches the model. It is the first frame of the new footage, and its size is the size everything is generated at — so the same 768×1344 ceiling applies as everywhere else.",
+          "What comes back is the source clip with the new footage joined onto the end, picture and sound. So an extension can be extended again, and again, without ever reassembling anything by hand.",
+        ],
+      },
+      {
+        heading: "Duration is the part that is added",
+        items: [
+          "The duration control times the new footage, not the file that comes back. Ask for 5 seconds on a 10-second clip and 15 seconds arrive.",
+          "Only the new segment is generated, so a run costs about what a fresh generation of that length costs however long the source has become.",
+          DURATION_NOTE,
+        ],
+      },
+      {
+        heading: "Your prompt gets expanded first — differently here",
+        items: [
+          "This one runs a continuation director. It reads what you type as what happens next, and spends most of its effort on the seam: no establishing shot, no reset to a neutral pose, no cut, and motion already underway carried through.",
+          "So write the next beat, not the scene. “Then he opens the door” is a complete instruction — identity, wardrobe, lighting, camera and location all carry over from the last frame without being asked for.",
+          "It will not replay the source's dialogue, and it only writes new lines when your continuation calls for speech.",
+          "Everything it knows about the source is that one frame. If something important happened earlier in the clip and matters to what comes next, say so.",
+        ],
+      },
+      {
+        heading: "What carries over, and what does not",
+        items: [
+          "The prompt does not come across, unlike Remix. The text that made the source describes the source, and asking a continuation director to continue with it would have the clip do again what it just did.",
+          "The seed does not carry over either — the new segment is generated from noise like any other.",
+        ],
+      },
+      PROMPT_STRUCTURE,
+    ],
+  },
 };
 
 export function tipsFor(workflowId: string): WorkflowTips | undefined {

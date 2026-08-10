@@ -8,7 +8,8 @@ export const maxDuration = 300;
 
 /**
  * Copies a finished generation into ComfyUI's input directory so it can be fed
- * back in as a reference video.
+ * back in as a source clip. Serves both hand-offs — Remix and Extend differ in
+ * what they do with the clip, not in how it gets there.
  *
  * The two directories are separate: a LoadVideo node only sees what is in
  * `input`, and everything a workflow produces lands in `output`. So a clip has
@@ -33,7 +34,7 @@ const MAX_BYTES = 256 * 1024 * 1024;
 
 /**
  * Checked again here rather than trusted from the caller. The stage keeps a
- * matching list to decide whether to offer the button at all (`REMIXABLE` in
+ * matching list to decide whether to offer the buttons at all (`REUSABLE` in
  * generation-stage.tsx), but that one is an affordance, not a guard.
  */
 const VIDEO_EXTENSIONS = /\.(mp4|webm|mkv|mov|m4v)$/i;

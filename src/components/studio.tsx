@@ -26,7 +26,9 @@ import { isActive, type Job } from "@/lib/jobs";
 import { api, ApiError, getToken } from "@/lib/client";
 import { hydrateAll, writeStoredParams } from "@/lib/param-storage";
 import {
+  CLIP_ACTIONS,
   defaultValuesFor,
+  type ClipAction,
   type ParamValue,
   type WorkflowSummary,
 } from "@/lib/workflows/types";
@@ -37,16 +39,23 @@ interface ConfigPayload {
 }
 
 /**
- * Params a remix inherits from the generation it came from, where both
- * workflows happen to declare the same id.
- *
- * Down to one, because the remix graph reads its frame size and its length off
- * the clip itself and the frame rate is fixed at 24 everywhere. Only the
- * prompt is left to carry. See `remix` below for what is deliberately
- * excluded, and keep this a set rather than a special case: another remix
- * target may declare more.
+ * What the note above the form says once a clip has been loaded into it. The
+ * two hand-offs leave the form in genuinely different states — Remix arrives
+ * with the source's prompt in place, Extend arrives wanting a new one — so the
+ * note has to say which of those happened.
  */
-const CARRIED_PARAMS = new Set(["prompt"]);
+const CLIP_NOTICE: Record<ClipAction, { verb: string; detail: string }> = {
+  remix: {
+    verb: "Remixing",
+    detail:
+      "The clip is loaded as the reference below — change anything you like, then generate.",
+  },
+  extend: {
+    verb: "Extending",
+    detail:
+      "The clip is loaded below. Say what happens next, then generate — the result is the clip plus what you asked for.",
+  },
+};
 
 type Boot =
   | { kind: "loading" }
@@ -188,9 +197,9 @@ function Workbench({
    */
   const onParamChange = useCallback(
     (id: string, value: ParamValue) => {
-      if (selected?.remixTarget?.videoParam === id) {
-        setRemixSourceId(null);
-        setRemixNotice(null);
+      if (selected?.clipTarget?.videoParam === id) {
+        setClipSource(null);
+        setClipNotice(null);
       }
       setValue(id, value);
     },
@@ -207,49 +216,66 @@ function Workbench({
     }));
   }, [selected, selectedId]);
 
-  // The workflow that takes a finished clip as a reference, if one is
-  // registered. Found by declaration rather than by id so the button follows
-  // whatever the registry offers.
-  const remixWorkflow = useMemo(
-    () => workflows.find((workflow) => workflow.remixTarget),
-    [workflows],
+  // Where each hand-off sends a finished clip, if anywhere. Found by
+  // declaration rather than by id so the buttons follow whatever the registry
+  // offers; first declaration of an action wins.
+  const clipWorkflows = useMemo(() => {
+    const byAction = new Map<ClipAction, WorkflowSummary>();
+    for (const workflow of workflows) {
+      const action = workflow.clipTarget?.action;
+      if (action && !byAction.has(action)) byAction.set(action, workflow);
+    }
+    return byAction;
+  }, [workflows]);
+
+  const offeredActions = useMemo(
+    () => CLIP_ACTIONS.filter((action) => clipWorkflows.has(action)),
+    [clipWorkflows],
   );
 
-  const [remixing, setRemixing] = useState(false);
-  const [remixError, setRemixError] = useState<string | null>(null);
-  /** What the loaded reference clip was, for the notice above the form. */
-  const [remixNotice, setRemixNotice] = useState<string | null>(null);
+  /** The hand-off whose copy is in flight, so only one runs at a time. */
+  const [sending, setSending] = useState<ClipAction | null>(null);
+  const [clipError, setClipError] = useState<string | null>(null);
+  /** What was loaded and how, for the notice above the form. */
+  const [clipNotice, setClipNotice] = useState<{
+    action: ClipAction;
+    label: string;
+  } | null>(null);
   /**
    * Which generation the loaded clip came from, so the run it produces can be
    * shown under it in the history. Held past submit on purpose: three
    * variations on one remix are three children of the same source.
    */
-  const [remixSourceId, setRemixSourceId] = useState<string | null>(null);
+  const [clipSource, setClipSource] = useState<{
+    action: ClipAction;
+    promptId: string;
+  } | null>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLElement>(null);
 
   /**
-   * Send a finished generation back into the workflow that can reference it.
+   * Send a finished generation into the workflow that takes it as a clip —
+   * Remix to rebuild it, Extend to carry on from it.
    *
-   * The video itself is copied server-side (see /api/remix): ComfyUI keeps
-   * outputs and loader inputs in separate directories, so a clip has to move
-   * between them before a LoadVideo node can see it.
+   * The video itself is copied server-side (see /api/remix, which serves both):
+   * ComfyUI keeps outputs and loader inputs in separate directories, so a clip
+   * has to move between them before a LoadVideo node can see it.
    *
    * Nothing is submitted. This only fills the form in — the point is to open
-   * the next generation ready to edit, prompt included.
+   * the next generation ready to edit.
    */
-  const remix = useCallback(
-    async (job: Job) => {
-      const target = remixWorkflow;
-      if (!target?.remixTarget || remixing) return;
-      const { videoParam } = target.remixTarget;
+  const sendClip = useCallback(
+    async (job: Job, action: ClipAction) => {
+      const target = clipWorkflows.get(action);
+      if (!target?.clipTarget || sending) return;
+      const { videoParam, carry } = target.clipTarget;
 
       const output = job.outputs[0];
       if (!output) return;
 
-      setRemixing(true);
-      setRemixError(null);
+      setSending(action);
+      setClipError(null);
       try {
         const { ref } = await api<{ ref: string }>("/api/remix", {
           method: "POST",
@@ -263,13 +289,11 @@ function Workbench({
         setValuesByWorkflow((previous) => {
           const next = { ...previous[target.id], [videoParam]: ref };
 
-          // Carry across what the clip cannot supply on its own, so the remix
+          // Carry across whatever this destination asked for, so the new run
           // starts out matching the generation it came from rather than
-          // reverting to whatever was last used here. The seed is deliberately
-          // not among them: reusing it would pin the new take to the old one's
-          // noise, which is the opposite of what a remix is for.
+          // reverting to whatever was last used here.
           for (const param of target.params) {
-            if (!CARRIED_PARAMS.has(param.id)) continue;
+            if (!carry?.includes(param.id)) continue;
             const carried = job.resolved?.[param.id];
             // A type mismatch means the source workflow used the id for
             // something else — take the target's default over nonsense.
@@ -282,8 +306,11 @@ function Workbench({
         });
 
         setSelectedId(target.id);
-        setRemixNotice(job.prompt.trim() || job.workflowName);
-        setRemixSourceId(job.promptId);
+        setClipNotice({
+          action,
+          label: job.prompt.trim() || job.workflowName,
+        });
+        setClipSource({ action, promptId: job.promptId });
 
         // On mobile the form sits above the stage the button was pressed in,
         // so without this the settings it just filled in are off-screen.
@@ -296,16 +323,16 @@ function Workbench({
           );
         }
       } catch (cause) {
-        setRemixError(
+        setClipError(
           cause instanceof ApiError
             ? cause.message
-            : "Could not set that clip up as a reference.",
+            : "Could not set that clip up as a source.",
         );
       } finally {
-        setRemixing(false);
+        setSending(null);
       }
     },
-    [remixWorkflow, remixing],
+    [clipWorkflows, sending],
   );
 
   const [tipsOpen, setTipsOpen] = useState(false);
@@ -355,12 +382,15 @@ function Workbench({
     void jobs.submit(
       selected,
       values,
-      // Only meaningful on the workflow the clip was loaded into.
-      selected.remixTarget ? (remixSourceId ?? undefined) : undefined,
+      // Only meaningful on the workflow the clip was actually loaded into, and
+      // only for the hand-off that put it there.
+      selected.clipTarget && clipSource?.action === selected.clipTarget.action
+        ? clipSource.promptId
+        : undefined,
     );
     // The form has been acted on, so the note explaining how it got filled in
     // has served its purpose.
-    setRemixNotice(null);
+    setClipNotice(null);
     // On mobile the stage sits below the whole settings panel, so submitting
     // from the pinned bar would otherwise give no visible sign of anything
     // happening. Desktop keeps the stage pinned alongside, so leave it alone.
@@ -369,7 +399,7 @@ function Workbench({
         stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
     }
-  }, [selected, values, jobs, remixSourceId]);
+  }, [selected, values, jobs, clipSource]);
 
   // Cmd/Ctrl+Enter from anywhere fires the run. Held in a ref so the listener
   // is attached once rather than on every keystroke in the prompt box.
@@ -465,10 +495,10 @@ function Workbench({
                 workflows={workflows}
                 selectedId={selectedId}
                 onSelect={(id) => {
-                  // Choosing a workflow by hand supersedes whatever a remix
-                  // set up, so the note about it goes.
-                  setRemixNotice(null);
-                  setRemixSourceId(null);
+                  // Choosing a workflow by hand supersedes whatever Remix or
+                  // Extend set up, so the note about it goes.
+                  setClipNotice(null);
+                  setClipSource(null);
                   setSelectedId(id);
                 }}
               />
@@ -511,22 +541,22 @@ function Workbench({
                     </div>
                   }
                 />
-                {remixNotice && selected.id === remixWorkflow?.id ? (
+                {clipNotice &&
+                selected.clipTarget?.action === clipNotice.action ? (
                   <div
                     className="mb-5 flex items-start gap-3 rounded-lg border border-accent/40
                       bg-accent-subtle/30 p-3 text-[12px] leading-relaxed text-fg-muted"
                   >
                     <span className="min-w-0 flex-1">
-                      Remixing{" "}
-                      <span className="text-fg">“{remixNotice}”</span>. The clip
-                      is loaded as the reference below — change anything you
-                      like, then generate.
+                      {CLIP_NOTICE[clipNotice.action].verb}{" "}
+                      <span className="text-fg">“{clipNotice.label}”</span>.{" "}
+                      {CLIP_NOTICE[clipNotice.action].detail}
                     </span>
                     <Button
                       variant="quiet"
                       size="xs"
                       className="shrink-0"
-                      onClick={() => setRemixNotice(null)}
+                      onClick={() => setClipNotice(null)}
                     >
                       Dismiss
                     </Button>
@@ -592,17 +622,17 @@ function Workbench({
               </div>
             ) : null}
 
-            {remixError ? (
+            {clipError ? (
               <div
                 className="flex items-start gap-3 rounded-lg border border-danger/40
                   bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
               >
-                <span className="min-w-0 flex-1">{remixError}</span>
+                <span className="min-w-0 flex-1">{clipError}</span>
                 <Button
                   variant="danger"
                   size="xs"
                   className="shrink-0"
-                  onClick={() => setRemixError(null)}
+                  onClick={() => setClipError(null)}
                 >
                   Dismiss
                 </Button>
@@ -619,13 +649,18 @@ function Workbench({
               }
               onCancel={(promptId) => void jobs.cancel(promptId)}
               onReuseSeed={(seed) => setValue("seed", seed)}
-              onRemix={remixWorkflow ? (job) => void remix(job) : undefined}
+              clipActions={offeredActions}
+              onClipAction={
+                offeredActions.length > 0
+                  ? (job, action) => void sendClip(job, action)
+                  : undefined
+              }
               onShowSettings={
                 viewedJob
                   ? () => setSettingsForId(viewedJob.promptId)
                   : undefined
               }
-              remixing={remixing}
+              busyAction={sending}
             />
 
             <Panel padded>

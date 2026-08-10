@@ -41,8 +41,8 @@ export interface JobsController {
   submit: (
     workflow: WorkflowSummary,
     values: Record<string, ParamValue>,
-    /** The generation this one was remixed from, if it was. */
-    remixOf?: string,
+    /** The generation whose clip this one was made from, if any. */
+    derivedFrom?: string,
   ) => Promise<void>;
   cancel: (promptId: string) => Promise<void>;
   remove: (promptId: string) => void;
@@ -199,7 +199,7 @@ export function useJobs(): JobsController {
     async (
       workflow: WorkflowSummary,
       values: Record<string, ParamValue>,
-      remixOf?: string,
+      derivedFrom?: string,
     ) => {
       setSubmitting(true);
       setSubmitError(null);
@@ -216,7 +216,7 @@ export function useJobs(): JobsController {
           workflowId: workflow.id,
           workflowName: workflow.name,
           prompt: String(values.prompt ?? ""),
-          remixOf,
+          derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),
           phase: "queued",

@@ -28,7 +28,7 @@ import {
  * So the clip is the one input the form offers. The reference audio and the
  * output size are consequences of it rather than choices, and controls for
  * them would misrepresent what this graph does. It can be filled either by the
- * Remix button (`remixTarget` below) or by an upload — see video-upload.tsx
+ * Remix button (`clipTarget` below) or by an upload — see video-upload.tsx
  * for the limits that keeps within, which matter more here than elsewhere
  * because the clip decides what gets generated.
  */
@@ -272,5 +272,14 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
   hasAudio: true,
   graph,
   params,
-  remixTarget: { videoParam: "reference_video" },
+  /**
+   * The prompt is the one thing the clip cannot supply, so it comes across
+   * from the generation being remixed. See ClipTarget for what deliberately
+   * does not.
+   */
+  clipTarget: {
+    action: "remix",
+    videoParam: "reference_video",
+    carry: ["prompt"],
+  },
 };

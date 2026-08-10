@@ -101,9 +101,9 @@ export interface ImageParam extends ParamBase {
  * A video living in ComfyUI's input directory, which is where a LoadVideo node
  * looks. Like an image, the stored value is only the filename.
  *
- * Two things put one here: an upload, and Remix — which never sends the file
- * through the browser at all, it asks the server to copy a finished generation
- * out of ComfyUI's output directory into its input directory.
+ * Two things put one here: an upload, and the clip hand-offs below — which
+ * never send the file through the browser at all, they ask the server to copy a
+ * finished generation out of ComfyUI's output directory into its input one.
  */
 export interface VideoParam extends ParamBase {
   type: "video";
@@ -123,6 +123,38 @@ export type ParamDef =
 
 export type ParamValue = string | number | boolean;
 
+/**
+ * The ways a finished generation can be sent onward into another workflow.
+ * One button on the result for each, in this order.
+ */
+export const CLIP_ACTIONS = ["remix", "extend"] as const;
+export type ClipAction = (typeof CLIP_ACTIONS)[number];
+
+/**
+ * Marks a workflow as where one of those buttons sends the clip, and names the
+ * video param it is written into.
+ *
+ * Declared here rather than hardcoded in the UI so the buttons follow the
+ * registry: swap the workflow behind Remix for another one and the button goes
+ * with it, and a workflow that declares nothing is simply not a destination.
+ * Only the first workflow declaring a given action is used.
+ */
+export interface ClipTarget {
+  action: ClipAction;
+  videoParam: string;
+  /**
+   * Param ids copied across from the generation the clip came from, where the
+   * source workflow happens to declare the same id — so the new run starts out
+   * matching it rather than reverting to whatever was last used here.
+   *
+   * Per workflow rather than global because what should travel depends on what
+   * the destination does with it: Remix wants the prompt that made the source,
+   * Extend very much does not. Nothing carries the seed; reusing it would pin
+   * the new take to the old one's noise.
+   */
+  carry?: string[];
+}
+
 export interface WorkflowDef {
   id: string;
   name: string;
@@ -137,15 +169,8 @@ export interface WorkflowDef {
   hasAudio?: boolean;
   graph: ComfyGraph;
   params: ParamDef[];
-  /**
-   * Marks this workflow as where the Remix button sends a finished clip, and
-   * names the video param the clip is written into.
-   *
-   * Declared here rather than hardcoded in the UI so the button follows the
-   * registry: swap the reference-to-video workflow for another one and Remix
-   * goes with it. Only the first workflow declaring this is used.
-   */
-  remixTarget?: { videoParam: string };
+  /** Which clip hand-off, if any, lands on this workflow. */
+  clipTarget?: ClipTarget;
   /**
    * Structural adjustment after the params are written in, on the cloned graph.
    *

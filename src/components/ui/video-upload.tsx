@@ -16,16 +16,16 @@ interface UploadResponse {
  * An oversized photo can be re-encoded in the browser to fit; a video cannot,
  * so this is a hard ceiling rather than something to work around.
  *
- * It does not apply to Remix, which copies a clip between ComfyUI's own
- * directories server-side and never moves the bytes through the browser.
+ * It does not apply to Remix or Extend, which copy a clip between ComfyUI's own
+ * directories server-side and never move the bytes through the browser.
  */
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 /**
- * The remix generates at the source clip's own dimensions and for as many
- * frames as it has, so an oversized clip is not merely slow — it asks the model
- * for a canvas it was never built for. MiniMax H3's is a 768px short edge,
- * capped at 768x1344.
+ * Both workflows that take a clip generate at its own dimensions — a remix at
+ * the size of its frames, an extension at the size of its last one — so an
+ * oversized clip is not merely slow, it asks the model for a canvas it was
+ * never built for. MiniMax H3's is a 768px short edge, capped at 768x1344.
  *
  * Checked here rather than server-side because reading a video's dimensions
  * needs a decoder, and the browser already has one. Catching it before the
@@ -91,14 +91,14 @@ function rejectionFor(file: File, { width, height, seconds }: Probe): string | n
   }
 
   if (!width || !height) {
-    return "That file has no video track to remix.";
+    return "That file has no video track to work from.";
   }
 
   const long = Math.max(width, height);
   const short = Math.min(width, height);
   if (long > MAX_LONG_EDGE || short > MAX_SHORT_EDGE) {
     return (
-      `That clip is ${width}x${height}. A remix is generated at its source's own size, ` +
+      `That clip is ${width}x${height}. The new video is generated at its size, ` +
       `and this model tops out around ${MAX_SHORT_EDGE}x${MAX_LONG_EDGE} — scale it down first.`
     );
   }
@@ -106,7 +106,7 @@ function rejectionFor(file: File, { width, height, seconds }: Probe): string | n
   if (Number.isFinite(seconds) && seconds > MAX_SECONDS) {
     return (
       `That clip runs ${seconds.toFixed(1)}s and the limit is ${MAX_SECONDS}s. ` +
-      "The remix renders every frame of it, so a long clip is a long wait."
+      "A long source is a long wait however it is used."
     );
   }
 
@@ -114,8 +114,8 @@ function rejectionFor(file: File, { width, height, seconds }: Probe): string | n
 }
 
 /**
- * Picks the clip a remix is built from, holding the filename ComfyUI returns as
- * the param value.
+ * Picks the clip a workflow is built from — remixed or continued — holding the
+ * filename ComfyUI returns as the param value.
  *
  * Uploads on selection rather than at submit time, for the same reason as the
  * image control: a file that will not work should fail immediately, not after
@@ -140,8 +140,8 @@ export function VideoUpload({
   const [dragging, setDragging] = useState(false);
   /**
    * Read off the loaded clip rather than remembered from the upload, so it also
-   * describes a clip that arrived by Remix — and so the numbers shown are the
-   * ones the workflow will actually generate at.
+   * describes a clip that arrived by Remix or Extend — and so the numbers shown
+   * are the ones the workflow will actually generate at.
    */
   const [spec, setSpec] = useState<Probe | null>(null);
 
@@ -236,7 +236,7 @@ export function VideoUpload({
           <div className="relative">
             {/*
               Controls but no autoplay: this is here so you can check which clip
-              you are remixing, and a remix source usually has a soundtrack that
+              is loaded, and a source clip usually has a soundtrack that
               autoplay would force to be muted anyway.
 
               A remembered reference can outlive the file when ComfyUI's input
@@ -346,8 +346,8 @@ export function VideoUpload({
                 </span>
                 <span className="text-[12px] text-fg-subtle">
                   Up to {MAX_SHORT_EDGE}×{MAX_LONG_EDGE}, {MAX_SECONDS}s and{" "}
-                  {MAX_UPLOAD_BYTES / 1024 / 1024} MB — or hit Remix on a
-                  finished generation
+                  {MAX_UPLOAD_BYTES / 1024 / 1024} MB — or hit Remix or Extend
+                  on a finished generation
                 </span>
               </>
             )}

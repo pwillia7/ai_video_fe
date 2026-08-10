@@ -192,7 +192,7 @@ export function GenerationsPanel({
                   {lineageOrder(group.jobs).map(({ job, depth }) => (
                     <li
                       key={job.promptId}
-                      // Indented under whatever it was remixed from, with a
+                      // Indented under whatever it was made from, with a
                       // rule down the left so a source and its takes read as
                       // one thing rather than as neighbours.
                       className={
