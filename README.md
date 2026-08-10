@@ -29,9 +29,13 @@ whatever agent you use, and ask it to set the project up.
 | Agent | How it finds the runbook |
 | --- | --- |
 | [Claude Code](https://claude.com/claude-code) | `/setup`, or via `CLAUDE.md` |
-| Codex, Cursor, Jules, Zed, Amp… | `AGENTS.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` |
+| Cursor, VS Code / Copilot | a `setup` skill, or via `AGENTS.md` |
+| Codex, Jules, Zed, Amp… | `AGENTS.md` |
 | Anything else | Point it at `docs/agent-setup.md` |
+
+The `setup` skill is the same twenty-line pointer at four paths —
+`.claude/skills/`, `.cursor/skills/`, `.github/skills/` and `.agents/skills/` —
+because agents agree on the `SKILL.md` format but not on where to look for it.
 
 It walks the whole thing: checks your ComfyUI has the right custom nodes and
 model files, applies the node patch the LLM stage needs, works out how to make

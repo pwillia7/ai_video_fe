@@ -1,7 +1,6 @@
 ---
 name: setup
 description: Set up Soran't against the user's own ComfyUI install and deploy it to Vercel. Use when someone has cloned this repo and wants to get it running, connect it to their ComfyUI, work out how to make ComfyUI reachable from the internet, fix a connection that reports Offline or Auth failed, or ship it to production.
-user_invocable: true
 ---
 
 # Setting up Soran’t
