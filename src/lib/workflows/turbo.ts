@@ -55,6 +55,17 @@ export interface TurboSpec {
   /** The input on that node the model arrives at. */
   modelInput: string;
   /**
+   * Filename prefix of the diffusion model this LoRA was distilled against.
+   *
+   * A LoRA is trained for one model, and the splice cannot tell: it would
+   * attach just as cleanly to a UNET the LoRA knows nothing about, and the run
+   * would finish having quietly produced something worse rather than failing.
+   * Stating the pairing lets `check:workflows` catch it at the point it is
+   * written instead. See the note on minimax-h3-ref for the case that made
+   * this worth checking.
+   */
+  requiresModel?: string;
+  /**
    * A distilled model converges in single digits, so the range moves rather
    * than just the default: the base graph's 60 is not a slower-but-better
    * setting here, it is off the end of what the LoRA was made for.

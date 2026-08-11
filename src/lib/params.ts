@@ -1,5 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
-import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
+import { applyTurbo, modelLoaderIn, turboParams } from "@/lib/workflows/turbo";
 import type { ParamDef, ParamValue, WorkflowDef } from "@/lib/workflows/types";
 
 export class ParamError extends Error {
@@ -278,6 +278,17 @@ function turboProblems(workflow: WorkflowDef): string[] {
     problems.push(
       `Turbo cannot be applied: ${error instanceof Error ? error.message : String(error)}`,
     );
+  }
+
+  // The splice working is not the same as the LoRA belonging on this model.
+  const loader = modelLoaderIn(workflow.graph);
+  if (spec.requiresModel && loader) {
+    const model = workflow.graph[loader].inputs.unet_name;
+    if (typeof model !== "string" || !model.startsWith(spec.requiresModel)) {
+      problems.push(
+        `Turbo's LoRA is distilled against ${spec.requiresModel}*, but this graph loads ${String(model)}.`,
+      );
+    }
   }
 
   const steps = workflow.params.find((param) => param.id === spec.steps.param);

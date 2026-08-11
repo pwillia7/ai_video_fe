@@ -202,13 +202,24 @@ export function clipDurationParam(
 }
 
 /**
- * The turbo mode every H3 graph here offers: one LoRA node between the UNET
- * loader and everything that reads it.
+ * The turbo mode: one LoRA node between the UNET loader and everything that
+ * reads it.
  *
- * One spec shared by all of them rather than one per workflow, because the
- * distillation is a property of the model rather than of the graph — the same
- * LoRA file applies to both UNETs in use here, `fl2va` and `ref2va`. Only the
- * numbers that genuinely differ are arguments.
+ * One spec shared by the graphs that offer it rather than one per workflow,
+ * because the distillation is a property of the model rather than of the
+ * graph. Only the numbers that genuinely differ are arguments.
+ *
+ * **Which is also why it is not on every workflow.** The LoRA is distilled
+ * against `fl2va`, so it belongs on text-to-video, image-to-video and Extend.
+ * The two graphs that run `MiniMaxH3ReferenceToVideo` load `ref2va` instead,
+ * which it does not support — "not yet but planned" from its author, and the
+ * reports underneath describe identity reference breaking down when it is
+ * applied anyway:
+ * <https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10>
+ *
+ * Nothing about the splice would object, which is the danger: `requiresModel`
+ * below is what turns that into a `check:workflows` failure rather than a run
+ * that finishes looking subtly wrong.
  *
  * **This is the one thing in the app that needs a node pack the base graphs do
  * not.** `MiniMaxH3TurboLoRA` is not a ComfyUI built-in — core ships only
@@ -244,6 +255,7 @@ export function h3Turbo(
       _meta: { title: "MiniMax-H3 Turbo LoRA" },
     },
     modelInput: "model",
+    requiresModel: "minimax_h3_fl2va",
     steps: {
       param: "steps",
       default: steps,

@@ -4,7 +4,6 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   REFERENCE_DIRECTOR,
-  h3Turbo,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -314,7 +313,18 @@ export const minimaxH3Reference: WorkflowDef = {
   hasAudio: true,
   graph,
   params,
-  turbo: h3Turbo(220),
+  /**
+   * No `turbo` here, unlike the text, image and extend workflows. The turbo
+   * LoRA is distilled against `fl2va` and does not support the reference
+   * pipeline this graph runs on `ref2va` — "not yet but planned" from its
+   * author, with the reports underneath describing exactly what you would
+   * expect from applying it anyway: identity reference breaking down.
+   * <https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10>
+   *
+   * The splice itself would work — this graph has a UNETLoader like any other
+   * — so `check:workflows` guards the pairing instead, via `requiresModel` on
+   * the spec. Restore the switch when the LoRA gains ref2v support, not before.
+   */
 
   /**
    * With no second reference, the variadic inputs and the loader must be
