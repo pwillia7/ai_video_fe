@@ -40,6 +40,7 @@ const ids: MinimaxNodeIds = {
   // Node 125, not the video node: what the user types is the *input* to the
   // rewrite stage, and 105:104.prompt is a link now, not a value.
   prompt: { node: "125", input: "value" },
+  director: "123",
   duration: "105:111",
   noise: "105:15",
   scheduler: "105:9",
@@ -110,6 +111,9 @@ const graph: ComfyGraph = {
       model: "gpt-5.6-terra",
       force_regen: false,
       prompt: ["125", 0],
+      // Overwritten per run by the duration param, which appends the length of
+      // the segment being generated — not of the video that comes out, since
+      // the source is concatenated on afterwards and never reaches the model.
       system_prompt: EXTEND_DIRECTOR,
       client: ["121", 0],
       images: ["128", 0],
@@ -303,7 +307,7 @@ const params: ParamDef[] = [
   // already was, and the two are concatenated afterwards. Worth saying on the
   // control itself, because every other workflow's duration is the duration of
   // the file that comes back.
-  durationParam(ids, {
+  durationParam(ids, EXTEND_DIRECTOR, {
     label: "Added time",
     help: "How much new footage to generate. The result is the source clip plus this.",
     default: 5,

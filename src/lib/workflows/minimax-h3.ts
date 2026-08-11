@@ -3,7 +3,7 @@ import type { ParamDef, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   durationParam,
-  PROMPT_DIRECTOR,
+  TEXT_DIRECTOR,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -26,7 +26,7 @@ import {
  * 3. The prompt is not written to the video node. What the user types goes to
  *    node 123, an LLM rewrites it into a shot-by-shot description (120/121),
  *    and only that expanded text reaches 105:104. So a one-line idea is a
- *    perfectly good prompt here — see PROMPT_DIRECTOR in minimax-common.
+ *    perfectly good prompt here — see TEXT_DIRECTOR in minimax-common.
  */
 
 const graph: ComfyGraph = {
@@ -69,7 +69,9 @@ const graph: ComfyGraph = {
       model: "gpt-5.6-terra",
       force_regen: false,
       prompt: ["123", 0],
-      system_prompt: PROMPT_DIRECTOR,
+      // Overwritten per run by the duration param, which appends the finished
+      // video's length — H3's format needs it to place shot cut times.
+      system_prompt: TEXT_DIRECTOR,
       client: ["120", 0],
     },
     _meta: { title: "OpenAI API - Chat Completion" },
@@ -202,6 +204,7 @@ const ids: MinimaxNodeIds = {
   // Node 123, not the video node: what the user types is the *input* to the
   // rewrite stage, and 105:104.prompt is a link now, not a value.
   prompt: { node: "123", input: "value" },
+  director: "121",
   duration: "105:111",
   noise: "105:15",
   scheduler: "105:9",
@@ -215,7 +218,7 @@ const params: ParamDef[] = [
     6,
   ),
 
-  durationParam(ids),
+  durationParam(ids, TEXT_DIRECTOR),
   {
     id: "aspect_ratio",
     label: "Aspect ratio",

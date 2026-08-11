@@ -398,12 +398,38 @@ node expands it into a shot-by-shot description, and only that output reaches
 the video node. The image and reference workflows also hand their uploads to
 the rewrite, so it can describe what is actually in frame.
 
+**Every director writes MiniMax H3's own structured output format**, which the
+model was trained on and reads far more reliably than equivalent free prose:
+timed `[Shot N]` markers, a closed camera vocabulary, `(S1)` speaker IDs with
+the spoken words inside `<d>[English] ...</d>`, and separate `overall_soundscape`
+and `non_diegetic_music` fields. That grammar lives once, in `H3_GRAMMAR`, and
+is spliced into all five. The envelope around it is per mode, and there are
+three of them — the base three-field form for text-to-video; the same plus an
+alignment line naming `<Picture 1>` for the two graphs that start from a frame;
+and the six-section full-reference form (`subject_definitions`, `summary`,
+`retention_analysis`, `detailed_description`, and the two audio fields) for the
+two that run `MiniMaxH3ReferenceToVideo`. The formats are specified in
+[MiniMax's own prompt-writing guides](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md),
+and in ComfyUI it is the prompt text that has to carry the reference tags —
+nothing in the node pack inserts them.
+
+**Each director is also told how long the finished video will be**, written into
+its `system_prompt` by the duration control like any other param value. Not a
+nicety: the format requires every shot after the first to open with an absolute
+cut time inside the clip's length, and dialogue has to be speakable in the time
+there is. The number written in is the *snapped* length — `effectiveSeconds`
+mirrors `FRAME_EXPRESSION`, so a 10s request is described as the 10.13s it
+actually comes back as. Remix has no duration control, so the browser measures
+the loaded clip instead and that goes in; when nothing has been measured yet the
+director is told to write no absolute timings at all.
+
 **Which system prompt depends on the workflow**, and the difference is not
-cosmetic. The three graphs that invent a scene use `PROMPT_DIRECTOR`, which
-fills in everything you left unsaid — camera, performance, dialogue, sound
-design — from a one-line idea. The two that start from a clip do not, because
-that behaviour is actively wrong once a source exists, and they do not agree
-with each other either:
+cosmetic. The three graphs that invent a scene share their creative direction —
+`CREATIVE_DIRECTION`, which fills in everything you left unsaid from a one-line
+idea — and differ only in envelope: `TEXT_DIRECTOR`, `IMAGE_DIRECTOR` and
+`REFERENCE_DIRECTOR`. The two that start from a clip do not use it at all,
+because that behaviour is actively wrong once a source exists, and they do not
+agree with each other either:
 
 - **Remix** runs `REMIX_DIRECTOR`. What you type is a *delta*, and every detail
   the rewrite invents overwrites something the source already decided. So it
@@ -413,23 +439,33 @@ with each other either:
   asked for: a costume note reaches the costume, while "turn this into
   claymation" is licensed to re-render nearly every surface. Sound moves with
   the world — new weather, room or medium changes what the scene sounds like —
-  while the words, voices and music hold unless asked otherwise.
+  while the words, voices and music hold unless asked otherwise. Its output is
+  the six-section full-reference form, which is what makes the balance hold:
+  preservation is one line per label in `retention_analysis` carrying a fixed
+  marker (`fully_preserved`, `partially_preserved`, `attribute_transfer`,
+  `weak_reference`), so `detailed_description` is left free for the change. The
+  narrow/moderate/sweeping tiers now pick those markers rather than trying to
+  balance two piles of prose against each other.
 - **Extend** runs `EXTEND_DIRECTOR`. Nothing about the source changes there;
   time moves forward, and what you type is what happens *next*. Most of it is
   spent on the seam: no establishing shot, no fade, no cut, no resetting
   characters into neutral poses, and motion already underway carried through
   the join. It also holds the previous clip's dialogue to the previous clip.
 
-All three live in `minimax-common.ts` and are workflow data: treat them as data,
-not prose to tidy.
+All of them live in `minimax-common.ts` and are workflow data: treat them as
+data, not prose to tidy. The camera vocabulary in particular is a closed list,
+and a synonym that reads better is worse.
 
-Two are verbatim from the ComfyUI exports. `REMIX_DIRECTOR` is **not** — it was
-pinned near "preserve everything", roughly Sora's mildest remix setting, where
-its own remix ran a dial from there up to replacing whole buildings. Held that
-low, a sweeping request came back as the source with a wash over it, and the
-soundtrack never moved even when the world it was recorded in did. The edits are
-marked in the file. If the ComfyUI workflow is re-exported over it they will be
-lost, so the better fix is to make the same edit on the ComfyUI side.
+**None of them is still verbatim from the ComfyUI exports.** The exports emitted
+free prose, which the model reads less reliably than its own format, and the
+export shared one director across three modes that want three different ones.
+`REMIX_DIRECTOR` had diverged even further: it was originally pinned near
+"preserve everything", roughly Sora's mildest remix setting, where its own remix
+ran a dial from there up to replacing whole buildings — and held that low, a
+sweeping request came back as the source with a wash over it, and the soundtrack
+never moved even when the world it was recorded in did. If a ComfyUI workflow is
+re-exported over any of these files, all of it is lost, so the better fix is to
+make the same edits on the ComfyUI side.
 
 Two consequences:
 

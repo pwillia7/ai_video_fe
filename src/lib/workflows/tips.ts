@@ -22,11 +22,18 @@ const PROMPT_STRUCTURE: TipSection = {
     "State the whole scene first: where it is, who is in it, and what happens.",
     "Then break it into timed shots.",
     "Keep shots, camera moves and audio in one block. Dialogue, sound effects and music are read together with the visuals, not separately.",
+    "You do not have to write any of this in the model's own format — the director does that for you, laying the result out as timed shots, tagged dialogue and separate soundscape and score fields.",
   ],
 };
 
 const DURATION_NOTE =
   "Duration snaps to the model's 17-frame grid (17k+5) at 24fps, so a clip can land slightly longer than you asked for.";
+
+const LENGTH_NOTE =
+  "The director is told how long the clip will be, and writes to it — so the shot timings fit and the dialogue is short enough to actually be spoken in the time available.";
+
+const RANGE_NOTE =
+  "The model is trained to about 15 seconds. The slider goes to 20, but past 15 you are outside what it was built for.";
 
 export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
   "minimax-h3": {
@@ -47,6 +54,8 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
           "The native canvas is a 768px short edge, capped at 768×1344 and rounded to a multiple of 32.",
           "Frame size defaults to 0.4 MP, which is the fast preview setting. Around 1.0 MP at 16:9 — roughly 1344×768 — is full quality.",
           DURATION_NOTE,
+          LENGTH_NOTE,
+          RANGE_NOTE,
         ],
       },
     ],
@@ -70,7 +79,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         ],
       },
       PROMPT_STRUCTURE,
-      { heading: "Length", items: [DURATION_NOTE] },
+      { heading: "Length", items: [DURATION_NOTE, LENGTH_NOTE, RANGE_NOTE] },
     ],
   },
 
@@ -81,7 +90,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         items: [
           "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it. A single sentence is enough to start.",
           "It is shown your reference images too, so it can build the scene around what is actually in them.",
-          "<Picture 1> and <Picture 2> tags are carried through the rewrite untouched, so keep using them.",
+          "<Picture 1> and <Picture 2> tags survive the rewrite — it turns them into the labelled subject definitions the model expects, so keep using them.",
         ],
       },
       {
@@ -94,7 +103,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         ],
       },
       PROMPT_STRUCTURE,
-      { heading: "Length", items: [DURATION_NOTE] },
+      { heading: "Length", items: [DURATION_NOTE, LENGTH_NOTE, RANGE_NOTE] },
     ],
   },
 

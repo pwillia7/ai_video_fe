@@ -54,6 +54,7 @@ import {
  */
 const ids: Omit<MinimaxNodeIds, "duration"> = {
   prompt: { node: "138", input: "value" },
+  director: "145",
   noise: "129",
   scheduler: "124",
 };

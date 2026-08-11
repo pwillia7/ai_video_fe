@@ -110,6 +110,31 @@ export interface VideoParam extends ParamBase {
   default: "";
   /** Block submission until a video is chosen. */
   required?: boolean;
+  /**
+   * Id of a `measured` param this control fills in with the loaded clip's
+   * running time. Named here rather than the other way round because the video
+   * control is what has the clip in hand.
+   */
+  measures?: string;
+}
+
+/**
+ * A number the UI observes rather than the user setting it — today, only the
+ * running time of the clip a `video` param has loaded.
+ *
+ * It is a param rather than something bolted onto the video control because
+ * what it is *for* is writing into the graph, and that is what params do: it
+ * gets targets, coercion and storage like everything else. It renders no
+ * control of its own.
+ */
+export interface MeasuredParam extends ParamBase {
+  type: "measured";
+  /**
+   * What the value is before anything has been measured. Targets have to mean
+   * something sensible at this value, because a graph can be submitted before
+   * the clip's metadata has loaded.
+   */
+  default: number;
 }
 
 export type ParamDef =
@@ -119,7 +144,8 @@ export type ParamDef =
   | ToggleParam
   | SeedParam
   | ImageParam
-  | VideoParam;
+  | VideoParam
+  | MeasuredParam;
 
 export type ParamValue = string | number | boolean;
 

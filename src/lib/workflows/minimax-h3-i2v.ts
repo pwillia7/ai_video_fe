@@ -3,7 +3,7 @@ import type { ParamDef, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   durationParam,
-  PROMPT_DIRECTOR,
+  IMAGE_DIRECTOR,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -78,7 +78,9 @@ const graph: ComfyGraph = {
       model: "gpt-5.6-terra",
       force_regen: false,
       prompt: ["125", 0],
-      system_prompt: PROMPT_DIRECTOR,
+      // Overwritten per run by the duration param, which appends the finished
+      // video's length — H3's format needs it to place shot cut times.
+      system_prompt: IMAGE_DIRECTOR,
       client: ["121", 0],
       images: ["114", 0],
     },
@@ -205,6 +207,7 @@ const ids: MinimaxNodeIds = {
   // Node 125, not the video node: what the user types is the *input* to the
   // rewrite stage, and 105:104.prompt is a link now, not a value.
   prompt: { node: "125", input: "value" },
+  director: "123",
   duration: "105:111",
   noise: "105:15",
   scheduler: "105:9",
@@ -242,7 +245,7 @@ const params: ParamDef[] = [
     6,
   ),
 
-  durationParam(ids),
+  durationParam(ids, IMAGE_DIRECTOR),
 
   ...samplingParams(ids),
 ];

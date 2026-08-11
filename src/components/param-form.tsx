@@ -34,9 +34,14 @@ export function ParamForm({
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Preserve declaration order of both groups and params within them.
+  //
+  // A `measured` param is dropped here rather than rendered as nothing: it has
+  // no control, and leaving it in would let a group that holds only measured
+  // params draw an empty heading.
   const groups = useMemo(() => {
     const ordered = new Map<string, ClientParam[]>();
     for (const param of params) {
+      if (param.type === "measured") continue;
       const key = param.group ?? DEFAULT_GROUP;
       const existing = ordered.get(key);
       if (existing) existing.push(param);
@@ -269,18 +274,29 @@ function Control({
         </Field>
       );
 
-    case "video":
+    case "video": {
+      // Bound outside the closure so it stays narrowed to a string.
+      const measures = param.measures;
       return (
         <Field id={id} label={param.label} help={param.help} error={error}>
           <VideoUpload
             id={id}
             value={String(value ?? "")}
             onChange={(next) => onChange(param.id, next)}
+            onMeasure={
+              measures ? (seconds) => onChange(measures, seconds) : undefined
+            }
             disabled={disabled}
             describedBy={describedBy}
           />
         </Field>
       );
+    }
+
+    // Filled in by whichever control measures it — see `measures` on the video
+    // param. Nothing to draw.
+    case "measured":
+      return null;
 
     case "seed": {
       const current = Number(value ?? param.default);

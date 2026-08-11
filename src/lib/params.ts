@@ -113,6 +113,19 @@ function coerce(
       return value;
     }
 
+    // Not user input in the usual sense — the form measures it off a loaded
+    // clip — but it arrives over the same wire as everything else, so it is
+    // checked the same way. Anything unusable falls back to the default, which
+    // every target has to read as "not known".
+    case "measured": {
+      if (raw == null) return param.default;
+      const value = typeof raw === "string" ? Number(raw) : raw;
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        return param.default;
+      }
+      return value;
+    }
+
     case "seed": {
       const value =
         raw == null

@@ -125,12 +125,19 @@ export function VideoUpload({
   id,
   value,
   onChange,
+  onMeasure,
   disabled,
   describedBy,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
+  /**
+   * The loaded clip's running time in seconds, or 0 when nothing is loaded.
+   * Reported from the preview below rather than from `probe`, so it covers a
+   * clip that arrived by Remix or Extend as well as one that was uploaded.
+   */
+  onMeasure?: (seconds: number) => void;
   disabled?: boolean;
   describedBy?: string;
 }) {
@@ -144,6 +151,19 @@ export function VideoUpload({
    * are the ones the workflow will actually generate at.
    */
   const [spec, setSpec] = useState<Probe | null>(null);
+
+  /**
+   * The one place `spec` is set, so the measurement reported upward can never
+   * drift from the one displayed. A duration that is not a finite number —
+   * which a stream or a still-loading file will give — reports as 0, the same
+   * as no clip at all.
+   */
+  const applySpec = (next: Probe | null) => {
+    setSpec(next);
+    onMeasure?.(
+      next && Number.isFinite(next.seconds) ? Math.max(0, next.seconds) : 0,
+    );
+  };
 
   const upload = async (file: File) => {
     setError(null);
@@ -164,7 +184,9 @@ export function VideoUpload({
         body: form,
       });
       onChange(result.ref);
-      setSpec(null);
+      // Cleared rather than carried over from `probe`: the preview re-measures
+      // the file ComfyUI actually stored, which is the one that will be used.
+      applySpec(null);
     } catch (cause) {
       setError(
         cause instanceof ApiError
@@ -250,7 +272,7 @@ export function VideoUpload({
               playsInline
               preload="metadata"
               onLoadedMetadata={(event) =>
-                setSpec({
+                applySpec({
                   width: event.currentTarget.videoWidth,
                   height: event.currentTarget.videoHeight,
                   seconds: event.currentTarget.duration,
@@ -258,7 +280,7 @@ export function VideoUpload({
               }
               onError={() => {
                 onChange("");
-                setSpec(null);
+                applySpec(null);
                 setError(
                   "That video is no longer on the ComfyUI server. Choose it again.",
                 );
@@ -296,7 +318,7 @@ export function VideoUpload({
                   onClick={() => {
                     onChange("");
                     setError(null);
-                    setSpec(null);
+                    applySpec(null);
                   }}
                 >
                   Remove

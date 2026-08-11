@@ -1,6 +1,7 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
+  clipDurationParam,
   promptParam,
   REMIX_DIRECTOR,
   samplingParams,
@@ -34,6 +35,7 @@ import {
  */
 const ids: Omit<MinimaxNodeIds, "duration"> = {
   prompt: { node: "138", input: "value" },
+  director: "145",
   noise: "129",
   scheduler: "124",
 };
@@ -183,6 +185,9 @@ const graph: ComfyGraph = {
       model: "gpt-5.6-terra",
       force_regen: false,
       prompt: ["138", 0],
+      // Overwritten per run by `source_seconds` below, which appends how long
+      // the clip runs — measured in the browser, since nothing here knows it
+      // until ComfyUI decodes the file.
       system_prompt: REMIX_DIRECTOR,
       client: ["144", 0],
       // The sampled frames, and the only place they are used.
@@ -245,7 +250,14 @@ const params: ParamDef[] = [
     help: "Its size and length become the new video's. Up to 768×1344, 20s, 4 MB.",
     group: "Source",
     targets: [{ node: VIDEO_NODE, input: "file" }],
+    // The clip is the only thing that knows how long the output will be, so
+    // the control that loads it reports that onward to the param below.
+    measures: "source_seconds",
   },
+
+  // No control of its own: filled in by the clip above, and read only by the
+  // prompt director. See clipDurationParam for why it exists at all.
+  clipDurationParam(ids, REMIX_DIRECTOR),
 
   promptParam(
     ids,
