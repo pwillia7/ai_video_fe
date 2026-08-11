@@ -35,6 +35,35 @@ const LENGTH_NOTE =
 const RANGE_NOTE =
   "The model is trained to about 15 seconds. The slider goes to 20, but past 15 you are outside what it was built for.";
 
+/**
+ * Shared by both reference workflows. They run the same graph and the same
+ * director; the turbo one only changes how many steps the sampler takes, so
+ * everything about prompting and references reads identically on both.
+ */
+const REFERENCE_REWRITE: TipSection = {
+  heading: "Your prompt gets expanded first",
+  items: [
+    "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it. A single sentence is enough to start.",
+    "It is shown your reference images too, so it can build the scene around what is actually in them.",
+    "<Picture 1> and <Picture 2> tags survive the rewrite — it turns them into the labelled subject definitions the model expects, so keep using them.",
+  ],
+};
+
+const REFERENCE_IMAGES: TipSection = {
+  heading: "Referring to your images",
+  items: [
+    "Name each reference by tag, in the order you uploaded it: <Picture 1> for the first, <Picture 2> for the second.",
+    "Say what each reference controls — identity, style, motion, camera, voice. The docs are explicit that spelling this out works much better than leaving it implied.",
+    "Reference handling: match is faster, max preserves identity better at up to a 2048px short edge.",
+    "The model accepts up to 9 reference images. This workflow wires two.",
+  ],
+};
+
+const REFERENCE_LENGTH: TipSection = {
+  heading: "Length",
+  items: [DURATION_NOTE, LENGTH_NOTE, RANGE_NOTE],
+};
+
 export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
   "minimax-h3": {
     sections: [
@@ -85,25 +114,32 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
 
   "minimax-h3-ref": {
     sections: [
-      {
-        heading: "Your prompt gets expanded first",
-        items: [
-          "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it. A single sentence is enough to start.",
-          "It is shown your reference images too, so it can build the scene around what is actually in them.",
-          "<Picture 1> and <Picture 2> tags survive the rewrite — it turns them into the labelled subject definitions the model expects, so keep using them.",
-        ],
-      },
-      {
-        heading: "Referring to your images",
-        items: [
-          "Name each reference by tag, in the order you uploaded it: <Picture 1> for the first, <Picture 2> for the second.",
-          "Say what each reference controls — identity, style, motion, camera, voice. The docs are explicit that spelling this out works much better than leaving it implied.",
-          "Reference handling: match is faster, max preserves identity better at up to a 2048px short edge.",
-          "The model accepts up to 9 reference images. This workflow wires two.",
-        ],
-      },
+      REFERENCE_REWRITE,
+      REFERENCE_IMAGES,
       PROMPT_STRUCTURE,
-      { heading: "Length", items: [DURATION_NOTE, LENGTH_NOTE, RANGE_NOTE] },
+      REFERENCE_LENGTH,
+    ],
+  },
+
+  // Everything the non-turbo workflow says, plus what the LoRA changes. Shared
+  // rather than copied: the two graphs differ in step count, not in how you
+  // prompt them or how you name a reference.
+  "minimax-h3-ref-turbo": {
+    sections: [
+      {
+        heading: "Distilled to fewer steps",
+        items: [
+          "The same graph as Reference to Video, with a turbo LoRA applied to the diffusion model so the sampler converges in a handful of steps instead of a dozen or more.",
+          "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
+          "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
+          "Everything else behaves exactly as it does on the non-turbo workflow, including the prompt director and the reference tags.",
+          "This is the one workflow that needs a node pack and a model file the others do not. If it fails immediately while the others run, that is the first thing to check.",
+        ],
+      },
+      REFERENCE_REWRITE,
+      REFERENCE_IMAGES,
+      PROMPT_STRUCTURE,
+      REFERENCE_LENGTH,
     ],
   },
 

@@ -202,8 +202,23 @@ export function clipDurationParam(
 
 export function samplingParams(
   ids: Pick<MinimaxNodeIds, "noise" | "scheduler">,
-  /** Per-graph tuning. The remix graph runs fewer steps than the rest. */
-  { steps = 12 }: { steps?: number } = {},
+  /**
+   * Per-graph tuning. The remix graph runs fewer steps than the rest, and the
+   * turbo graph needs a different range rather than a different default — its
+   * LoRA is distilled to converge in single digits, so 60 there is not a
+   * slower-but-better setting, it is off the end of what the LoRA was made for.
+   */
+  {
+    steps = 12,
+    minSteps = 4,
+    maxSteps = 60,
+    stepsHelp,
+  }: {
+    steps?: number;
+    minSteps?: number;
+    maxSteps?: number;
+    stepsHelp?: string;
+  } = {},
 ): ParamDef[] {
   return [
     {
@@ -220,9 +235,10 @@ export function samplingParams(
       label: "Steps",
       type: "slider",
       default: steps,
-      min: 4,
-      max: 60,
+      min: minSteps,
+      max: maxSteps,
       step: 1,
+      help: stepsHelp,
       group: "Sampling",
       targets: [{ node: ids.scheduler, input: "steps" }],
     },
