@@ -4,6 +4,7 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   REFERENCE_DIRECTOR,
+  h3Turbo,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -313,6 +314,7 @@ export const minimaxH3Reference: WorkflowDef = {
   hasAudio: true,
   graph,
   params,
+  turbo: h3Turbo(220),
 
   /**
    * With no second reference, the variadic inputs and the loader must be

@@ -7,12 +7,13 @@ instance. Deploys to Vercel; the ComfyUI box stays where it is.
 finished clip and generation history on the
 right](https://i.imgur.com/cUqFq7x.png)
 
-Six MiniMax H3 workflows — text to video, image to video, reference to video
-(and a turbo-LoRA variant of it that samples in a handful of steps), **Remix**
-(rebuild a clip you already made) and **Extend** (carry one on past where it
-stopped) — each with a hand-picked set of controls rather than the whole
-graph. Generations queue, run in the background, and stay in a per-device
-history you can replay, download or feed straight back in.
+Five MiniMax H3 workflows — text to video, image to video, reference to video,
+**Remix** (rebuild a clip you already made) and **Extend** (carry one on past
+where it stopped) — each with a hand-picked set of controls rather than the
+whole graph. Any of them can be run in **Turbo**, a switch that applies a
+distilled LoRA and samples in a handful of steps instead of a dozen or more.
+Generations queue, run in the background, and stay in a per-device history you
+can replay, download or feed straight back in.
 
 It is a front end and nothing else: no model weights, no inference, no
 database. Everything expensive happens on your ComfyUI machine.
@@ -80,7 +81,7 @@ All three packs install from ComfyUI Manager by name:
 | --- | --- | --- |
 | [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow |
 | [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate` | Remix, Extend |
-| [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA` | Reference to Video (Turbo) |
+| [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA` | the Turbo switch, on any workflow |
 
 **The OpenAI pack is not optional.** Every graph runs what you type through an
 LLM before the video model sees it ([details](#the-prompt-is-rewritten-before-the-model-sees-it)),
@@ -168,11 +169,11 @@ LoRA comes from its own pack instead.
 | File | Goes in | Used by |
 | --- | --- | --- |
 | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | text/image to video, Extend |
-| `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | reference to video (both), Remix |
-| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | all six |
-| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | all six |
-| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | all six |
-| [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | Reference to Video (Turbo) |
+| `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | reference to video, Remix |
+| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | all five |
+| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | all five |
+| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | all five |
+| [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch, on any workflow |
 
 **The filenames have to match**, because they are values inside the graph rather
 than choices in the UI. If your build is named or quantised differently, edit
@@ -382,7 +383,7 @@ state to keep.
 
 ## The bundled workflows
 
-All six target **MiniMax H3** and produce a video with a generated audio
+All five target **MiniMax H3** and produce a video with a generated audio
 track. They share sampling, timing and encoding controls via
 `minimax-common.ts`.
 
@@ -391,9 +392,31 @@ track. They share sampling, timing and encoding controls via
 | `minimax-h3` — text to video | Aspect ratio + megapixels (`ResolutionSelector`) |
 | `minimax-h3-i2v` — image to video | The uploaded image, rescaled by `ImageScaleToTotalPixels` |
 | `minimax-h3-ref` — reference to video | Aspect ratio + megapixels (`ResolutionSelector`) |
-| `minimax-h3-ref-turbo` — reference to video, turbo | Aspect ratio + megapixels (`ResolutionSelector`) |
 | `minimax-h3-ref2v` — remix | The source clip's frames, measured by `GetImageSizeAndCount` — length included |
 | `minimax-h3-extend` — extend | The source clip's **last frame**, measured by `GetImageSize` |
+
+### Turbo is a mode, not a sixth workflow
+
+Every one of them offers a **Turbo** switch in the settings panel. Turning it
+on splices a `MiniMaxH3TurboLoRA` node between the graph's `UNETLoader` and
+everything that reads it — in practice `BasicScheduler` and `BasicGuider`, both
+of which have to move or the sigmas would be scheduled against the distilled
+model while the guider ran the base one. The consumers are found in the graph
+rather than listed per workflow, so a re-exported graph cannot silently leave
+one behind.
+
+That is the whole difference. The conditioning, the frame maths and the rewrite
+stage are untouched, which is why it is a switch rather than five more entries
+in the picker. What it changes is the step count: the control's range becomes
+4–8 rather than 4–60, because the LoRA is distilled to converge in single
+digits and 60 there is not a slower-but-better setting.
+
+The graphs on disk stay verbatim from their ComfyUI exports — the LoRA is added
+to a clone on the way to the queue, in `src/lib/workflows/turbo.ts`. Both forms
+are checked: `pnpm check:workflows` proves the splice resolves against every
+graph, and `pnpm check:nodes` asks ComfyUI about the turbo graphs as well as
+the stored ones, since the LoRA node and its file are the only pieces that need
+a pack nothing else does.
 
 ### The prompt is rewritten before the model sees it
 
@@ -408,12 +431,12 @@ model was trained on and reads far more reliably than equivalent free prose:
 timed `[Shot N]` markers, a closed camera vocabulary, `(S1)` speaker IDs with
 the spoken words inside `<d>[English] ...</d>`, and separate `overall_soundscape`
 and `non_diegetic_music` fields. That grammar lives once, in `H3_GRAMMAR`, and
-is spliced into all six. The envelope around it is per mode, and there are
+is spliced into all five. The envelope around it is per mode, and there are
 three of them — the base three-field form for text-to-video; the same plus an
 alignment line naming `<Picture 1>` for the two graphs that start from a frame;
 and the six-section full-reference form (`subject_definitions`, `summary`,
 `retention_analysis`, `detailed_description`, and the two audio fields) for the
-three that run `MiniMaxH3ReferenceToVideo`. The formats are specified in
+two that run `MiniMaxH3ReferenceToVideo`. The formats are specified in
 [MiniMax's own prompt-writing guides](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md),
 and in ComfyUI it is the prompt text that has to carry the reference tags —
 nothing in the node pack inserts them.

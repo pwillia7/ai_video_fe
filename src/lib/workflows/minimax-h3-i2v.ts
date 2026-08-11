@@ -4,6 +4,7 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   IMAGE_DIRECTOR,
+  h3Turbo,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -258,4 +259,5 @@ export const minimaxH3ImageToVideo: WorkflowDef = {
   hasAudio: true,
   graph,
   params,
+  turbo: h3Turbo(220),
 };

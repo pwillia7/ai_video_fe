@@ -1,4 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
 import type { ParamDef, ParamValue, WorkflowDef } from "@/lib/workflows/types";
 
 export class ParamError extends Error {
@@ -160,13 +161,30 @@ export function applyParams(
   submitted: Record<string, unknown>,
   /** Live enum values per param id, from resolveDynamicOptions. */
   allowedValues?: Record<string, string[] | null>,
+  /** Run with the distilled LoRA spliced in. See turbo.ts. */
+  turbo = false,
 ): AppliedParams {
   // structuredClone would choke on the transform functions, but those live on
   // the param definitions rather than the graph, so the graph clones cleanly.
   const graph = structuredClone(workflow.graph);
   const resolved: Record<string, ParamValue> = {};
 
-  for (const param of workflow.params) {
+  if (turbo) {
+    if (!workflow.turbo) {
+      throw new ParamError(`Workflow "${workflow.id}" has no turbo mode.`);
+    }
+    // Before the values are written, so `finalize` sees the graph that will
+    // actually be queued. Nothing targets the loader or the LoRA either way.
+    applyTurbo(graph, workflow.turbo);
+  }
+
+  // The steps control has a different range in turbo, so the range a value is
+  // checked against has to be the one the form was showing.
+  const params = turbo
+    ? turboParams(workflow.params, workflow.turbo)
+    : workflow.params;
+
+  for (const param of params) {
     const value = coerce(
       param,
       submitted[param.id],
@@ -236,6 +254,48 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
         );
       }
     }
+  }
+
+  problems.push(...turboProblems(workflow));
+
+  return problems;
+}
+
+/**
+ * Whether the turbo splice would work on this graph — asked here rather than
+ * discovered at generation time, because the mode has no separate definition
+ * to check and the failure would otherwise land minutes into a render.
+ */
+function turboProblems(workflow: WorkflowDef): string[] {
+  const spec = workflow.turbo;
+  if (!spec) return [];
+
+  const problems: string[] = [];
+
+  try {
+    applyTurbo(structuredClone(workflow.graph), spec);
+  } catch (error) {
+    problems.push(
+      `Turbo cannot be applied: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const steps = workflow.params.find((param) => param.id === spec.steps.param);
+  if (!steps) {
+    problems.push(
+      `Turbo retunes "${spec.steps.param}", which this workflow has no param for.`,
+    );
+  } else if (steps.type !== "slider" && steps.type !== "number") {
+    problems.push(
+      `Turbo retunes "${spec.steps.param}", which is a ${steps.type} rather than a numeric control.`,
+    );
+  } else if (
+    spec.steps.default < spec.steps.min ||
+    spec.steps.default > spec.steps.max
+  ) {
+    problems.push(
+      `Turbo's default of ${spec.steps.default} steps is outside its own ${spec.steps.min}–${spec.steps.max} range.`,
+    );
   }
 
   return problems;

@@ -1,3 +1,4 @@
+import type { TurboSpec } from "./turbo";
 import type { ParamDef } from "./types";
 
 /**
@@ -200,25 +201,65 @@ export function clipDurationParam(
   };
 }
 
+/**
+ * The turbo mode every H3 graph here offers: one LoRA node between the UNET
+ * loader and everything that reads it.
+ *
+ * One spec shared by all of them rather than one per workflow, because the
+ * distillation is a property of the model rather than of the graph — the same
+ * LoRA file applies to both UNETs in use here, `fl2va` and `ref2va`. Only the
+ * numbers that genuinely differ are arguments.
+ *
+ * **This is the one thing in the app that needs a node pack the base graphs do
+ * not.** `MiniMaxH3TurboLoRA` is not a ComfyUI built-in — core ships only
+ * EmptyMiniMaxH3LatentAV, MiniMaxH3ImageToVideo, MiniMaxH3ReferenceToVideo and
+ * MiniMaxH3SigmaShift. It comes from Larryvrh/ComfyUI-MiniMax-H3-Turbo, with
+ * the LoRA file in `models/loras/`. Without both, every workflow still runs
+ * with the switch off and every workflow fails with it on. `pnpm check:nodes`
+ * checks the turbo graphs too, so it catches this before a render does.
+ */
+export function h3Turbo(
+  /**
+   * Scaled from the base graph's estimate rather than measured: the same work
+   * at 8 steps instead of 12, with the rewrite, the model load and the decode
+   * unchanged. It only paces the progress hint, and the first finished run on
+   * a machine replaces it with that machine's own median, so being out by a
+   * bit costs nothing.
+   */
+  estimatedSeconds: number,
+  /** Where in the 4–8 range this graph starts. */
+  steps = 8,
+): TurboSpec {
+  return {
+    node: {
+      class_type: "MiniMaxH3TurboLoRA",
+      // `strength` and `low_vram` are as the ComfyUI export sets them rather
+      // than exposed: 1 is what the LoRA was trained to be applied at, and
+      // low_vram is a property of the machine rather than of the shot.
+      inputs: {
+        lora_name: "minimax_h3_turbo_v4_step600_ema.safetensors",
+        strength: 1,
+        low_vram: false,
+      },
+      _meta: { title: "MiniMax-H3 Turbo LoRA" },
+    },
+    modelInput: "model",
+    steps: {
+      param: "steps",
+      default: steps,
+      min: 4,
+      max: 8,
+      help: "The turbo LoRA converges here. 4 is fastest, 8 is safest.",
+    },
+    estimatedSeconds,
+    help: "Applies a distilled LoRA to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Needs the MiniMax-H3 Turbo node pack.",
+  };
+}
+
 export function samplingParams(
   ids: Pick<MinimaxNodeIds, "noise" | "scheduler">,
-  /**
-   * Per-graph tuning. The remix graph runs fewer steps than the rest, and the
-   * turbo graph needs a different range rather than a different default — its
-   * LoRA is distilled to converge in single digits, so 60 there is not a
-   * slower-but-better setting, it is off the end of what the LoRA was made for.
-   */
-  {
-    steps = 12,
-    minSteps = 4,
-    maxSteps = 60,
-    stepsHelp,
-  }: {
-    steps?: number;
-    minSteps?: number;
-    maxSteps?: number;
-    stepsHelp?: string;
-  } = {},
+  /** The remix graph runs fewer steps than the rest. */
+  { steps = 12 }: { steps?: number } = {},
 ): ParamDef[] {
   return [
     {
@@ -235,10 +276,9 @@ export function samplingParams(
       label: "Steps",
       type: "slider",
       default: steps,
-      min: minSteps,
-      max: maxSteps,
+      min: 4,
+      max: 60,
       step: 1,
-      help: stepsHelp,
       group: "Sampling",
       targets: [{ node: ids.scheduler, input: "steps" }],
     },

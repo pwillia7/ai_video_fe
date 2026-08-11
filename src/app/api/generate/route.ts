@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       workflowId?: string;
       params?: Record<string, unknown>;
+      turbo?: boolean;
     };
 
     if (!body.workflowId) {
@@ -30,6 +31,13 @@ export async function POST(request: Request) {
     const workflow = getWorkflow(body.workflowId);
     if (!workflow) {
       throw new ParamError(`Unknown workflow "${body.workflowId}".`);
+    }
+
+    // A mode rather than a workflow of its own: the LoRA is spliced into the
+    // graph on the way past. See src/lib/workflows/turbo.ts.
+    const turbo = body.turbo === true;
+    if (turbo && !workflow.turbo) {
+      throw new ParamError(`Workflow "${workflow.id}" has no turbo mode.`);
     }
 
     const problems = validateWorkflow(workflow);
@@ -57,6 +65,7 @@ export async function POST(request: Request) {
       workflow,
       body.params ?? {},
       allowedValues,
+      turbo,
     );
 
     const clientId = crypto.randomUUID();
@@ -67,7 +76,10 @@ export async function POST(request: Request) {
       queueNumber: result.number,
       clientId,
       resolved,
-      estimatedSeconds: workflow.estimatedSeconds ?? null,
+      estimatedSeconds:
+        (turbo ? workflow.turbo?.estimatedSeconds : undefined) ??
+        workflow.estimatedSeconds ??
+        null,
     });
   } catch (error) {
     return errorResponse(error);

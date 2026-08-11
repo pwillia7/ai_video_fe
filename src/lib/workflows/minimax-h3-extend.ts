@@ -4,6 +4,7 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   EXTEND_DIRECTOR,
+  h3Turbo,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -324,6 +325,7 @@ export const minimaxH3Extend: WorkflowDef = {
   hasAudio: true,
   graph,
   params,
+  turbo: h3Turbo(220),
   /**
    * No `carry`, unlike Remix. The prompt that made the source describes the
    * source, and this graph reads what you type as what happens *next* — so

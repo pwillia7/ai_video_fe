@@ -15,7 +15,9 @@ for (const workflow of WORKFLOWS) {
 
   if (problems.length === 0) {
     console.log(
-      `  ok   ${workflow.id} — ${workflow.params.length} params over ${nodeCount} nodes`,
+      `  ok   ${workflow.id} — ${workflow.params.length} params over ${nodeCount} nodes` +
+        // validateWorkflow proves the splice works as well as the targets do.
+        (workflow.turbo ? ", turbo splices cleanly" : ""),
     );
     continue;
   }

@@ -8,11 +8,19 @@ import type { WorkflowSummary } from "@/lib/workflows/types";
  */
 export function WorkflowPicker({
   workflows,
+  turbo,
   selectedId,
   onSelect,
   disabled,
 }: {
   workflows: WorkflowSummary[];
+  /**
+   * Which workflows are in turbo. The switch lives in the settings panel, but
+   * the mode changes what a run costs, so the estimate on the card has to
+   * follow it — otherwise picking a workflow tells you the wrong number about
+   * the mode you left it in.
+   */
+  turbo: Record<string, boolean>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   disabled?: boolean;
@@ -21,6 +29,10 @@ export function WorkflowPicker({
     <div role="radiogroup" aria-label="Workflow" className="flex flex-col gap-2">
       {workflows.map((workflow) => {
         const selected = workflow.id === selectedId;
+        const isTurbo = Boolean(turbo[workflow.id]) && Boolean(workflow.turbo);
+        const estimate = isTurbo
+          ? (workflow.turbo?.estimatedSeconds ?? workflow.estimatedSeconds)
+          : workflow.estimatedSeconds;
         return (
           <button
             key={workflow.id}
@@ -50,9 +62,17 @@ export function WorkflowPicker({
               <span className="text-[13px] font-medium tracking-[-0.01em] text-fg">
                 {workflow.name}
               </span>
-              {workflow.estimatedSeconds ? (
+              {isTurbo ? (
+                <span
+                  className="rounded bg-accent-subtle px-1.5 py-0.5 text-[10px] font-medium
+                    uppercase tracking-[0.06em] text-fg-muted"
+                >
+                  Turbo
+                </span>
+              ) : null}
+              {estimate ? (
                 <span className="ml-auto font-mono text-[11px] tabular-nums text-fg-subtle">
-                  ~{formatEstimate(workflow.estimatedSeconds)}
+                  ~{formatEstimate(estimate)}
                 </span>
               ) : null}
             </div>

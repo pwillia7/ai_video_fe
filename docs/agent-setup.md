@@ -46,17 +46,21 @@ Tell them plainly what has to be true, then let them go do it:
   `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate`. Only Remix
   and Extend need these; the other workflows run without them.
 - **MiniMax-H3 Turbo** (`Larryvrh/ComfyUI-MiniMax-H3-Turbo`) — provides
-  `MiniMaxH3TurboLoRA`. Only Reference to Video (Turbo) needs it, and it also
-  wants the LoRA file listed below. Everything else runs without either.
+  `MiniMaxH3TurboLoRA`. Only the **Turbo** switch needs it, and it also wants
+  the LoRA file listed below. Every workflow offers that switch, and every
+  workflow runs without the pack as long as it is left off.
 
 The remaining node classes are ComfyUI built-ins — including the four
 `MiniMaxH3*` sampling nodes and `ComfyMathExpression`. If those come back
 missing, their ComfyUI is too old; updating is the fix, not hunting for packs.
 
-A pack that only one workflow needs is worth saying out loud, because the
-failure is confusing: everything else generates fine and that one workflow dies
-several minutes in, on a class nobody recognises. `pnpm check:nodes` names both
-the class and the pack that owns it, so run it rather than guessing.
+A pack that only part of the app needs is worth saying out loud, because the
+failure is confusing: everything else generates fine and the runs that need it
+die several minutes in, on a class nobody recognises. For the turbo pack the
+tell is that the same workflow succeeds with the switch off and fails with it
+on. `pnpm check:nodes` names both the class and the pack that owns it — and it
+checks the turbo form of each graph as well as the stored one — so run it
+rather than guessing.
 
 **An LLM key on the ComfyUI host, plus a patch.** Do not skip this. It is the
 most likely reason a setup that looks correct fails partway through its first
@@ -122,7 +126,7 @@ have them change it to a model their key can use — once per file in
 | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | everything |
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | everything |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | everything |
-| `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | Reference to Video (Turbo) only |
+| `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only |
 
 Source: <https://docs.comfy.org/tutorials/video/minimax/minimax-h3>. The turbo
 LoRA is not from there — see the third node pack above.

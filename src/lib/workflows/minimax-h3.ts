@@ -4,6 +4,7 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   TEXT_DIRECTOR,
+  h3Turbo,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -256,4 +257,5 @@ export const minimaxH3: WorkflowDef = {
   hasAudio: true,
   graph,
   params,
+  turbo: h3Turbo(130),
 };

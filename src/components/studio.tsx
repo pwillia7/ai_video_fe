@@ -17,6 +17,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { TipsModal } from "@/components/tips-modal";
 import { tipsFor } from "@/lib/workflows/tips";
 import { TokenGate } from "@/components/token-gate";
+import { TurboSwitch } from "@/components/turbo-switch";
 import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { WorkflowPicker } from "@/components/workflow-picker";
@@ -24,7 +25,14 @@ import { GenerationsPanel } from "@/components/generations-panel";
 import { useJobs } from "@/hooks/use-jobs";
 import { isActive, type Job } from "@/lib/jobs";
 import { api, ApiError, getToken } from "@/lib/client";
-import { hydrateAll, writeStoredParams } from "@/lib/param-storage";
+import {
+  clampValues,
+  hydrateAll,
+  hydrateModes,
+  writeStoredModes,
+  writeStoredParams,
+} from "@/lib/param-storage";
+import { effectiveWorkflow, workflowLabel } from "@/lib/workflows/turbo";
 import {
   CLIP_ACTIONS,
   defaultValuesFor,
@@ -149,18 +157,33 @@ function Workbench({
   const [selectedId, setSelectedId] = useState(workflows[0]?.id ?? "");
   const jobs = useJobs();
 
+  // Both of these are read lazily rather than in an effect: Workbench only
+  // mounts after the client-side load, so there is no server render to
+  // mismatch, and an effect would flash the defaults first. Read together
+  // because the values depend on the modes — a stored steps value is merged
+  // against whichever range the mode it was saved under puts it in.
+  const [initial] = useState(() => {
+    const modes = hydrateModes(workflows);
+    return { modes, values: hydrateAll(workflows, modes) };
+  });
+
+  /** Which workflows are in turbo. Only ever keyed by ones that offer it. */
+  const [turboByWorkflow, setTurboByWorkflow] = useState(initial.modes);
+
   // Values are kept per workflow so switching to compare settings and coming
   // back does not throw away what you typed, and persisted so a reload does
-  // not either. Read lazily rather than in an effect: Workbench only mounts
-  // after the client-side load, so there is no server render to mismatch, and
-  // an effect would flash the defaults first.
+  // not either.
   const [valuesByWorkflow, setValuesByWorkflow] = useState<
     Record<string, Record<string, ParamValue>>
-  >(() => hydrateAll(workflows));
+  >(initial.values);
 
   useEffect(() => {
     writeStoredParams(valuesByWorkflow);
   }, [valuesByWorkflow]);
+
+  useEffect(() => {
+    writeStoredModes(turboByWorkflow);
+  }, [turboByWorkflow]);
 
   // A clock that only ticks while something is running, so elapsed times
   // advance smoothly between poll results without re-rendering an idle page.
@@ -173,12 +196,45 @@ function Workbench({
     return () => clearInterval(id);
   }, [hasActive]);
 
-  const selected = useMemo(
+  const picked = useMemo(
     () => workflows.find((workflow) => workflow.id === selectedId),
     [workflows, selectedId],
   );
 
+  const turboOn = Boolean(turboByWorkflow[selectedId]);
+
+  /**
+   * The workflow as the switch has it: same everything, except that turbo
+   * retunes the steps control and carries its own estimate. Everything below
+   * works from this rather than from the registry entry, so nothing else has
+   * to know the mode exists.
+   */
+  const selected = useMemo(
+    () => (picked ? effectiveWorkflow(picked, turboOn) : undefined),
+    [picked, turboOn],
+  );
+
   const values = valuesByWorkflow[selectedId] ?? {};
+
+  /**
+   * Switching mode moves the steps range under a value that was valid in the
+   * other one, so the values are brought back inside the new ranges as the
+   * mode changes rather than left for the server to reject on submit.
+   */
+  const setTurbo = useCallback(
+    (on: boolean) => {
+      if (!picked?.turbo) return;
+      setTurboByWorkflow((previous) => ({ ...previous, [selectedId]: on }));
+      setValuesByWorkflow((previous) => ({
+        ...previous,
+        [selectedId]: clampValues(
+          effectiveWorkflow(picked, on),
+          previous[selectedId] ?? {},
+        ),
+      }));
+    },
+    [picked, selectedId],
+  );
 
   const setValue = useCallback(
     (id: string, value: ParamValue) => {
@@ -336,7 +392,7 @@ function Workbench({
   );
 
   const [tipsOpen, setTipsOpen] = useState(false);
-  const tips = selected ? tipsFor(selected.id) : undefined;
+  const tips = selected ? tipsFor(selected.id, turboOn) : undefined;
 
   // Which generation's settings are on screen, by id rather than by value: a
   // poll can replace the job object mid-view, and holding the object would
@@ -379,15 +435,15 @@ function Workbench({
 
   const submit = useCallback(() => {
     if (!selected || jobs.submitting) return;
-    void jobs.submit(
-      selected,
-      values,
+    void jobs.submit(selected, values, {
+      turbo: turboOn,
       // Only meaningful on the workflow the clip was actually loaded into, and
       // only for the hand-off that put it there.
-      selected.clipTarget && clipSource?.action === selected.clipTarget.action
-        ? clipSource.promptId
-        : undefined,
-    );
+      derivedFrom:
+        selected.clipTarget && clipSource?.action === selected.clipTarget.action
+          ? clipSource.promptId
+          : undefined,
+    });
     // The form has been acted on, so the note explaining how it got filled in
     // has served its purpose.
     setClipNotice(null);
@@ -399,7 +455,7 @@ function Workbench({
         stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
     }
-  }, [selected, values, jobs, clipSource]);
+  }, [selected, values, jobs, clipSource, turboOn]);
 
   // Cmd/Ctrl+Enter from anywhere fires the run. Held in a ref so the listener
   // is attached once rather than on every keystroke in the prompt box.
@@ -493,6 +549,7 @@ function Workbench({
               />
               <WorkflowPicker
                 workflows={workflows}
+                turbo={turboByWorkflow}
                 selectedId={selectedId}
                 onSelect={(id) => {
                   // Choosing a workflow by hand supersedes whatever Remix or
@@ -513,7 +570,7 @@ function Workbench({
               >
                 <PanelHeader
                   title="Settings"
-                  hint={selected.name}
+                  hint={workflowLabel(selected.name, turboOn)}
                   action={
                     <div className="flex shrink-0 items-center gap-2">
                       {tips ? (
@@ -541,6 +598,14 @@ function Workbench({
                     </div>
                   }
                 />
+                {selected.turbo ? (
+                  <TurboSwitch
+                    turbo={selected.turbo}
+                    on={turboOn}
+                    onChange={setTurbo}
+                  />
+                ) : null}
+
                 {clipNotice &&
                 selected.clipTarget?.action === clipNotice.action ? (
                   <div
@@ -642,11 +707,7 @@ function Workbench({
             <GenerationStage
               job={viewedJob}
               now={now}
-              estimateSeconds={
-                viewedJob
-                  ? jobs.estimateFor(viewedJob.workflowId, viewedJob.estimatedSeconds)
-                  : null
-              }
+              estimateSeconds={viewedJob ? jobs.estimateFor(viewedJob) : null}
               onCancel={(promptId) => void jobs.cancel(promptId)}
               onReuseSeed={(seed) => setValue("seed", seed)}
               clipActions={offeredActions}
@@ -714,7 +775,7 @@ function Workbench({
         <TipsModal
           open={tipsOpen}
           onClose={() => setTipsOpen(false)}
-          title={selected.name}
+          title={workflowLabel(selected.name, turboOn)}
           tips={tips}
         />
       ) : null}

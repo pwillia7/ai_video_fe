@@ -121,28 +121,6 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
     ],
   },
 
-  // Everything the non-turbo workflow says, plus what the LoRA changes. Shared
-  // rather than copied: the two graphs differ in step count, not in how you
-  // prompt them or how you name a reference.
-  "minimax-h3-ref-turbo": {
-    sections: [
-      {
-        heading: "Distilled to fewer steps",
-        items: [
-          "The same graph as Reference to Video, with a turbo LoRA applied to the diffusion model so the sampler converges in a handful of steps instead of a dozen or more.",
-          "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
-          "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
-          "Everything else behaves exactly as it does on the non-turbo workflow, including the prompt director and the reference tags.",
-          "This is the one workflow that needs a node pack and a model file the others do not. If it fails immediately while the others run, that is the first thing to check.",
-        ],
-      },
-      REFERENCE_REWRITE,
-      REFERENCE_IMAGES,
-      PROMPT_STRUCTURE,
-      REFERENCE_LENGTH,
-    ],
-  },
-
   "minimax-h3-ref2v": {
     sections: [
       {
@@ -223,6 +201,27 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
   },
 };
 
-export function tipsFor(workflowId: string): WorkflowTips | undefined {
-  return WORKFLOW_TIPS[workflowId];
+/**
+ * Prepended to whichever workflow is on screen when the Turbo switch is on.
+ * One section rather than a copy of each workflow's advice, because the LoRA
+ * changes the step count and nothing else a user types.
+ */
+const TURBO: TipSection = {
+  heading: "Turbo is on",
+  items: [
+    "A distilled LoRA is applied to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Everything else — the prompt director, the references, the length maths — behaves exactly as it does with the switch off.",
+    "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
+    "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
+    "This is the one thing in the app that needs a node pack and a model file the base workflows do not. If every run fails with the switch on and succeeds with it off, that is what to check.",
+  ],
+};
+
+export function tipsFor(
+  workflowId: string,
+  turbo?: boolean,
+): WorkflowTips | undefined {
+  const tips = WORKFLOW_TIPS[workflowId];
+  if (!tips) return undefined;
+  if (!turbo) return tips;
+  return { ...tips, sections: [TURBO, ...tips.sections] };
 }

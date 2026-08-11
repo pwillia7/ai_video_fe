@@ -1,4 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import type { ClientTurbo, TurboSpec } from "./turbo";
 
 /**
  * A workflow is a ComfyUI API-format graph plus a declaration of which node
@@ -195,6 +196,13 @@ export interface WorkflowDef {
   hasAudio?: boolean;
   graph: ComfyGraph;
   params: ParamDef[];
+  /**
+   * Set when this graph can also be run with the distilled LoRA spliced in —
+   * the "Turbo" switch in the sidebar. A mode rather than a second workflow:
+   * the two differ by one node and a step count, and nothing a user types
+   * means anything different in one than the other. See turbo.ts.
+   */
+  turbo?: TurboSpec;
   /** Which clip hand-off, if any, lands on this workflow. */
   clipTarget?: ClipTarget;
   /**
@@ -224,14 +232,25 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 
 export type ClientParam = DistributiveOmit<ParamDef, "targets" | "optionsFrom">;
 
-export type WorkflowSummary = Omit<WorkflowDef, "graph" | "params"> & {
+export type WorkflowSummary = Omit<WorkflowDef, "graph" | "params" | "turbo"> & {
   params: ClientParam[];
+  /** Present when the workflow offers the mode. Minus the node it splices in. */
+  turbo?: ClientTurbo;
 };
 
 export function toSummary(workflow: WorkflowDef): WorkflowSummary {
-  const { graph: _graph, params, ...rest } = workflow;
+  const { graph: _graph, params, turbo, ...rest } = workflow;
   return {
     ...rest,
+    // Withheld for the same reason as the graph: the node names a model file
+    // that exists on the ComfyUI box and nowhere else.
+    turbo: turbo
+      ? {
+          steps: turbo.steps,
+          estimatedSeconds: turbo.estimatedSeconds,
+          help: turbo.help,
+        }
+      : undefined,
     params: params.map((param) => {
       const { targets: _targets, ...clientParam } = param;
       if ("optionsFrom" in clientParam) {

@@ -13,6 +13,7 @@ import {
   type Job,
 } from "@/lib/jobs";
 import { notify } from "@/lib/notifications";
+import { workflowLabel } from "@/lib/workflows/turbo";
 import type { ParamValue, WorkflowSummary } from "@/lib/workflows/types";
 
 const POLL_INTERVAL_MS = 1500;
@@ -33,16 +34,20 @@ export interface JobsController {
   /** Newest first. */
   jobs: Job[];
   activeCount: number;
-  /** Median render time for a workflow from this device's own history. */
-  estimateFor: (workflowId: string, fallback: number | null) => number | null;
+  /** Median render time for a job's workflow and mode, from this device's own history. */
+  estimateFor: (job: Job) => number | null;
   submitting: boolean;
   submitError: string | null;
   submitErrorField: string | null;
   submit: (
     workflow: WorkflowSummary,
     values: Record<string, ParamValue>,
-    /** The generation whose clip this one was made from, if any. */
-    derivedFrom?: string,
+    options?: {
+      /** Run with the distilled LoRA. Only offered where the workflow declares it. */
+      turbo?: boolean;
+      /** The generation whose clip this one was made from, if any. */
+      derivedFrom?: string;
+    },
   ) => Promise<void>;
   cancel: (promptId: string) => Promise<void>;
   remove: (promptId: string) => void;
@@ -199,8 +204,9 @@ export function useJobs(): JobsController {
     async (
       workflow: WorkflowSummary,
       values: Record<string, ParamValue>,
-      derivedFrom?: string,
+      options?: { turbo?: boolean; derivedFrom?: string },
     ) => {
+      const turbo = Boolean(options?.turbo);
       setSubmitting(true);
       setSubmitError(null);
       setSubmitErrorField(null);
@@ -208,15 +214,22 @@ export function useJobs(): JobsController {
       try {
         const response = await api<GenerateResponse>("/api/generate", {
           method: "POST",
-          body: JSON.stringify({ workflowId: workflow.id, params: values }),
+          body: JSON.stringify({
+            workflowId: workflow.id,
+            params: values,
+            turbo,
+          }),
         });
 
         const job: Job = {
           promptId: response.promptId,
           workflowId: workflow.id,
-          workflowName: workflow.name,
+          // The mode is part of what the run was, so it belongs in the name
+          // that shows in the history and in the notification.
+          workflowName: workflowLabel(workflow.name, turbo),
           prompt: String(values.prompt ?? ""),
-          derivedFrom,
+          turbo,
+          derivedFrom: options?.derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),
           phase: "queued",
@@ -277,8 +290,7 @@ export function useJobs(): JobsController {
   const dismissSubmitError = useCallback(() => setSubmitError(null), []);
 
   const estimateFor = useCallback(
-    (workflowId: string, fallback: number | null) =>
-      learnedEstimateSeconds(jobs, workflowId, fallback),
+    (job: Job) => learnedEstimateSeconds(jobs, job),
     [jobs],
   );
 

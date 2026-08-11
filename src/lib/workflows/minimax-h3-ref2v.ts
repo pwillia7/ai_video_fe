@@ -2,6 +2,7 @@ import type { ComfyGraph } from "@/lib/comfy";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
   clipDurationParam,
+  h3Turbo,
   promptParam,
   REMIX_DIRECTOR,
   samplingParams,
@@ -284,6 +285,13 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
   hasAudio: true,
   graph,
   params,
+  /**
+   * Starts at 4 rather than the 8 the other workflows use. This graph already
+   * runs at 8 without the LoRA, so leaving the default there would buy quality
+   * per step and no time at all — the point of the mode here is the bottom of
+   * the range, not the top.
+   */
+  turbo: h3Turbo(360, 4),
   /**
    * The prompt is the one thing the clip cannot supply, so it comes across
    * from the generation being remixed. See ClipTarget for what deliberately

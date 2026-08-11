@@ -40,6 +40,12 @@ export interface Job {
    * than as unrelated entries that happen to sit near each other.
    */
   derivedFrom?: string;
+  /**
+   * Whether the turbo LoRA was spliced in. Recorded because it changes how
+   * long the run takes by a factor, so mixing the two modes together would
+   * teach the estimate a median that describes neither.
+   */
+  turbo?: boolean;
   hasAudio: boolean;
   submittedAt: number;
   /**
@@ -133,7 +139,7 @@ export function renderMs(job: Job): number | null {
 }
 
 /**
- * How long this workflow actually takes on this machine.
+ * How long this workflow, in this mode, actually takes on this machine.
  *
  * ComfyUI's API carries no estimate — a running job reports only its id,
  * status, priority and creation time, and step-level progress exists solely on
@@ -143,18 +149,20 @@ export function renderMs(job: Job): number | null {
  *
  * Median over the last few runs, so one anomalous render does not skew it.
  */
-export function learnedEstimateSeconds(
-  jobs: Job[],
-  workflowId: string,
-  fallback: number | null,
-): number | null {
+export function learnedEstimateSeconds(jobs: Job[], job: Job): number | null {
   const samples = jobs
-    .filter((job) => job.workflowId === workflowId && job.phase === "done")
+    .filter(
+      (other) =>
+        other.workflowId === job.workflowId &&
+        // Same graph, very different render time.
+        Boolean(other.turbo) === Boolean(job.turbo) &&
+        other.phase === "done",
+    )
     .map(renderMs)
     .filter((ms): ms is number => ms !== null && ms > 0)
     .slice(0, 5);
 
-  if (samples.length === 0) return fallback;
+  if (samples.length === 0) return job.estimatedSeconds;
 
   const sorted = [...samples].sort((a, b) => a - b);
   return Math.round(sorted[Math.floor(sorted.length / 2)] / 1000);

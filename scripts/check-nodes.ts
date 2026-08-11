@@ -17,6 +17,7 @@
 import { readFileSync } from "node:fs";
 import { enumValuesFor, getNodeSchema, systemStats } from "../src/lib/comfy";
 import { WORKFLOWS } from "../src/lib/workflows";
+import { turboGraph } from "../src/lib/workflows/turbo";
 
 /**
  * Next loads .env.local for the app; a bare tsx process gets nothing, so do it
@@ -52,6 +53,8 @@ const MODEL_INPUTS: Record<string, string> = {
   VAELoader: "vae_name",
   UNETLoader: "unet_name",
   CLIPLoader: "clip_name",
+  // Not in any stored graph — it is spliced in for turbo. See below.
+  MiniMaxH3TurboLoRA: "lora_name",
 };
 
 interface Need {
@@ -64,24 +67,35 @@ function collect() {
   const models = new Map<string, { loader: string; input: string } & Need>();
 
   for (const workflow of WORKFLOWS) {
-    for (const node of Object.values(workflow.graph)) {
-      const existing = classes.get(node.class_type);
-      if (existing) existing.workflows.add(workflow.id);
-      else classes.set(node.class_type, { workflows: new Set([workflow.id]) });
+    // The turbo graph as well as the stored one. Turbo is a mode rather than a
+    // second workflow, so the LoRA node and its file appear in no graph on
+    // disk — and they are exactly the pieces most likely to be missing, since
+    // they are the only ones that need a custom pack.
+    const graphs = [workflow.graph];
+    if (workflow.turbo) {
+      graphs.push(turboGraph(workflow.graph, workflow.turbo));
+    }
+    for (const [index, graph] of graphs.entries()) {
+      const used = index === 0 ? workflow.id : `${workflow.id} (turbo)`;
+      for (const node of Object.values(graph)) {
+        const existing = classes.get(node.class_type);
+        if (existing) existing.workflows.add(used);
+        else classes.set(node.class_type, { workflows: new Set([used]) });
 
-      const input = MODEL_INPUTS[node.class_type];
-      if (!input) continue;
-      const filename = node.inputs[input];
-      if (typeof filename !== "string" || !filename) continue;
+        const input = MODEL_INPUTS[node.class_type];
+        if (!input) continue;
+        const filename = node.inputs[input];
+        if (typeof filename !== "string" || !filename) continue;
 
-      const model = models.get(filename);
-      if (model) model.workflows.add(workflow.id);
-      else {
-        models.set(filename, {
-          loader: node.class_type,
-          input,
-          workflows: new Set([workflow.id]),
-        });
+        const model = models.get(filename);
+        if (model) model.workflows.add(used);
+        else {
+          models.set(filename, {
+            loader: node.class_type,
+            input,
+            workflows: new Set([used]),
+          });
+        }
       }
     }
   }
