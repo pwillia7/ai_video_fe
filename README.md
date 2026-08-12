@@ -467,11 +467,64 @@ actually comes back as. Remix has no duration control, so the browser measures
 the loaded clip instead and that goes in; when nothing has been measured yet the
 director is told to write no absolute timings at all.
 
+**More than one control shapes that `system_prompt`,** which takes a little
+care, because writing a target is an assignment and the second writer would
+otherwise silently discard the first. Rather than picking an owner, every
+contributor writes the *whole* instruction, assembled by `directorTarget` from
+the complete submission: identical inputs give identical strings, so the order
+they run in stops mattering and the number of them is free. That works because
+`applyParams` resolves every value before it writes any target — a `transform`
+receives the full set alongside its own value, not whatever happened to be
+resolved first. The length block always lands last, since it is the hardest
+constraint in the instruction and the end is where one is most likely to be
+obeyed.
+
+**The two reference-format directors name the facets a reference preserves.**
+H3's own reference rewriter states them explicitly — identity, proportions,
+costume, accessories, markings, subject style — and then repeats those same
+words in `retention_analysis` rather than paraphrasing, so the definition and
+the commitment have nothing to drift between. `PRESERVATION_FACETS` carries that
+vocabulary into `REFERENCE_DIRECTOR` and `REMIX_DIRECTOR`. Two of the axes are
+there because they fail quietly: a stylised character drifts toward ordinary
+human build and a drawn one toward photographic, and before this neither
+proportions nor the subject's own rendering style had a word anywhere in the
+instruction. The facets cover appearance only — expression, gaze and body
+language belong to the scene, so a subject can be `fully_preserved` and still do
+something it is not doing in the photograph.
+
+**On reference to video you set that per image.** Each upload gets a *What to
+keep* select, and the four options are the four `retention_analysis` markers in
+the terms someone uploading a photograph thinks in:
+
+| What to keep | Marker | What the director is told |
+| --- | --- | --- |
+| Everything | `fully_preserved` | Only the performance and the setting are the scene's |
+| Identity only | `partially_preserved` | Face, build and rendering hold; your prompt dresses them |
+| Costume and gear only | `attribute_transfer` | The outfit moves onto whoever the scene casts |
+| Style only | `weak_reference` | A manner of rendering, and no subject at all |
+
+The marker used to be inferred from your prose, which is the one part of the
+format the director had no evidence for. Your prompt still governs the detail
+and still wins outright on a genuine contradiction: the setting says whether the
+coat is preserved, the prompt says which coat. A slot with no image contributes
+nothing, so an unused second reference cannot put a phantom subject in the
+scene.
+
+**A short exclusion clause is allowed, and is not the same as a negative
+prompt.** H3 has no negative field, so ruling something out happens in the body,
+in one plain sentence beside the style — `No dialogue, no crowd, and no camera
+movement.` The directors are told to write one only for what a particular scene
+would otherwise plausibly produce uninvited, and the standing ban on boilerplate
+negatives is unchanged.
+
 **Which system prompt depends on the workflow**, and the difference is not
 cosmetic. The three graphs that invent a scene share their creative direction —
 `CREATIVE_DIRECTION`, which fills in everything you left unsaid from a one-line
-idea — and differ only in envelope: `TEXT_DIRECTOR`, `IMAGE_DIRECTOR` and
-`REFERENCE_DIRECTOR`. The two that start from a clip do not use it at all,
+idea — and mostly differ in envelope: `TEXT_DIRECTOR`, `IMAGE_DIRECTOR` and
+`REFERENCE_DIRECTOR`. The last of those carries `PRESERVATION_FACETS` as well,
+which it shares with Remix rather than with the two it shares its creative
+direction with — the axes only mean anything to a director writing
+`retention_analysis`. The two that start from a clip do not use it at all,
 because that behaviour is actively wrong once a source exists, and they do not
 agree with each other either:
 
@@ -691,7 +744,11 @@ back is a single line in `index.ts`.
 
 One control can drive several inputs, and a `transform` on a target derives what
 each one receives — so a single value can go to one node as a number and to
-another baked into a formula string.
+another baked into a formula string. A `transform` is handed the whole
+submission alongside its own value, so an input can depend on several controls;
+where it does, have each of them write the complete value rather than a piece of
+it, because a target write is an assignment and the last one wins. The prompt
+directors' `system_prompt` is the worked example.
 
 4. Register it in `src/lib/workflows/index.ts`.
 5. Run the validator:
@@ -702,7 +759,12 @@ pnpm check:workflows
 
 It resolves every `target` against the graph and fails on anything stale, so a
 bad mapping surfaces immediately instead of sending a subtly wrong job to the
-GPU. The same check runs on `/api/workflows` and again before every submit.
+GPU. The same check runs on `/api/workflows` and again before every submit. It
+also catches two couplings that are invisible in a diff: that turbo's LoRA lands
+on a model it belongs on, and that a graph driving a prompt director declares a
+`duration` or `source_seconds` param — the length block is found by param id, so
+renaming one would otherwise drop it from the instruction and the only symptom
+would be shot cut times landing past the end of the video.
 
 Param types available: `text`, `textarea`, `number`, `slider`, `select`,
 `toggle`, `seed`, `image`, `video`. Mark a param `advanced: true` to tuck it behind the disclosure;
