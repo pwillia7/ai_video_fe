@@ -1,6 +1,7 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
+  directorTarget,
   clipDurationParam,
   promptParam,
   REMIX_DIRECTOR,
@@ -240,6 +241,14 @@ const graph: ComfyGraph = {
   },
 };
 
+/**
+ * The single target every control that shapes the director's instructions
+ * writes. Only the duration does here, but it is built the same way on every
+ * graph so that adding a second contributor is a matter of passing this along
+ * rather than of noticing that it needed to be.
+ */
+const director = directorTarget(ids, REMIX_DIRECTOR);
+
 const params: ParamDef[] = [
   {
     id: "reference_video",
@@ -257,7 +266,7 @@ const params: ParamDef[] = [
 
   // No control of its own: filled in by the clip above, and read only by the
   // prompt director. See clipDurationParam for why it exists at all.
-  clipDurationParam(ids, REMIX_DIRECTOR),
+  clipDurationParam(director),
 
   promptParam(
     ids,

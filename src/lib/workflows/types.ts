@@ -16,8 +16,17 @@ export interface ParamTarget {
    * a control writes the same value to every target, which breaks when one
    * node needs the raw number and another needs it baked into a string —
    * see the fps/expression coupling in minimax-h3.ts.
+   *
+   * The whole submission is passed as well, because one input can depend on
+   * more than one control: the prompt director's `system_prompt` is assembled
+   * from the duration *and* the reference facet controls. Values are fully
+   * resolved before any target is written, so what a transform sees does not
+   * depend on where its param sits in the array — see applyParams.
    */
-  transform?: (value: ParamValue) => unknown;
+  transform?: (
+    value: ParamValue,
+    values: Record<string, ParamValue>,
+  ) => unknown;
 }
 
 /**

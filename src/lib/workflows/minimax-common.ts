@@ -1,5 +1,5 @@
 import type { TurboSpec } from "./turbo";
-import type { ParamDef } from "./types";
+import type { ParamDef, ParamTarget, ParamValue, SelectParam } from "./types";
 
 /**
  * Shared pieces of the MiniMax H3 graphs.
@@ -111,13 +111,14 @@ export function promptParam(
 }
 
 export function durationParam(
-  ids: Pick<MinimaxNodeIds, "duration" | "director">,
+  ids: Pick<MinimaxNodeIds, "duration">,
   /**
-   * The director text this length is written into. Passed rather than looked
-   * up because which director a graph runs is the graph's business, and this
-   * builder has no way to know it.
+   * The graph's director target, from `directorTarget`. Passed rather than
+   * built here because which director a graph runs — and what else contributes
+   * to its instructions — is the graph's business, and every control that
+   * feeds it has to write the identical target.
    */
-  director: string,
+  director: ParamTarget,
   /**
    * Per-graph wording. The extend graph times only the segment it adds, not
    * the video that comes out, so the shared label would misstate what the
@@ -153,12 +154,7 @@ export function durationParam(
        * It writes the *snapped* length rather than the value on the slider,
        * because that is what will actually come back.
        */
-      {
-        node: ids.director,
-        input: "system_prompt",
-        transform: (value) =>
-          withDuration(director, effectiveSeconds(Number(value))),
-      },
+      director,
     ],
   };
 }
@@ -178,26 +174,17 @@ export function durationParam(
  * at 24fps. For a clip this app generated those are the same number. For an
  * upload at some other frame rate they are not.
  */
-export function clipDurationParam(
-  ids: Pick<MinimaxNodeIds, "director">,
-  director: string,
-): ParamDef {
+export function clipDurationParam(director: ParamTarget): ParamDef {
   return {
     id: "source_seconds",
     label: "Source length",
     type: "measured",
-    // Nothing measured yet. withClipDuration reads it as "unknown" and tells
+    // Nothing measured yet. clipLengthBlock reads it as "unknown" and tells
     // the director to write no absolute timings at all, which is the safe
     // answer if a generation is submitted before the preview has loaded.
     default: 0,
     group: "Source",
-    targets: [
-      {
-        node: ids.director,
-        input: "system_prompt",
-        transform: (value) => withClipDuration(director, Number(value)),
-      },
-    ],
+    targets: [director],
   };
 }
 
@@ -270,6 +257,125 @@ export function h3Turbo(
   };
 }
 
+/**
+ * What a reference is there to pin, as a choice the user makes per image.
+ *
+ * These four are not an arbitrary menu — they are the four relationship markers
+ * in H3's retention_analysis, in the terms someone uploading a photograph would
+ * think in. Keeping everything is fully_preserved; releasing some facets to the
+ * scene is partially_preserved; moving facets onto whoever the scene casts is
+ * attribute_transfer; keeping only the rendering is weak_reference. The director
+ * used to infer that marker from prose, which is the one thing in the format it
+ * had no evidence for.
+ *
+ * `facets` is written into the director's instructions verbatim, so its wording
+ * has to stay inside the vocabulary PRESERVATION_FACETS defines.
+ */
+const KEEP_MODES = {
+  everything: {
+    label: "Everything — identity, build, costume, gear",
+    facets:
+      "identity, proportions, costume, accessories, markings and subject style",
+    marker: "fully_preserved",
+    note: "Only the performance and the setting are the scene's to choose.",
+  },
+  identity: {
+    label: "Identity only — the scene dresses them",
+    facets: "identity, proportions and subject style",
+    marker: "partially_preserved",
+    note: "Costume, accessories and markings are released: whatever the user's prompt calls for is what this subject wears, and the reference's own clothing carries no weight. Their face, build and rendering are unchanged.",
+  },
+  costume: {
+    label: "Costume and gear only — a different wearer",
+    facets: "costume, accessories and markings",
+    marker: "attribute_transfer",
+    note: "The outfit and what is worn or carried with it move onto whoever the scene casts. Do not preserve the face, the build or the identity of the person in this image — they are a coat hanger, not a character.",
+  },
+  style: {
+    label: "Style only — a look, not a subject",
+    facets: "subject style, palette and rendering",
+    marker: "weak_reference",
+    note: "This image contributes a manner of rendering and nothing else. Do not put its subject in the video, and do not treat anything in it as a character, an object or a location the scene contains.",
+  },
+} as const;
+
+type KeepMode = keyof typeof KEEP_MODES;
+
+const DEFAULT_KEEP: KeepMode = "everything";
+
+function keepMode(value: ParamValue | undefined): (typeof KEEP_MODES)[KeepMode] {
+  const key = String(value ?? DEFAULT_KEEP);
+  return KEEP_MODES[key as KeepMode] ?? KEEP_MODES[DEFAULT_KEEP];
+}
+
+/**
+ * The "what to keep" control for one reference slot.
+ *
+ * It writes only the director target: there is no node input for this, because
+ * it is not something H3 takes as a parameter — it is a statement about a
+ * picture that has to reach the model as part of the written prompt. The
+ * director target is what carries it there.
+ */
+export function referenceKeepParam(
+  director: ParamTarget,
+  index: number,
+  { advanced = false }: { advanced?: boolean } = {},
+): SelectParam {
+  return {
+    id: keepParamId(index),
+    label: index === 1 ? "What to keep" : "What to keep from the second",
+    type: "select",
+    default: DEFAULT_KEEP,
+    options: Object.entries(KEEP_MODES).map(([value, mode]) => ({
+      value,
+      label: mode.label,
+    })),
+    help: "What this image pins. Everything else is the scene's to decide.",
+    group: "References",
+    advanced,
+    targets: [director],
+  };
+}
+
+/** Both halves of a reference slot, named by the convention below. */
+const keepParamId = (index: number) => `reference_${index}_keep`;
+const imageParamId = (index: number) => `reference_image_${index}`;
+
+/**
+ * Turns those choices into the director's marching orders.
+ *
+ * Written as an instruction about what to *do* with each picture rather than as
+ * a report of what the user clicked, because the director is being told how to
+ * fill in two sections of the format, not being kept informed.
+ *
+ * A slot with no image contributes nothing — the graph's `finalize` deletes the
+ * loader in that case, and describing a picture the model was never given is
+ * how a phantom second subject gets into the scene.
+ */
+export function referenceFacets(count: number): DirectorAppendix {
+  return (values) => {
+    const lines: string[] = [];
+
+    for (let index = 1; index <= count; index += 1) {
+      if (!values[imageParamId(index)]) continue;
+      const mode = keepMode(values[keepParamId(index)]);
+      lines.push(
+        `<Picture ${index}>: keep ${mode.facets}. Its marker in retention_analysis is ${mode.marker}. ${mode.note}`,
+      );
+    }
+
+    if (lines.length === 0) return "";
+
+    return `WHAT EACH REFERENCE IS FOR
+
+The user has said, per image, which facets it controls. This is not a hint to weigh against the prompt — it decides what each subject_definitions line may claim and which marker that label takes in retention_analysis.
+
+${lines.join("\n\n")}
+
+Where the user's own text says something more specific about a picture, follow the text for the detail and these settings for the facets: the text can tell you which coat, this tells you whether the coat is preserved at all. If the two genuinely contradict each other, the user's text wins — they wrote it more recently than they set a dropdown.`;
+  };
+}
+
 export function samplingParams(
   ids: Pick<MinimaxNodeIds, "noise" | "scheduler">,
   /** The remix graph runs fewer steps than the rest. */
@@ -300,46 +406,113 @@ export function samplingParams(
 }
 
 /**
- * How long the finished video is, appended to a director's instructions.
- *
- * Appended rather than interpolated so the directors stay readable as prose
- * and can be diffed against the ComfyUI exports they came from. It lands last,
- * which is also where it is most likely to be obeyed.
+ * A block of instruction appended to a director, derived from the whole
+ * submission rather than from one control. Returns "" when it has nothing to
+ * say, which is how an appendix opts out — an unused second reference has no
+ * facets worth describing.
  */
-function withDuration(director: string, seconds: number): string {
-  return `${director}
+export type DirectorAppendix = (values: Record<string, ParamValue>) => string;
 
-THE LENGTH OF THIS VIDEO
+/**
+ * The one target every control that shapes the director's instructions writes.
+ *
+ * Several of them do: the duration always, and on the reference graph the
+ * per-reference facet selects. They cannot each append their own piece, because
+ * a target write is an assignment and the last one would clobber the rest. So
+ * instead every one of them writes the *whole* instruction, assembled from the
+ * complete submission — identical strings from identical inputs, which makes
+ * the order they run in irrelevant and the number of contributors free.
+ *
+ * That works only because applyParams resolves every value before it writes any
+ * target. See the comment there.
+ */
+export function directorTarget(
+  ids: Pick<MinimaxNodeIds, "director">,
+  director: string,
+  appendices: DirectorAppendix[] = [],
+): ParamTarget {
+  return {
+    node: ids.director,
+    input: "system_prompt",
+    transform: (_value, values) =>
+      assembleDirector(director, values, appendices),
+  };
+}
+
+/**
+ * Director, then whatever the submission adds to it.
+ *
+ * Appended rather than interpolated so the directors stay readable as prose and
+ * can be diffed against the ComfyUI exports they came from.
+ *
+ * The length lands last deliberately — it is the hardest constraint in the
+ * whole instruction, every shot timing and every line of dialogue has to fit
+ * inside it, and the end is where an instruction is most likely to be obeyed.
+ * Appendices go above it.
+ */
+function assembleDirector(
+  director: string,
+  values: Record<string, ParamValue>,
+  appendices: DirectorAppendix[],
+): string {
+  const blocks = [director];
+
+  for (const appendix of appendices) {
+    const block = appendix(values).trim();
+    if (block) blocks.push(block);
+  }
+
+  const length = lengthBlock(values);
+  if (length) blocks.push(length);
+
+  return `${blocks.join("\n\n")}\n`;
+}
+
+/**
+ * How long the finished video is.
+ *
+ * Found by param id rather than passed in, because which of the two it is is
+ * already decided by which duration control the workflow declared: a graph that
+ * sets its own length has `duration`, one that measures a source clip has
+ * `source_seconds`, and no graph has both. Renaming either param without
+ * renaming it here would silently drop the length from the instruction, which
+ * is what `pnpm check:workflows` now asserts against.
+ */
+function lengthBlock(values: Record<string, ParamValue>): string {
+  if ("duration" in values) {
+    return chosenLengthBlock(effectiveSeconds(Number(values.duration)));
+  }
+  if ("source_seconds" in values) {
+    return clipLengthBlock(Number(values.source_seconds));
+  }
+  return "";
+}
+
+function chosenLengthBlock(seconds: number): string {
+  return `THE LENGTH OF THIS VIDEO
 
 The finished video is ${seconds.toFixed(2)} seconds long. That is already decided and the prompt cannot change it.
 
-${LENGTH_RULES}
-`;
+${LENGTH_RULES}`;
 }
 
 /** The remix variant, where the length is measured rather than chosen. */
-function withClipDuration(director: string, seconds: number): string {
+function clipLengthBlock(seconds: number): string {
   if (!seconds) {
-    return `${director}
-
-THE LENGTH OF THIS VIDEO
+    return `THE LENGTH OF THIS VIDEO
 
 The remix comes back at exactly the length of the source clip. You have not been told what that is.
 
 So write no absolute times at all. Do not open a shot with a cut time, because you cannot know whether it falls inside the video. Prefer a single shot, and if the source clearly contains cuts, describe them in order and in relation to the action rather than by the clock.
 
-Keep any dialogue you write short enough to be plausible in a clip of a few seconds.
-`;
+Keep any dialogue you write short enough to be plausible in a clip of a few seconds.`;
   }
 
-  return `${director}
-
-THE LENGTH OF THIS VIDEO
+  return `THE LENGTH OF THIS VIDEO
 
 The remix comes back at the same length as the source clip, which measures about ${seconds.toFixed(1)} seconds. That is approximate — it was read off the source rather than computed — so treat the last half-second as uncertain and do not place a cut near the very end.
 
-${LENGTH_RULES}
-`;
+${LENGTH_RULES}`;
 }
 
 /**
@@ -564,11 +737,54 @@ Avoid generic quality filler such as "masterpiece," "best quality," "8K," "award
 
 Do not append boilerplate negative prompts.
 
+A short exclusion clause is a different thing and is welcome. H3 has no negative prompt field, so ruling something out is done in the body, in one plain sentence placed with the opening description:
+
+No dialogue, no crowd, and no camera movement.
+
+Write one only for what is genuinely at risk of turning up uninvited — speech in a scene that does not want it, a crowd in a street, a cut in a shot meant to hold, weather the scene has no use for — or for anything the user has ruled out. Name at most a handful of things, and only things this particular scene would otherwise plausibly produce. A generic list of negatives is the filler above by another route.
+
 Do not repeat technical settings such as FPS, resolution, aspect ratio, sampler settings, model name, or generation parameters. Respect technical constraints supplied by the user when they affect the creative result.
 
 The final result should feel like a concise director's description of the finished scene: specific enough for the model to understand, but open enough for the model to use its own generative ability.
 
 Write everything in clear, vivid English.`;
+
+/**
+ * The axes a reference is preserved along, shared by the two directors that
+ * write in the full-reference format.
+ *
+ * H3's own reference rewriter names its facets explicitly and then repeats the
+ * same words in retention_analysis rather than paraphrasing them — the
+ * definition and the commitment stated in identical terms, so the model has
+ * nothing to drift between. Before this block our directors named the observed
+ * *values* ("long dark hair, a blue cardigan") but never the *axes*, which left
+ * two of them unguarded: proportions and the subject's own rendering style are
+ * both things H3 will quietly normalise, and neither had a word anywhere in the
+ * instruction.
+ *
+ * The facet list is also what the UI's per-reference control resolves to — see
+ * referenceFacets below. Keep the vocabulary here and the option set there in
+ * step; the whole point is that one set of words runs from the control through
+ * to both output sections.
+ */
+const PRESERVATION_FACETS = `
+THE FACETS OF A REFERENCE
+
+What a reference supplies breaks down along these axes. Use these words for them:
+
+identity — the face and features, whatever makes this individual recognisably themselves
+proportions — build, height, head-to-body ratio, the shape of the silhouette
+costume — clothing, armour, uniform, the fabric and the state it is in
+accessories — worn and carried objects: weapons, jewellery, equipment, tools
+markings — colour scheme, patterns, tattoos, scars, logos, insignia
+subject style — how the subject itself is rendered: photographic, cel-shaded, painted, claymation, CGI
+
+Proportions and subject style are the two that fail silently. A stylised character quietly acquires ordinary human build, and a drawn character quietly turns photographic, unless the facet is named and held.
+
+Name the facets in subject_definitions, each with what it actually looks like in the image, and repeat those same facet words in retention_analysis. Do not paraphrase them in one place and not the other.
+
+These axes cover how a subject looks, never how it behaves. Expression, gaze, body language, gesture and mood belong to the scene and are directed in detailed_description. A reference is a photograph of someone, not a performance to copy — a subject can be fully preserved and still do something they are not doing in the image.
+`;
 
 /**
  * The three-field envelope for the base modes, shared by text-to-video,
@@ -660,7 +876,7 @@ The user names them <Picture 1> and <Picture 2>, in upload order, and the images
 A reference supplies content, not a frame. Unless the user says an image is the first frame, the last frame or a composition to match, it is there to define who someone is, what something looks like, or what style to work in — and the video is a new scene containing them, not a video of that photograph.
 
 Do not invent references that were not supplied, and do not describe detail you cannot actually see in one.
-${H3_GRAMMAR}
+${PRESERVATION_FACETS}${H3_GRAMMAR}
 OUTPUT FORMAT
 
 Return exactly these six sections, in this order, each on its own line with its label, and nothing else in the output:
@@ -674,11 +890,13 @@ non_diegetic_music:
 
 subject_definitions
 
-One line per piece of referenced content that has to be tracked separately later. Say what the label denotes, what its reference role is, and the main features to follow.
+One line per piece of referenced content that has to be tracked separately later. Say what the label denotes, what its reference role is, which facets it preserves, and what each of those facets actually looks like.
 
 Reusable visible content — a person, an animal, an object, a scene, clothing, a prop, a style — is a <Subject N>, and its source image is cited inside that definition:
 
-<Subject 1> is the young woman in <Picture 1>, with long dark hair, a blue cardigan, and a thin silver necklace.
+<Subject 1> is the young woman in <Picture 1>, preserving her identity, proportions, costume, accessories and markings: a narrow face framed by long dark hair, a slight build and slightly below average height, a loose blue cardigan over a white shirt, a thin silver necklace, and a pale cool palette throughout.
+
+The facet words come first and the observed detail follows them. Both halves are load-bearing — the facets say what to hold, the detail says what to hold it at — and a definition carrying only one of the two is incomplete.
 
 This is the usual case here. Do not give an image its own standalone <Picture N> line merely because the user referred to it that way. A standalone <Picture N> entry is only for an image acting as a concrete frame — a first frame, a last frame, a keyframe, or a composition anchor — and only when the user has asked for that.
 
@@ -694,23 +912,30 @@ Add other types with " + " when they genuinely apply — "keyframe completion" w
 
 retention_analysis
 
-One line per label, each with a fixed relationship marker:
+One line per label, each with a fixed relationship marker. The marker follows from which of that label's facets survive:
 
-fully_preserved — the referenced content's defined role is kept intact
-partially_preserved — still used, but some defined characteristics change
-attribute_transfer — the characteristics move onto a different identifiable subject
-weak_reference — only broad similarity of style, category, composition or atmosphere remains
+fully_preserved — every facet defined for that label is kept
+partially_preserved — some facets are kept and others are released to the scene; name both sets
+attribute_transfer — the facets move onto a different identifiable subject
+weak_reference — only the subject style, or a broad similarity of category, composition or atmosphere, remains
 
-<Subject 1> (appears in [Shot 1], [Shot 3]): fully_preserved - the long dark hair, blue cardigan and silver necklace are retained.
+<Subject 1> (appears in [Shot 1], [Shot 3]): fully_preserved - identity, proportions, costume, accessories and markings are all retained as defined.
+<Subject 2> (appears in [Shot 2]): partially_preserved - identity, proportions and markings are retained; costume and accessories are released to the scene.
 
-Identity references are normally fully_preserved. Choose the marker inside the role you already defined for that label — a new action or a new background in the target video is not a loss of fidelity. Never write a speaker ID in this section.
+Identity references are normally fully_preserved. Repeat the facet words from the definition rather than re-describing the image here.
+
+A new action, a new background, a new camera angle, a new expression or a new lighting setup is not the loss of any facet. Never downgrade a marker for those — the scene is allowed to move a subject around and light it differently while preserving it completely.
+
+Never write a speaker ID in this section.
 
 detailed_description
 
 The main body, shot by shot in playback order, following the grammar above. It differs from the base format in two ways: the style is established in one or two sentences BEFORE [Shot 1] rather than inside it, and reference labels are inserted where their roles apply.
 
-The target video is in a cinematic, literary music-video style with soft lighting and a slightly desaturated color palette.
-[Shot 1] The scene opens in a crowded urban street ...
+The target video is in a cinematic, literary music-video style with soft lighting and a slightly desaturated color palette. No dialogue and no crowd.
+[Shot 1] The scene opens on a quiet urban street ...
+
+Any exclusion clause belongs in that opening position, with the style, before [Shot 1].
 
 Describe each subject's referenced characteristics, position in frame and current action at its first clear appearance, then keep using the label without redefining it. When a referenced subject speaks, carry both labels: <Subject 2> (S1).
 
@@ -881,6 +1106,8 @@ Priority order: explicit user instructions; the requested transformation; dialog
 The fourth and sixth swap once the request is sweeping. At that scale the consequences are not garnish on the change, they are the change: an underwater scene without drifting hair and muffled sound has not been set underwater.
 
 Optional creative embellishment should be rare in Remix mode at every tier.
+${PRESERVATION_FACETS}
+Here those axes are how you say what the change reaches. "Make him a pirate" moves costume and accessories and holds identity, proportions and markings; "turn this into claymation" moves subject style on everyone and holds the rest. Naming the axis you are moving, and the ones you are not, is more precise than any amount of prose about fidelity.
 ${H3_GRAMMAR}
 OUTPUT FORMAT
 
@@ -900,7 +1127,11 @@ Always open with the source video and its audio:
 <Video 1> is the source video for the target video edit.
 <Audio 1> is the synchronized audio track of <Video 1> and is reused in the target video.
 
-Then one line for each person, object or environment the requested change acts on or that has to be tracked through it, as a <Subject N> citing where it comes from. Define only what the change actually touches — a remix does not need an inventory of the whole frame.
+Then one line for each person, object or environment the requested change acts on or that has to be tracked through it, as a <Subject N> citing where it comes from, with the facets the change moves and the facets it holds:
+
+<Subject 1> is the man in the grey coat in <Video 1>, holding his identity, proportions and markings, with costume and accessories restyled as a pirate's.
+
+Define only what the change actually touches — a remix does not need an inventory of the whole frame.
 
 summary
 

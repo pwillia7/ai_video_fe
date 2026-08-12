@@ -1,6 +1,7 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
+  directorTarget,
   FRAME_EXPRESSION,
   durationParam,
   EXTEND_DIRECTOR,
@@ -285,6 +286,14 @@ const graph: ComfyGraph = {
   },
 };
 
+/**
+ * The single target every control that shapes the director's instructions
+ * writes. Only the duration does here, but it is built the same way on every
+ * graph so that adding a second contributor is a matter of passing this along
+ * rather than of noticing that it needed to be.
+ */
+const director = directorTarget(ids, EXTEND_DIRECTOR);
+
 const params: ParamDef[] = [
   {
     id: "source_video",
@@ -308,7 +317,7 @@ const params: ParamDef[] = [
   // already was, and the two are concatenated afterwards. Worth saying on the
   // control itself, because every other workflow's duration is the duration of
   // the file that comes back.
-  durationParam(ids, EXTEND_DIRECTOR, {
+  durationParam(ids, director, {
     label: "Added time",
     help: "How much new footage to generate. The result is the source clip plus this.",
     default: 5,

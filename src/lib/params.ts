@@ -184,13 +184,25 @@ export function applyParams(
     ? turboParams(workflow.params, workflow.turbo)
     : workflow.params;
 
+  // Two passes. Everything is coerced before anything is written, so a
+  // transform can read the whole submission and not merely its own value.
+  //
+  // The director's `system_prompt` is why: several controls contribute to it —
+  // the duration, and on the reference graph the per-reference facet selects —
+  // and each of them rebuilds the entire instruction from the same inputs. That
+  // is only safe if they all see the same complete values, which in a single
+  // pass they would not: what each could read would depend on where it sat in
+  // the params array, and the last one to run would win with a partial view.
   for (const param of params) {
-    const value = coerce(
+    resolved[param.id] = coerce(
       param,
       submitted[param.id],
       allowedValues ? allowedValues[param.id] : undefined,
     );
-    resolved[param.id] = value;
+  }
+
+  for (const param of params) {
+    const value = resolved[param.id];
 
     for (const target of param.targets) {
       const node = graph[target.node];
@@ -209,7 +221,7 @@ export function applyParams(
       // A transform lets one control feed differently-shaped inputs, e.g. an
       // fps number into one node and into a formula string on another.
       node.inputs[target.input] = target.transform
-        ? target.transform(value)
+        ? target.transform(value, resolved)
         : value;
     }
   }
@@ -257,8 +269,36 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
   }
 
   problems.push(...turboProblems(workflow));
+  problems.push(...directorProblems(workflow));
 
   return problems;
+}
+
+/**
+ * Whether a graph that runs a prompt director also tells it how long the video
+ * is. The length block is found by param id — `duration` on a graph that sets
+ * its own length, `source_seconds` on one that measures a source clip — so
+ * renaming either param would otherwise drop the block silently, and the only
+ * symptom would be shot cut times landing past the end of the video.
+ */
+function directorProblems(workflow: WorkflowDef): string[] {
+  const drivesDirector = workflow.params.some((param) =>
+    param.targets.some(
+      (target) =>
+        target.input === "system_prompt" &&
+        workflow.graph[target.node]?.class_type === "OAIAPI_ChatCompletion",
+    ),
+  );
+  if (!drivesDirector) return [];
+
+  const hasLength = workflow.params.some(
+    (param) => param.id === "duration" || param.id === "source_seconds",
+  );
+  if (hasLength) return [];
+
+  return [
+    `Workflow drives a prompt director but has no "duration" or "source_seconds" param, so the director is never told how long the video is.`,
+  ];
 }
 
 /**

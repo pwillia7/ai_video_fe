@@ -53,7 +53,10 @@ const REFERENCE_IMAGES: TipSection = {
   heading: "Referring to your images",
   items: [
     "Name each reference by tag, in the order you uploaded it: <Picture 1> for the first, <Picture 2> for the second.",
-    "Say what each reference controls — identity, style, motion, camera, voice. The docs are explicit that spelling this out works much better than leaving it implied.",
+    "What to keep decides what an image is actually for. Everything holds the face, the build, the outfit and the way it is drawn. Identity only holds the person and lets your prompt dress them. Costume and gear only moves the outfit onto whoever the scene casts. Style only takes the look and leaves the subject behind.",
+    "It is worth setting deliberately. The model is told which of those it is, and which of its four preservation markers the image takes — left to infer, that is the one part of the format it has no evidence for.",
+    "Your prompt still governs the detail. The setting says whether the coat is preserved at all; the prompt says which coat, and wins outright if the two disagree.",
+    "Proportions and drawing style are the two things that slip without being asked to. A stylised character drifts toward ordinary human build and a drawn one toward photographic, so both are named explicitly whenever an image is set to keep them.",
     "Reference handling: match is faster, max preserves identity better at up to a 2048px short edge.",
     "The model accepts up to 9 reference images. This workflow wires two.",
   ],

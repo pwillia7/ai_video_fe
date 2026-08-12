@@ -1,6 +1,7 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
+  directorTarget,
   FRAME_EXPRESSION,
   durationParam,
   TEXT_DIRECTOR,
@@ -211,6 +212,14 @@ const ids: MinimaxNodeIds = {
   scheduler: "105:9",
 };
 
+/**
+ * The single target every control that shapes the director's instructions
+ * writes. Only the duration does here, but it is built the same way on every
+ * graph so that adding a second contributor is a matter of passing this along
+ * rather than of noticing that it needed to be.
+ */
+const director = directorTarget(ids, TEXT_DIRECTOR);
+
 const params: ParamDef[] = [
   promptParam(
     ids,
@@ -219,7 +228,7 @@ const params: ParamDef[] = [
     6,
   ),
 
-  durationParam(ids, TEXT_DIRECTOR),
+  durationParam(ids, director),
   {
     id: "aspect_ratio",
     label: "Aspect ratio",

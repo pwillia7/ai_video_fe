@@ -2,10 +2,13 @@ import type { ComfyGraph } from "@/lib/comfy";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
+  directorTarget,
   durationParam,
   REFERENCE_DIRECTOR,
   h3Turbo,
   promptParam,
+  referenceFacets,
+  referenceKeepParam,
   samplingParams,
   type MinimaxNodeIds,
 } from "./minimax-common";
@@ -236,6 +239,17 @@ const graph: ComfyGraph = {
   },
 };
 
+/**
+ * Everything that shapes the director's instructions writes this one target,
+ * built once here so the duration and both facet selects cannot disagree about
+ * what it is. See `directorTarget` for why they all write the whole thing.
+ *
+ * The appendix is told there are two slots because that is what this graph
+ * wires; it reads the submitted values to find out how many actually have an
+ * image in them.
+ */
+const director = directorTarget(ids, REFERENCE_DIRECTOR, [referenceFacets(2)]);
+
 const params: ParamDef[] = [
   {
     id: "reference_image_1",
@@ -247,6 +261,7 @@ const params: ParamDef[] = [
     group: "References",
     targets: [{ node: "137", input: "image" }],
   },
+  referenceKeepParam(director, 1),
   {
     id: "reference_image_2",
     label: "Second reference",
@@ -256,6 +271,7 @@ const params: ParamDef[] = [
     group: "References",
     targets: [{ node: SECOND_REF_NODE, input: "image" }],
   },
+  referenceKeepParam(director, 2),
   {
     id: "ref_image_size",
     label: "Reference handling",
@@ -276,7 +292,7 @@ const params: ParamDef[] = [
     6,
   ),
 
-  durationParam(ids, REFERENCE_DIRECTOR),
+  durationParam(ids, director),
   {
     id: "aspect_ratio",
     label: "Aspect ratio",
