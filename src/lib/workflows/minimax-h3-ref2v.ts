@@ -285,9 +285,11 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
   graph,
   params,
   /**
-   * No `turbo` here, for the same reason as minimax-h3-ref: this graph runs
-   * `MiniMaxH3ReferenceToVideo` on the `ref2va` model, which the turbo LoRA
-   * does not support. See the note there.
+   * No `turbo` here, though the model would now allow it — see minimax-h3-ref,
+   * which runs the same `ref2va` UNET and does carry the switch. This graph
+   * already samples at 8, the top of the LoRA's range, so turning it on would
+   * buy no time at all and spend quality per step for the privilege. Add
+   * `h3Turbo` here if that ever stops being true.
    */
   /**
    * The prompt is the one thing the clip cannot supply, so it comes across

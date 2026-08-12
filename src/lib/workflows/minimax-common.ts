@@ -209,17 +209,19 @@ export function clipDurationParam(
  * because the distillation is a property of the model rather than of the
  * graph. Only the numbers that genuinely differ are arguments.
  *
- * **Which is also why it is not on every workflow.** The LoRA is distilled
- * against `fl2va`, so it belongs on text-to-video, image-to-video and Extend.
- * The two graphs that run `MiniMaxH3ReferenceToVideo` load `ref2va` instead,
- * which it does not support — "not yet but planned" from its author, and the
- * reports underneath describe identity reference breaking down when it is
- * applied anyway:
+ * `requiresModel` names both H3 UNETs in use here, `fl2va` and `ref2va`. The
+ * LoRA is distilled against `fl2va` and its author says `ref2va` support is
+ * "not yet but planned", with reports underneath of identity reference
+ * degrading when it is applied anyway:
  * <https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10>
  *
- * Nothing about the splice would object, which is the danger: `requiresModel`
- * below is what turns that into a `check:workflows` failure rather than a run
- * that finishes looking subtly wrong.
+ * Against that: the first turbo mode in this app *was* a `ref2va` graph — a
+ * ComfyUI export with this LoRA on Reference to Video, which produced usable
+ * takes on this machine. So the pairing is allowed and Reference to Video
+ * carries the switch again. The list is still the guard that matters: a graph
+ * on some third UNET would splice just as cleanly and fail nothing, which is
+ * exactly the case `check:workflows` is here to turn into a failed check
+ * rather than a run that finishes looking subtly wrong.
  *
  * **This is the one thing in the app that needs a node pack the base graphs do
  * not.** `MiniMaxH3TurboLoRA` is not a ComfyUI built-in — core ships only
@@ -255,7 +257,7 @@ export function h3Turbo(
       _meta: { title: "MiniMax-H3 Turbo LoRA" },
     },
     modelInput: "model",
-    requiresModel: "minimax_h3_fl2va",
+    requiresModel: ["minimax_h3_fl2va", "minimax_h3_ref2va"],
     steps: {
       param: "steps",
       default: steps,

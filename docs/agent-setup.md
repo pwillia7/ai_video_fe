@@ -47,10 +47,9 @@ Tell them plainly what has to be true, then let them go do it:
   and Extend need these; the other workflows run without them.
 - **MiniMax-H3 Turbo** (`Larryvrh/ComfyUI-MiniMax-H3-Turbo`) — provides
   `MiniMaxH3TurboLoRA`. Only the **Turbo** switch needs it, and it also wants
-  the LoRA file listed below. Text to video, image to video and Extend offer
-  that switch — the two reference workflows do not, because the LoRA is
-  distilled against `fl2va` and does not support `ref2va`. Every workflow runs
-  without the pack as long as the switch is left off.
+  the LoRA file listed below. Every workflow but Remix offers that switch, and
+  Remix is left out for its step count rather than its model. Every workflow
+  runs without the pack as long as the switch is left off.
 
 The remaining node classes are ComfyUI built-ins — including the four
 `MiniMaxH3*` sampling nodes and `ComfyMathExpression`. If those come back
@@ -128,7 +127,7 @@ have them change it to a model their key can use — once per file in
 | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | everything |
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | everything |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | everything |
-| `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (text/image to video, Extend) |
+| `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every workflow but Remix) |
 
 Source: <https://docs.comfy.org/tutorials/video/minimax/minimax-h3>. The turbo
 LoRA is not from there — see the third node pack above.

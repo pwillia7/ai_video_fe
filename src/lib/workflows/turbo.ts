@@ -55,16 +55,20 @@ export interface TurboSpec {
   /** The input on that node the model arrives at. */
   modelInput: string;
   /**
-   * Filename prefix of the diffusion model this LoRA was distilled against.
+   * Filename prefixes of the diffusion models this LoRA may be attached to.
    *
-   * A LoRA is trained for one model, and the splice cannot tell: it would
-   * attach just as cleanly to a UNET the LoRA knows nothing about, and the run
-   * would finish having quietly produced something worse rather than failing.
-   * Stating the pairing lets `check:workflows` catch it at the point it is
-   * written instead. See the note on minimax-h3-ref for the case that made
-   * this worth checking.
+   * A LoRA is trained against particular models, and the splice cannot tell: it
+   * would attach just as cleanly to a UNET the LoRA knows nothing about, and
+   * the run would finish having quietly produced something worse rather than
+   * failing. Listing the models it is known to work on lets `check:workflows`
+   * catch a graph it does not belong on at the point that graph is written,
+   * instead of minutes into a render.
+   *
+   * A list rather than one name because a distillation can cover more than one
+   * checkpoint of the same family — see `h3Turbo`, where it covers both H3
+   * UNETs in use here.
    */
-  requiresModel?: string;
+  requiresModel?: string[];
   /**
    * A distilled model converges in single digits, so the range moves rather
    * than just the default: the base graph's 60 is not a slower-but-better
@@ -78,10 +82,14 @@ export interface TurboSpec {
 }
 
 /**
- * What the browser is allowed to see. `node` names a local model file, which
- * is the same reason the graph itself is withheld from the summary.
+ * What the browser is allowed to see. `node` and `requiresModel` name local
+ * model files, which is the same reason the graph itself is withheld from the
+ * summary; both are only read by the server and by `check:workflows`.
  */
-export type ClientTurbo = Omit<TurboSpec, "node" | "modelInput">;
+export type ClientTurbo = Omit<
+  TurboSpec,
+  "node" | "modelInput" | "requiresModel"
+>;
 
 /** True for a link to the given node's first output. */
 function isLinkFrom(value: unknown, nodeId: string): boolean {

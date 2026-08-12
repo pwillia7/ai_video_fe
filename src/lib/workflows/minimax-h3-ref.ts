@@ -4,6 +4,7 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   REFERENCE_DIRECTOR,
+  h3Turbo,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -314,17 +315,18 @@ export const minimaxH3Reference: WorkflowDef = {
   graph,
   params,
   /**
-   * No `turbo` here, unlike the text, image and extend workflows. The turbo
-   * LoRA is distilled against `fl2va` and does not support the reference
-   * pipeline this graph runs on `ref2va` — "not yet but planned" from its
-   * author, with the reports underneath describing exactly what you would
-   * expect from applying it anyway: identity reference breaking down.
+   * This graph is where turbo started: the mode's first form in this app was a
+   * ComfyUI export of *this* workflow with the LoRA spliced in, and it produced
+   * usable takes. The switch was taken off for a while on the strength of the
+   * LoRA's author calling `ref2va` unsupported — worth knowing, and the reason
+   * to compare a turbo take against a standard one before trusting it for
+   * identity work, but not a reason to withhold a mode that had been working.
    * <https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10>
    *
-   * The splice itself would work — this graph has a UNETLoader like any other
-   * — so `check:workflows` guards the pairing instead, via `requiresModel` on
-   * the spec. Restore the switch when the LoRA gains ref2v support, not before.
+   * 220s is scaled from this graph's own 300s rather than measured; the first
+   * finished turbo run on a machine replaces it with that machine's median.
    */
+  turbo: h3Turbo(220),
 
   /**
    * With no second reference, the variadic inputs and the loader must be

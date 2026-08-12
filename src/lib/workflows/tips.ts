@@ -210,7 +210,8 @@ const TURBO: TipSection = {
   heading: "Turbo is on",
   items: [
     "A distilled LoRA is applied to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Everything else — the prompt director, the length maths, the frame you start from — behaves exactly as it does with the switch off.",
-    "Only these three workflows offer it. Reference to Video and Remix run a different diffusion model, which this LoRA was not distilled against and does not yet support.",
+    "Remix does not offer it. It runs the reference model at 8 steps already, so the LoRA would cost quality and save no time there.",
+    "On Reference to Video, compare a turbo take against a standard one before trusting it for a likeness. The LoRA's author does not officially support the reference model yet, and identity is the first thing to suffer if it drifts.",
     "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
     "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
     "This is the one thing in the app that needs a node pack and a model file the base workflows do not. If every run fails with the switch on and succeeds with it off, that is what to check.",

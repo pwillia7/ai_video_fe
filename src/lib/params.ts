@@ -282,11 +282,14 @@ function turboProblems(workflow: WorkflowDef): string[] {
 
   // The splice working is not the same as the LoRA belonging on this model.
   const loader = modelLoaderIn(workflow.graph);
-  if (spec.requiresModel && loader) {
+  if (spec.requiresModel?.length && loader) {
     const model = workflow.graph[loader].inputs.unet_name;
-    if (typeof model !== "string" || !model.startsWith(spec.requiresModel)) {
+    const known =
+      typeof model === "string" &&
+      spec.requiresModel.some((prefix) => model.startsWith(prefix));
+    if (!known) {
       problems.push(
-        `Turbo's LoRA is distilled against ${spec.requiresModel}*, but this graph loads ${String(model)}.`,
+        `Turbo's LoRA goes on ${spec.requiresModel.map((prefix) => `${prefix}*`).join(" or ")}, but this graph loads ${String(model)}.`,
       );
     }
   }

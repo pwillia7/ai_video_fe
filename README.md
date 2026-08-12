@@ -10,9 +10,8 @@ right](https://i.imgur.com/cUqFq7x.png)
 Five MiniMax H3 workflows — text to video, image to video, reference to video,
 **Remix** (rebuild a clip you already made) and **Extend** (carry one on past
 where it stopped) — each with a hand-picked set of controls rather than the
-whole graph. Text to video, image to video and Extend can each be run in
-**Turbo**, a switch that applies a distilled LoRA and samples in a handful of
-steps instead of a dozen or more.
+whole graph. All but Remix can be run in **Turbo**, a switch that applies a
+distilled LoRA and samples in a handful of steps instead of a dozen or more.
 Generations queue, run in the background, and stay in a per-device history you
 can replay, download or feed straight back in.
 
@@ -82,7 +81,7 @@ All three packs install from ComfyUI Manager by name:
 | --- | --- | --- |
 | [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow |
 | [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate` | Remix, Extend |
-| [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA` | the Turbo switch — text/image to video, Extend |
+| [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA` | the Turbo switch — every workflow but Remix |
 
 **The OpenAI pack is not optional.** Every graph runs what you type through an
 LLM before the video model sees it ([details](#the-prompt-is-rewritten-before-the-model-sees-it)),
@@ -174,7 +173,7 @@ LoRA comes from its own pack instead.
 | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | all five |
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | all five |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | all five |
-| [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — text/image to video, Extend |
+| [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every workflow but Remix |
 
 **The filenames have to match**, because they are values inside the graph rather
 than choices in the UI. If your build is named or quantised differently, edit
@@ -398,7 +397,7 @@ track. They share sampling, timing and encoding controls via
 
 ### Turbo is a mode, not a sixth workflow
 
-Three of them — text to video, image to video and Extend — offer a **Turbo**
+Four of them — everything but Remix — offer a **Turbo**
 switch in the settings panel. Turning it on splices a `MiniMaxH3TurboLoRA` node
 between the graph's `UNETLoader` and
 everything that reads it — in practice `BasicScheduler` and `BasicGuider`, both
@@ -413,14 +412,19 @@ in the picker. What it changes is the step count: the control's range becomes
 4–8 rather than 4–60, because the LoRA is distilled to converge in single
 digits and 60 there is not a slower-but-better setting.
 
-**Reference to Video and Remix do not offer it.** The LoRA is distilled against
-`fl2va`, and those two run `MiniMaxH3ReferenceToVideo` on `ref2va`, which it
-[does not support](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10)
-— "not yet but planned" from its author, with reports of identity reference
-breaking down when it is applied anyway. The splice itself would have worked
-there, which is the trap, so the spec names the model it belongs on and
-`check:workflows` fails the pairing rather than letting a run finish looking
-subtly wrong.
+**Remix does not offer it**, and not because of the model — it runs the same
+`ref2va` UNET as reference to video, which does have the switch. It just samples
+at 8 already, the top of the LoRA's range, so turbo there would spend quality
+per step and save no time.
+
+**On reference to video, check a turbo take against a standard one before you
+trust it for a likeness.** The LoRA is distilled against `fl2va` and its author
+[does not officially support](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10)
+`ref2va` yet — "not yet but planned", with reports of identity reference
+degrading. It is offered anyway because it demonstrably works here; the first
+turbo mode in this app was exactly that graph. The spec still lists the models
+the LoRA may land on, so a graph on some third UNET fails `check:workflows`
+rather than finishing a run that looks subtly wrong.
 
 The graphs on disk stay verbatim from their ComfyUI exports — the LoRA is added
 to a clone on the way to the queue, in `src/lib/workflows/turbo.ts`. Both forms
