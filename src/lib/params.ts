@@ -152,6 +152,21 @@ export interface AppliedParams {
 }
 
 /**
+ * How the run is being made, as against what it is of. Neither of these is a
+ * param: they change which graph gets queued rather than a value inside one,
+ * and the node they speak for is not in the stored graph at all. See turbo.ts.
+ *
+ * An object rather than two more positional arguments because they are both
+ * booleans and would otherwise be tellable apart only by counting commas.
+ */
+export interface RunMode {
+  /** Run with the distilled LoRA spliced in. */
+  turbo?: boolean;
+  /** Apply that LoRA the memory-sparing way. Only means anything with turbo. */
+  lowVram?: boolean;
+}
+
+/**
  * Write submitted values into a fresh copy of the graph. Throws if a param
  * target does not exist, which catches a stale mapping immediately rather
  * than sending a subtly wrong job to the GPU.
@@ -161,9 +176,9 @@ export function applyParams(
   submitted: Record<string, unknown>,
   /** Live enum values per param id, from resolveDynamicOptions. */
   allowedValues?: Record<string, string[] | null>,
-  /** Run with the distilled LoRA spliced in. See turbo.ts. */
-  turbo = false,
+  mode: RunMode = {},
 ): AppliedParams {
+  const turbo = mode.turbo === true;
   // structuredClone would choke on the transform functions, but those live on
   // the param definitions rather than the graph, so the graph clones cleanly.
   const graph = structuredClone(workflow.graph);
@@ -175,7 +190,7 @@ export function applyParams(
     }
     // Before the values are written, so `finalize` sees the graph that will
     // actually be queued. Nothing targets the loader or the LoRA either way.
-    applyTurbo(graph, workflow.turbo);
+    applyTurbo(graph, workflow.turbo, mode.lowVram === true);
   }
 
   // The steps control has a different range in turbo, so the range a value is

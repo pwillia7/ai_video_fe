@@ -29,6 +29,8 @@ import {
   clampValues,
   hydrateAll,
   hydrateModes,
+  readStoredLowVram,
+  writeStoredLowVram,
   writeStoredModes,
   writeStoredParams,
 } from "@/lib/param-storage";
@@ -170,6 +172,13 @@ function Workbench({
   /** Which workflows are in turbo. Only ever keyed by ones that offer it. */
   const [turboByWorkflow, setTurboByWorkflow] = useState(initial.modes);
 
+  /**
+   * Turbo's low-VRAM path, for every workflow at once — it answers a question
+   * about the GPU rather than about the shot, and the answer does not change
+   * between graphs. Read lazily for the same reason as the modes above.
+   */
+  const [lowVram, setLowVram] = useState(readStoredLowVram);
+
   // Values are kept per workflow so switching to compare settings and coming
   // back does not throw away what you typed, and persisted so a reload does
   // not either.
@@ -184,6 +193,10 @@ function Workbench({
   useEffect(() => {
     writeStoredModes(turboByWorkflow);
   }, [turboByWorkflow]);
+
+  useEffect(() => {
+    writeStoredLowVram(lowVram);
+  }, [lowVram]);
 
   // A clock that only ticks while something is running, so elapsed times
   // advance smoothly between poll results without re-rendering an idle page.
@@ -437,6 +450,7 @@ function Workbench({
     if (!selected || jobs.submitting) return;
     void jobs.submit(selected, values, {
       turbo: turboOn,
+      lowVram,
       // Only meaningful on the workflow the clip was actually loaded into, and
       // only for the hand-off that put it there.
       derivedFrom:
@@ -455,7 +469,7 @@ function Workbench({
         stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
     }
-  }, [selected, values, jobs, clipSource, turboOn]);
+  }, [selected, values, jobs, clipSource, turboOn, lowVram]);
 
   // Cmd/Ctrl+Enter from anywhere fires the run. Held in a ref so the listener
   // is attached once rather than on every keystroke in the prompt box.
@@ -603,6 +617,8 @@ function Workbench({
                     turbo={selected.turbo}
                     on={turboOn}
                     onChange={setTurbo}
+                    lowVram={lowVram}
+                    onLowVramChange={setLowVram}
                   />
                 ) : null}
 

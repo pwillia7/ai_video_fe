@@ -258,6 +258,11 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
           steps: turbo.steps,
           estimatedSeconds: turbo.estimatedSeconds,
           help: turbo.help,
+          // Minus the node input it writes to, for the same reason a param
+          // sheds its targets — see ClientTurbo.
+          lowVram: turbo.lowVram
+            ? { label: turbo.lowVram.label, help: turbo.lowVram.help }
+            : undefined,
         }
       : undefined,
     params: params.map((param) => {

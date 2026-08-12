@@ -21,8 +21,30 @@ const STORAGE_KEY = "sorant-params";
  * put a key in the params blob that no param declares.
  */
 const MODES_KEY = "sorant-turbo";
+/**
+ * Whether turbo's low-VRAM path is on. One boolean for the whole app rather
+ * than one per workflow, because what it answers is "will this card hold the
+ * LoRA the fast way", which is the same answer on every graph.
+ */
+const LOW_VRAM_KEY = "sorant-low-vram";
 
 export type StoredModes = Record<string, boolean>;
+
+export function readStoredLowVram(): boolean {
+  try {
+    return localStorage.getItem(LOW_VRAM_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function writeStoredLowVram(lowVram: boolean): void {
+  try {
+    localStorage.setItem(LOW_VRAM_KEY, lowVram ? "on" : "off");
+  } catch {
+    // As below — a storage failure costs the preference, nothing more.
+  }
+}
 
 export function readStoredModes(): StoredModes {
   try {

@@ -22,6 +22,7 @@ export async function POST(request: Request) {
       workflowId?: string;
       params?: Record<string, unknown>;
       turbo?: boolean;
+      lowVram?: boolean;
     };
 
     if (!body.workflowId) {
@@ -39,6 +40,10 @@ export async function POST(request: Request) {
     if (turbo && !workflow.turbo) {
       throw new ParamError(`Workflow "${workflow.id}" has no turbo mode.`);
     }
+    // Ignored rather than refused off turbo: the input it sets belongs to the
+    // LoRA node, which a standard run never splices in, so there is nothing
+    // for it to be wrong about.
+    const lowVram = turbo && body.lowVram === true;
 
     const problems = validateWorkflow(workflow);
     if (problems.length > 0) {
@@ -65,7 +70,7 @@ export async function POST(request: Request) {
       workflow,
       body.params ?? {},
       allowedValues,
-      turbo,
+      { turbo, lowVram },
     );
 
     const clientId = crypto.randomUUID();

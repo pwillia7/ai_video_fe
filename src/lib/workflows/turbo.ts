@@ -36,6 +36,21 @@ const TURBO_NODE_ID = "turbo";
  */
 const MODEL_LOADER = "UNETLoader";
 
+/**
+ * A memory-for-time input on the spliced node, offered as a switch of its own.
+ *
+ * Declared rather than assumed because it is the node pack's option, not
+ * something this app implements: all we do is write the flag it exports. What
+ * it costs and what it saves are the pack's business, so `help` is where the
+ * workflow says what turning it on means.
+ */
+export interface TurboLowVram {
+  /** The boolean input on the spliced node. Must be one the node already has. */
+  input: string;
+  label: string;
+  help: string;
+}
+
 /** How the steps control is retuned when the mode is on. */
 export interface TurboSteps {
   /** Id of the control to retune — "steps", as `samplingParams` names it. */
@@ -75,6 +90,11 @@ export interface TurboSpec {
    * setting here, it is off the end of what the LoRA was made for.
    */
   steps: TurboSteps;
+  /**
+   * Set when the node has a low-VRAM path worth offering. Absent means the
+   * switch is not shown and the node's own default stands.
+   */
+  lowVram?: TurboLowVram;
   /** Wall-clock estimate with the LoRA applied, if it differs. */
   estimatedSeconds?: number;
   /** One line under the switch. */
@@ -85,11 +105,18 @@ export interface TurboSpec {
  * What the browser is allowed to see. `node` and `requiresModel` name local
  * model files, which is the same reason the graph itself is withheld from the
  * summary; both are only read by the server and by `check:workflows`.
+ *
+ * The low-VRAM switch keeps its wording and loses its `input` for the same
+ * reason a param keeps its label and loses its `targets`: which node input a
+ * control writes to is the server's business, and the form only needs to know
+ * there is a switch and what to call it.
  */
 export type ClientTurbo = Omit<
   TurboSpec,
-  "node" | "modelInput" | "requiresModel"
->;
+  "node" | "modelInput" | "requiresModel" | "lowVram"
+> & {
+  lowVram?: Omit<TurboLowVram, "input">;
+};
 
 /** True for a link to the given node's first output. */
 function isLinkFrom(value: unknown, nodeId: string): boolean {
@@ -109,8 +136,17 @@ export function modelLoaderIn(graph: ComfyGraph): string | null {
  *
  * Rewiring happens before the node is added, so the LoRA's own model input is
  * not caught by its own rewrite.
+ *
+ * `lowVram` is written onto the spliced node rather than reaching it as a param
+ * like everything else the user sets, because the node it belongs to is not in
+ * the stored graph: there is nothing for a target to point at until this
+ * function has run, and in standard mode there never is.
  */
-export function applyTurbo(graph: ComfyGraph, spec: TurboSpec): void {
+export function applyTurbo(
+  graph: ComfyGraph,
+  spec: TurboSpec,
+  lowVram = false,
+): void {
   const loader = modelLoaderIn(graph);
   if (!loader) {
     throw new Error(
@@ -136,9 +172,20 @@ export function applyTurbo(graph: ComfyGraph, spec: TurboSpec): void {
     );
   }
 
+  if (spec.lowVram && !(spec.lowVram.input in spec.node.inputs)) {
+    throw new Error(
+      `Turbo offers a low-VRAM switch on "${spec.lowVram.input}", which ` +
+        `${spec.node.class_type} does not accept.`,
+    );
+  }
+
   graph[TURBO_NODE_ID] = {
     ...spec.node,
-    inputs: { ...spec.node.inputs, [spec.modelInput]: [loader, 0] },
+    inputs: {
+      ...spec.node.inputs,
+      [spec.modelInput]: [loader, 0],
+      ...(spec.lowVram ? { [spec.lowVram.input]: lowVram } : {}),
+    },
   };
 }
 

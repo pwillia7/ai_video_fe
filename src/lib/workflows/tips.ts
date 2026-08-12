@@ -218,6 +218,7 @@ const TURBO: TipSection = {
     "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
     "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
     "This is the one thing in the app that needs a node pack and a model file the base workflows do not. If every run fails with the switch on and succeeds with it off, that is what to check.",
+    "Low VRAM, under the switch, applies the LoRA the memory-sparing way the pack offers. It is slower and changes nothing about the video, so leave it off unless a turbo run dies out of memory. It stays where you set it for every workflow, since it is your card it is about.",
   ],
 };
 

@@ -233,9 +233,9 @@ export function h3Turbo(
   return {
     node: {
       class_type: "MiniMaxH3TurboLoRA",
-      // `strength` and `low_vram` are as the ComfyUI export sets them rather
-      // than exposed: 1 is what the LoRA was trained to be applied at, and
-      // low_vram is a property of the machine rather than of the shot.
+      // `strength` is as the ComfyUI export sets it rather than exposed: 1 is
+      // what the LoRA was trained to be applied at. `low_vram` is the value the
+      // export carries too, but it is the one the switch below overwrites.
       inputs: {
         lora_name: "minimax_h3_turbo_v4_step600_ema.safetensors",
         strength: 1,
@@ -251,6 +251,21 @@ export function h3Turbo(
       min: 4,
       max: 8,
       help: "The turbo LoRA converges here. 4 is fastest, 8 is safest.",
+    },
+    /**
+     * The node pack's own low-memory path for applying the LoRA, passed
+     * straight through — what it trades is the pack's business, not this app's,
+     * so the help says what it is for rather than what it does inside.
+     *
+     * Off by default because it is the slower way to get the same frames: it
+     * earns its place only on a card where the fast way runs out of memory,
+     * which is a fact about the machine rather than about the shot. That is
+     * also why it is remembered once for every workflow instead of per graph.
+     */
+    lowVram: {
+      input: "low_vram",
+      label: "Low VRAM",
+      help: "Applies the LoRA the memory-sparing way the node pack offers. Slower, and only worth it if a turbo run dies out of memory on this card.",
     },
     estimatedSeconds,
     help: "Applies a distilled LoRA to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Needs the MiniMax-H3 Turbo node pack.",

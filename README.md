@@ -418,6 +418,15 @@ digits and 60 there is not a slower-but-better setting.
 at 8 already, the top of the LoRA's range, so turbo there would spend quality
 per step and save no time.
 
+Underneath the switch, in turbo only, is **Low VRAM** — the node pack's own
+memory-sparing way of applying the LoRA, passed straight through as the
+`low_vram` input on the node that gets spliced in. It is off by default and
+slower; turn it on if a turbo run dies out of memory on your card. Unlike
+everything in the settings form it is remembered once for the whole app rather
+than per workflow, because what it answers is a question about the GPU, not
+about the shot. It is not a param either, for the plainer reason that the node
+it writes to does not exist until the splice happens.
+
 **On reference to video, check a turbo take against a standard one before you
 trust it for a likeness.** The LoRA is distilled against `fl2va` and its author
 [does not officially support](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10)
