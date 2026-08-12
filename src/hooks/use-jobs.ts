@@ -23,6 +23,31 @@ const POLL_INTERVAL_MS = 1500;
  */
 const SETTLE_GRACE_MS = 60_000;
 
+/**
+ * When to stop asking about a job and call the connection, rather than the run,
+ * the thing that is broken.
+ *
+ * Both conditions have to hold, because either one alone gets a case wrong. A
+ * count alone trips too early when the failures are instant — a refused
+ * connection answers in milliseconds, so three of those are over in a few
+ * seconds and a passing blip would kill a render that was going to be fine. A
+ * duration alone trips on a single slow answer: an unreachable host is more
+ * often blackholed than refused, and one poll then sits for the route's whole
+ * 20-second ComfyUI timeout, which is not yet evidence of anything.
+ *
+ * Together they say: several failures in a row, spanning long enough that this
+ * is not a hiccup. In practice that lands around a minute either way — well
+ * past any blip, and well short of the day `expireStale` would otherwise take
+ * to notice, which is the behaviour this replaces.
+ */
+const MAX_POLL_FAILURES = 3;
+const GIVE_UP_AFTER_MS = 45_000;
+
+/** Backoff for the nth consecutive failure, capped to stay responsive. */
+function retryDelayMs(failures: number): number {
+  return Math.min(POLL_INTERVAL_MS * 2 ** failures, 10_000);
+}
+
 interface GenerateResponse {
   promptId: string;
   queueNumber: number;
@@ -151,6 +176,62 @@ export function useJobs(): JobsController {
     [jobs],
   );
 
+  /**
+   * Stop waiting on the given jobs, and try to stop the box working on them.
+   *
+   * Reached only from the poll loop, once the status checks have failed for long
+   * enough that the connection is the broken thing. The alternative is what this
+   * replaces: a job that sits at "Rendering" with a progress bar filling against
+   * an estimate, indistinguishable from a slow render, until `expireStale`
+   * quietly relabels it a day later. A generation nobody is waiting on any more
+   * should say so.
+   *
+   * The cancel is best effort and deliberately sent after the state is settled.
+   * If ComfyUI is unreachable it will fail exactly as the status checks did, and
+   * making the user watch two more timeouts to be told what already happened
+   * would be worse than telling them the run might outlive the tab. When it does
+   * land — the box is up but something between here and it is not — it saves a
+   * GPU several minutes of work on a clip nothing will collect.
+   */
+  const abandonActive = useCallback(
+    async (promptIds: string[], cause: unknown) => {
+      const detail =
+        cause instanceof ApiError
+          ? cause.message
+          : "Lost contact with the server.";
+      const doomed = new Set(promptIds);
+
+      setJobs((previous) =>
+        previous.map((job) =>
+          doomed.has(job.promptId) && isActive(job)
+            ? {
+                ...job,
+                phase: "error" as const,
+                queuePosition: null,
+                completedAt: Date.now(),
+                error:
+                  `${detail} Gave up after ${MAX_POLL_FAILURES} failed status checks ` +
+                  "and sent a cancel — if the machine is unreachable the cancel will " +
+                  "not have arrived either, so the run may still finish on its own.",
+              }
+            : job,
+        ),
+      );
+
+      await Promise.all(
+        promptIds.map((promptId) =>
+          api("/api/cancel", {
+            method: "POST",
+            body: JSON.stringify({ promptId }),
+          }).catch(() => {
+            // Expected when the box is the thing that is gone.
+          }),
+        ),
+      );
+    },
+    [],
+  );
+
   // One batched request per tick regardless of how many jobs are in flight,
   // so a deep queue does not multiply load on the ComfyUI box.
   useEffect(() => {
@@ -160,6 +241,12 @@ export function useJobs(): JobsController {
     let timer: ReturnType<typeof setTimeout>;
     let inFlight = false;
 
+    // The current run of consecutive failures. A closure variable rather than a
+    // ref, so it resets whenever the set of active jobs changes: a successful
+    // poll is what normally changes that set, and it would have reset anyway.
+    let failures = 0;
+    let firstFailureAt = 0;
+
     const poll = async () => {
       if (inFlight) return;
       inFlight = true;
@@ -168,15 +255,30 @@ export function useJobs(): JobsController {
           statuses: Record<string, StatusPayload>;
         }>(`/api/status?promptIds=${encodeURIComponent(activeIds)}`);
         if (cancelled) return;
+        failures = 0;
         setJobs((previous) =>
           previous.map((job) => applyStatus(job, statuses[job.promptId])),
         );
         timer = setTimeout(poll, POLL_INTERVAL_MS);
       } catch (cause) {
         if (cancelled) return;
-        // An auth failure will not fix itself; anything else is usually a blip.
+        // An auth failure will not fix itself.
         if (cause instanceof ApiError && cause.status === 401) return;
-        timer = setTimeout(poll, POLL_INTERVAL_MS * 2);
+
+        failures += 1;
+        if (failures === 1) firstFailureAt = Date.now();
+
+        if (
+          failures >= MAX_POLL_FAILURES &&
+          Date.now() - firstFailureAt >= GIVE_UP_AFTER_MS
+        ) {
+          // Nothing reschedules from here: giving up settles every job in
+          // flight, which empties activeIds and tears this loop down.
+          void abandonActive(activeIds.split(","), cause);
+          return;
+        }
+
+        timer = setTimeout(poll, retryDelayMs(failures));
       } finally {
         inFlight = false;
       }
@@ -198,7 +300,7 @@ export function useJobs(): JobsController {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [activeIds]);
+  }, [activeIds, abandonActive]);
 
   const submit = useCallback(
     async (

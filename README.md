@@ -347,6 +347,7 @@ public forks.
 | Job dies partway with a 401 from OpenAI | `OPENAI_API_KEY` on the ComfyUI host, and [the `client.py` patch](#the-llm-key-and-a-one-line-patch-you-have-to-apply). A pack update reverts it |
 | Job dies at the rewrite step, no clear reason | [The model name](#which-model-the-rewrite-asks-for) — your key may not reach `gpt-5.6-terra` |
 | A job shows as **Lost** | ComfyUI restarted and dropped its history |
+| A job failed saying contact was lost | The connection dropped mid-render, not the workflow. Check the pill, then resubmit — the run may still have finished on the box |
 
 `/api/health` is the fastest single source of truth: it reports `reachable`,
 `authorized` and `secure` separately, so it distinguishes "cannot connect" from
@@ -758,6 +759,23 @@ than dropping values someone is trying to reconstruct from.
 Active jobs are polled in **one batched request** regardless of how many are in
 flight — `/api/status?promptIds=a,b,c` reads the queue once and resolves every
 id against it, so a deep queue does not multiply load on the GPU box.
+
+**A job is given up on if the connection goes, rather than polled forever.**
+Failed status checks are retried with a backoff, and once there have been at
+least three in a row spanning at least 45 seconds — roughly a minute in practice,
+either way — every job in flight is marked failed and sent a cancel. Both
+conditions are needed: a refused connection answers instantly, so a count alone
+would kill a good render over a few seconds of nothing, while an unreachable host
+is usually blackholed rather than refused, and a single check then burns the
+route's whole 20-second ComfyUI timeout, which is not evidence of anything yet.
+
+The cancel is best effort and goes out after the job is already marked, because
+if ComfyUI is unreachable the cancel fails exactly as the status checks did and
+waiting on two more timeouts to be told what you already know is worse than
+being told the run may outlive the tab. When it does land — the box is up but
+something in between is not — it saves the GPU several minutes on a clip nothing
+will collect. Either way the failure names what happened, rather than leaving a
+progress bar filling against an estimate for a run that stopped being watched.
 
 **Desktop notifications.** The bell in the header opts in (the permission prompt
 has to be tied to a click, which is why it is a button). Each finished or failed
