@@ -6,6 +6,7 @@ import {
   durationParam,
   EXTEND_DIRECTOR,
   h3Patches,
+  h3StepSampler,
   h3Turbo,
   promptParam,
   samplingParams,
@@ -337,6 +338,7 @@ export const minimaxH3Extend: WorkflowDef = {
   params,
   turbo: h3Turbo(220),
   patches: h3Patches(),
+  stepSampler: h3StepSampler(),
   /**
    * No `carry`, unlike Remix. The prompt that made the source describes the
    * source, and this graph reads what you type as what happens *next* — so

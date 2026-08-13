@@ -4,6 +4,7 @@ import {
   directorTarget,
   clipDurationParam,
   h3Patches,
+  h3StepSampler,
   promptParam,
   REMIX_DIRECTOR,
   samplingParams,
@@ -307,6 +308,7 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * step count is no argument against either of them.
    */
   patches: h3Patches(),
+  stepSampler: h3StepSampler(),
   /**
    * The prompt is the one thing the clip cannot supply, so it comes across
    * from the generation being remixed. See ClipTarget for what deliberately

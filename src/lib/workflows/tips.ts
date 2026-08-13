@@ -219,6 +219,7 @@ const TURBO: TipSection = {
     "On Reference to Video, compare a turbo take against a standard one before trusting it for a likeness. The LoRA's author does not officially support the reference model yet, and identity is the first thing to suffer if it drifts.",
     "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
     "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
+    "At exactly 4, the graph swaps in the pack's dedicated 4-step sampler in place of the usual one. Nothing to turn on: the steps control decides it, and the note under that control says so while it is in effect. It comes from the same pack as the LoRA.",
     "This is the one thing in the app that needs a node pack and a model file the base workflows do not. If every run fails with the switch on and succeeds with it off, that is what to check.",
     "Low VRAM, under the switch, applies the LoRA the memory-sparing way the pack offers. It is slower and changes nothing about the video, so leave it off unless a turbo run dies out of memory. It stays where you set it for every workflow, since it is your card it is about.",
   ],

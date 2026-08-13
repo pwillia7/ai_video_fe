@@ -22,7 +22,10 @@ for (const workflow of WORKFLOWS) {
       `  ok   ${workflow.id} — ${workflow.params.length} params over ${nodeCount} nodes` +
         // validateWorkflow proves the splices work as well as the targets do —
         // each on its own, and all of them stacked.
-        (spliced.length > 0 ? `, ${spliced.join(" + ")} splice cleanly` : ""),
+        (spliced.length > 0 ? `, ${spliced.join(" + ")} splice cleanly` : "") +
+        (workflow.stepSampler
+          ? `, ${workflow.stepSampler.atValue}-step sampler resolves`
+          : ""),
     );
     continue;
   }

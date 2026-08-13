@@ -6,6 +6,7 @@ import {
   durationParam,
   TEXT_DIRECTOR,
   h3Patches,
+  h3StepSampler,
   h3Turbo,
   promptParam,
   samplingParams,
@@ -269,4 +270,5 @@ export const minimaxH3: WorkflowDef = {
   params,
   turbo: h3Turbo(130),
   patches: h3Patches(),
+  stepSampler: h3StepSampler(),
 };

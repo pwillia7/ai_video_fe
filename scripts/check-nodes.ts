@@ -23,6 +23,7 @@ import {
 } from "../src/lib/comfy";
 import { WORKFLOWS } from "../src/lib/workflows";
 import { patchGraph } from "../src/lib/workflows/patches";
+import { stepSamplerGraph } from "../src/lib/workflows/step-sampler";
 import { turboGraph } from "../src/lib/workflows/turbo";
 
 /**
@@ -95,6 +96,15 @@ function collect() {
       graphs.push({
         label: `${workflow.id} (${patch.id})`,
         graph: patchGraph(workflow.graph, patch),
+      });
+    }
+    // And the form the graph takes at the step count that swaps its sampler,
+    // which needs no switch at all — so its class would otherwise go unasked
+    // about until someone dragged the slider to the end.
+    if (workflow.stepSampler) {
+      graphs.push({
+        label: `${workflow.id} (${workflow.stepSampler.atValue}-step)`,
+        graph: stepSamplerGraph(workflow.graph, workflow.stepSampler),
       });
     }
     for (const { label: used, graph } of graphs) {

@@ -52,10 +52,13 @@ Tell them plainly what has to be true, then let them go do it:
   `check:nodes` cannot see, so a run failing with the switch on against a node
   the checker calls present means the package is what is missing.
 - **MiniMax-H3 Turbo** (`Larryvrh/ComfyUI-MiniMax-H3-Turbo`) — provides
-  `MiniMaxH3TurboLoRA`. Only the **Turbo** switch needs it, and it also wants
-  the LoRA file listed below. Every workflow but Remix offers that switch, and
-  Remix is left out for its step count rather than its model. Every workflow
-  runs without the pack as long as the switch is left off.
+  `MiniMaxH3TurboLoRA` and `MiniMaxH3TurboSampler`. The **Turbo** switch needs
+  the first, and also wants the LoRA file listed below; every workflow but Remix
+  offers that switch, and Remix is left out for its step count rather than its
+  model. The second is used by every workflow whenever the steps control is on
+  4, switch or no switch — that step count is what the sampler is for, so the
+  graph swaps it in rather than asking. So this pack is needed with the switch
+  off too, if anyone sets steps to 4.
 - **Spectrum** — provides `SpectrumApplyMiniMaxH3`. Only the **Spectrum** switch
   needs it, and unlike turbo it needs no model file and every workflow offers
   it. This repo has the node from a ComfyUI export rather than from a named

@@ -76,14 +76,14 @@ reports those missing, update ComfyUI rather than hunting for node packs.
 
 ### Custom nodes
 
-Most of the node classes these graphs use are ComfyUI built-ins. Seven are not.
+Most of the node classes these graphs use are ComfyUI built-ins. Eight are not.
 The first three packs install from ComfyUI Manager by name:
 
 | Pack | Provides | Needed by |
 | --- | --- | --- |
 | [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow |
 | [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate`, `PathchSageAttentionKJ` | Remix, Extend, and the SageAttention switch everywhere |
-| [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA` | the Turbo switch — every workflow but Remix |
+| [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA`, `MiniMaxH3TurboSampler` | the Turbo switch (every workflow but Remix), and 4 steps on any workflow |
 | whichever pack you got `SpectrumApplyMiniMaxH3` from | `SpectrumApplyMiniMaxH3` | the Spectrum switch — every workflow |
 
 The Spectrum row is deliberately not a link: this repo takes the node from a
@@ -91,6 +91,13 @@ ComfyUI export rather than shipping a pack, and search by class name in the
 Manager is the reliable way to find it. Once it is installed, `pnpm check:nodes`
 reads the owning package off your install and prints it, so you never have to
 take this table's word for where a class came from.
+
+**The turbo pack is needed at 4 steps even with the Turbo switch off.** The
+sampler that pack ships is built for exactly four steps, and the graphs swap it
+in whenever the steps control is on 4 — see
+[below](#the-4-step-sampler-swaps-itself-in). Four steps without the LoRA is not
+a usable take anyway, so in practice this costs nothing, but it is why the row
+above says "any workflow".
 
 **The SageAttention switch needs a Python package as well as a node.**
 `PathchSageAttentionKJ` patches in a kernel rather than shipping one, so
@@ -496,6 +503,35 @@ on the right model, and that they all still work stacked; `pnpm check:nodes` ask
 ComfyUI about each patched graph as well as the stored ones, since those nodes
 and turbo's LoRA file are the only pieces that need packs nothing else does.
 
+#### The 4-step sampler swaps itself in
+
+The turbo pack also ships `MiniMaxH3TurboSampler`, built for exactly four steps —
+its node takes no inputs at all, because the schedule is inside it. **Whenever
+the steps control is on 4, that sampler replaces the graph's `KSamplerSelect`.**
+
+This is not a fourth switch, deliberately. Four steps is not a setting that
+happens to pair well with this sampler; it is the step count the sampler exists
+for. Making it a thing to turn on would only be an opportunity to get the pair
+wrong, so the form says what happened rather than asking: a short accented line
+appears under the steps slider at 4 and goes away at every other value. Nothing
+else in the UI changes, and nothing is remembered between runs — the control is
+the whole state.
+
+It fires on the value alone rather than on the value *and* Turbo, even though
+four steps is only really useful with the LoRA applied. "Four steps uses the
+four-step sampler" is a rule you can hold; "four steps uses it, unless Turbo is
+off, in which case it quietly does not" is not.
+
+The swap keeps the node's id rather than adding one and deleting the old, which
+is how the ComfyUI export does it. The two graphs are the same graph, and reusing
+the id means every link that pointed at the sampler still does — no rewiring to
+get wrong, nothing left behind. It lives in `src/lib/workflows/step-sampler.ts`,
+and `check:workflows` asserts both halves of the coupling: that the graph has
+exactly one `KSamplerSelect` to stand in for, and that 4 is inside the steps
+range in *both* modes. The second matters because that failure is silent —
+a swap that can never fire would leave every four-step run sampling with the
+wrong sampler and coming back a worse video rather than an error.
+
 ### The prompt is rewritten before the model sees it
 
 Every graph runs what you type through an LLM first. A
@@ -822,13 +858,14 @@ pnpm check:workflows
 It resolves every `target` against the graph and fails on anything stale, so a
 bad mapping surfaces immediately instead of sending a subtly wrong job to the
 GPU. The same check runs on `/api/workflows` and again before every submit. It
-also catches three couplings that are invisible in a diff: that turbo's LoRA
-lands on a model it belongs on, that each patch still finds something to sit in
-front of once the switches above it have moved the wiring, and that a graph
-driving a prompt director declares a
-`duration` or `source_seconds` param — the length block is found by param id, so
-renaming one would otherwise drop it from the instruction and the only symptom
-would be shot cut times landing past the end of the video.
+also catches four couplings that are invisible in a diff: that turbo's LoRA
+lands on a model it belongs on; that each patch still finds something to sit in
+front of once the switches above it have moved the wiring; that the 4-step
+sampler has exactly one `KSamplerSelect` to stand in for and that 4 is still
+inside the steps range in both modes; and that a graph driving a prompt director
+declares a `duration` or `source_seconds` param — the length block is found by
+param id, so renaming one would otherwise drop it from the instruction and the
+only symptom would be shot cut times landing past the end of the video.
 
 Param types available: `text`, `textarea`, `number`, `slider`, `select`,
 `toggle`, `seed`, `image`, `video`. Mark a param `advanced: true` to tuck it behind the disclosure;

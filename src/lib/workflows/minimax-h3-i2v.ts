@@ -6,6 +6,7 @@ import {
   durationParam,
   IMAGE_DIRECTOR,
   h3Patches,
+  h3StepSampler,
   h3Turbo,
   promptParam,
   samplingParams,
@@ -271,4 +272,5 @@ export const minimaxH3ImageToVideo: WorkflowDef = {
   params,
   turbo: h3Turbo(220),
   patches: h3Patches(),
+  stepSampler: h3StepSampler(),
 };

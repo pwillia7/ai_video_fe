@@ -2,6 +2,7 @@ import type { ComfyGraph } from "@/lib/comfy";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import type { RunModes } from "@/lib/workflows/modes";
 import { applyPatch, enabledPatches } from "@/lib/workflows/patches";
+import { applyStepSampler, samplerNodeIn } from "@/lib/workflows/step-sampler";
 import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
 import type { ParamDef, ParamValue, WorkflowDef } from "@/lib/workflows/types";
 
@@ -258,6 +259,13 @@ export function applyParams(
     }
   }
 
+  // After the values, because which sampler the graph wants is decided by one
+  // of them. Nothing above targets the sampler, so there is no write to
+  // overwrite — the node it replaces holds only its own class's settings.
+  if (workflow.stepSampler) {
+    applyStepSampler(graph, workflow.stepSampler, resolved);
+  }
+
   // Runs last so it sees the resolved values and can prune anything they made
   // redundant — an unused optional input, and the node that fed it.
   workflow.finalize?.(graph, resolved);
@@ -302,7 +310,66 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
 
   problems.push(...turboProblems(workflow));
   problems.push(...patchProblems(workflow));
+  problems.push(...stepSamplerProblems(workflow));
   problems.push(...directorProblems(workflow));
+
+  return problems;
+}
+
+/**
+ * Whether the step sampler would actually swap when its value is reached.
+ *
+ * Worth checking here more than any of the others, because this is the one
+ * whose failure is silent in both directions. A graph that has no
+ * `KSamplerSelect` to stand in for would throw at generation time; a control
+ * whose range no longer contains the triggering value would simply never fire,
+ * and every four-step run would quietly sample with the wrong sampler and come
+ * back a worse video rather than an error.
+ */
+function stepSamplerProblems(workflow: WorkflowDef): string[] {
+  const spec = workflow.stepSampler;
+  if (!spec) return [];
+
+  const problems: string[] = [];
+
+  if (!samplerNodeIn(workflow.graph, spec)) {
+    const found = Object.values(workflow.graph).filter(
+      (node) => node.class_type === spec.replaces,
+    ).length;
+    problems.push(
+      `The ${spec.atValue}-step sampler stands in for exactly one ${spec.replaces}, but this graph has ${found}.`,
+    );
+  }
+
+  const param = workflow.params.find((candidate) => candidate.id === spec.param);
+  if (!param) {
+    problems.push(
+      `The step sampler keys off "${spec.param}", which this workflow has no param for.`,
+    );
+    return problems;
+  }
+  if (param.type !== "slider" && param.type !== "number") {
+    problems.push(
+      `The step sampler keys off "${spec.param}", which is a ${param.type} rather than a numeric control.`,
+    );
+    return problems;
+  }
+
+  // In whichever mode the control is in. Turbo moves the range, and a value
+  // outside it in either mode is a swap that can never happen there.
+  const ranges: Array<[string, number, number]> = [
+    ["standard", param.min, param.max],
+  ];
+  if (workflow.turbo && workflow.turbo.steps.param === spec.param) {
+    ranges.push(["turbo", workflow.turbo.steps.min, workflow.turbo.steps.max]);
+  }
+  for (const [mode, min, max] of ranges) {
+    if (spec.atValue < min || spec.atValue > max) {
+      problems.push(
+        `The step sampler fires at ${spec.atValue}, which is outside "${spec.param}"'s ${min}–${max} range in ${mode} mode, so it would never be used there.`,
+      );
+    }
+  }
 
   return problems;
 }

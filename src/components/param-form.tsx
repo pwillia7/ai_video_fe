@@ -140,16 +140,36 @@ function Control({
   error?: string;
 }) {
   const id = `param-${param.id}`;
-  const describedBy = error
-    ? `${id}-error`
-    : param.help
-      ? `${id}-help`
+
+  /**
+   * The consequence of the value that is actually set, if this control has one
+   * to declare — see `noteAt`. Compared loosely against the default so an
+   * untouched control still reports it: `value` is undefined until something
+   * writes it, and what the run would do is the same either way.
+   */
+  const note =
+    param.noteAt && (value ?? param.default) === param.noteAt.value
+      ? param.noteAt.text
       : undefined;
+
+  const describedBy =
+    [
+      error ? `${id}-error` : param.help ? `${id}-help` : null,
+      note ? `${id}-note` : null,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   switch (param.type) {
     case "text":
       return (
-        <Field id={id} label={param.label} help={param.help} error={error}>
+        <Field
+          id={id}
+          label={param.label}
+          help={param.help}
+          note={note}
+          error={error}
+        >
           <TextInput
             id={id}
             value={String(value ?? param.default)}
@@ -163,7 +183,13 @@ function Control({
 
     case "textarea":
       return (
-        <Field id={id} label={param.label} help={param.help} error={error}>
+        <Field
+          id={id}
+          label={param.label}
+          help={param.help}
+          note={note}
+          error={error}
+        >
           <TextArea
             id={id}
             value={String(value ?? param.default)}
@@ -184,6 +210,7 @@ function Control({
           id={id}
           label={param.label}
           help={param.help}
+          note={note}
           error={error}
           trailing={
             <span className="font-mono text-[12px] tabular-nums text-fg-muted">
@@ -214,6 +241,7 @@ function Control({
           id={id}
           label={param.label}
           help={param.help}
+          note={note}
           error={error}
           trailing={
             param.unit ? (
@@ -236,7 +264,13 @@ function Control({
 
     case "select":
       return (
-        <Field id={id} label={param.label} help={param.help} error={error}>
+        <Field
+          id={id}
+          label={param.label}
+          help={param.help}
+          note={note}
+          error={error}
+        >
           <Select
             id={id}
             value={String(value ?? param.default)}
@@ -250,7 +284,13 @@ function Control({
 
     case "toggle":
       return (
-        <Field id={id} label={param.label} help={param.help} error={error}>
+        <Field
+          id={id}
+          label={param.label}
+          help={param.help}
+          note={note}
+          error={error}
+        >
           <Toggle
             id={id}
             checked={Boolean(value ?? param.default)}
@@ -263,7 +303,13 @@ function Control({
 
     case "image":
       return (
-        <Field id={id} label={param.label} help={param.help} error={error}>
+        <Field
+          id={id}
+          label={param.label}
+          help={param.help}
+          note={note}
+          error={error}
+        >
           <ImageUpload
             id={id}
             value={String(value ?? "")}
@@ -278,7 +324,13 @@ function Control({
       // Bound outside the closure so it stays narrowed to a string.
       const measures = param.measures;
       return (
-        <Field id={id} label={param.label} help={param.help} error={error}>
+        <Field
+          id={id}
+          label={param.label}
+          help={param.help}
+          note={note}
+          error={error}
+        >
           <VideoUpload
             id={id}
             value={String(value ?? "")}
@@ -306,6 +358,7 @@ function Control({
           id={id}
           label={param.label}
           help={param.help}
+          note={note}
           error={error}
           trailing={
             <Button

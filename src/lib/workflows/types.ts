@@ -1,5 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { toClientPatch, type ClientPatch, type PatchDef } from "./patches";
+import type { StepSampler } from "./step-sampler";
 import type { ClientTurbo, TurboSpec } from "./turbo";
 
 /**
@@ -52,6 +53,15 @@ interface ParamBase {
   group?: string;
   /** Hidden behind the "Advanced" disclosure. */
   advanced?: boolean;
+  /**
+   * A line shown under the control only while the value matches — for a
+   * consequence of a particular setting that would be noise at every other one.
+   *
+   * Not written by hand on a param. `toSummary` fills it in from whatever
+   * declares the consequence, so the note cannot say something the graph does
+   * not do; today that is the workflow's `stepSampler`.
+   */
+  noteAt?: { value: ParamValue; text: string };
 }
 
 export interface TextParam extends ParamBase {
@@ -219,6 +229,12 @@ export interface WorkflowDef {
    * other: a run can have any combination of them, or none. See patches.ts.
    */
   patches?: PatchDef[];
+  /**
+   * Set when one step count wants a different sampler from the rest. Follows
+   * from a control rather than from a switch of its own, so it has no entry in
+   * `RunModes` and nothing to remember between runs. See step-sampler.ts.
+   */
+  stepSampler?: StepSampler;
   /** Which clip hand-off, if any, lands on this workflow. */
   clipTarget?: ClipTarget;
   /**
@@ -250,17 +266,20 @@ export type ClientParam = DistributiveOmit<ParamDef, "targets" | "optionsFrom">;
 
 export type WorkflowSummary = Omit<
   WorkflowDef,
-  "graph" | "params" | "turbo" | "patches"
+  "graph" | "params" | "turbo" | "patches" | "stepSampler"
 > & {
   params: ClientParam[];
   /** Present when the workflow offers the mode. Minus the node it splices in. */
   turbo?: ClientTurbo;
   /** Always present, empty where the workflow offers none. Minus their nodes. */
   patches: ClientPatch[];
+  // No `stepSampler`. All the browser needs of it is the note, which lands on
+  // the control it belongs to below; the rest is the node it swaps in.
 };
 
 export function toSummary(workflow: WorkflowDef): WorkflowSummary {
-  const { graph: _graph, params, turbo, patches, ...rest } = workflow;
+  const { graph: _graph, params, turbo, patches, stepSampler, ...rest } =
+    workflow;
   return {
     ...rest,
     // Their nodes are withheld for the same reason as turbo's below: they are
@@ -284,6 +303,14 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
       const { targets: _targets, ...clientParam } = param;
       if ("optionsFrom" in clientParam) {
         delete (clientParam as { optionsFrom?: unknown }).optionsFrom;
+      }
+      // The step sampler's note lands on the control that triggers it, so the
+      // form has nothing to know about the rule beyond what to say and when.
+      if (stepSampler && param.id === stepSampler.param) {
+        clientParam.noteAt = {
+          value: stepSampler.atValue,
+          text: stepSampler.note,
+        };
       }
       return clientParam as ClientParam;
     }),

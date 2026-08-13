@@ -6,6 +6,7 @@ import {
   durationParam,
   REFERENCE_DIRECTOR,
   h3Patches,
+  h3StepSampler,
   h3Turbo,
   promptParam,
   referenceFacets,
@@ -346,6 +347,7 @@ export const minimaxH3Reference: WorkflowDef = {
   turbo: h3Turbo(220),
 
   patches: h3Patches(),
+  stepSampler: h3StepSampler(),
 
   /**
    * With no second reference, the variadic inputs and the loader must be

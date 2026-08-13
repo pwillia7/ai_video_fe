@@ -1,4 +1,5 @@
 import type { PatchDef } from "./patches";
+import type { StepSampler } from "./step-sampler";
 import type { TurboSpec } from "./turbo";
 import type { ParamDef, ParamTarget, ParamValue, SelectParam } from "./types";
 
@@ -270,6 +271,42 @@ export function h3Turbo(
     },
     estimatedSeconds,
     help: "Applies a distilled LoRA to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Needs the MiniMax-H3 Turbo node pack.",
+  };
+}
+
+/**
+ * The four-step sampler, on every H3 graph here.
+ *
+ * `MiniMaxH3TurboSampler` comes from the same pack as the turbo LoRA and is
+ * built for exactly four steps — it takes no inputs at all, because the
+ * schedule is inside it. At four steps it stands in for the graph's
+ * `KSamplerSelect`; at any other count nothing changes.
+ *
+ * Not a switch, and deliberately so. Four steps is not a setting that happens
+ * to pair well with this sampler, it is the step count this sampler exists for,
+ * so making it a second thing to turn on would only be an opportunity to get
+ * the pair wrong. The form says what happened instead of asking.
+ *
+ * It fires on the value alone rather than on the value *and* turbo, even though
+ * four steps is really only useful with the LoRA applied. "Four steps uses the
+ * four-step sampler" is a rule a user can hold; "four steps uses it, unless
+ * turbo is off, in which case it quietly does not" is not. The cost is that a
+ * four-step run in standard mode now wants the turbo pack installed — which is
+ * no loss in practice, since a four-step run without the LoRA is not a usable
+ * take either way.
+ */
+export function h3StepSampler(): StepSampler {
+  return {
+    param: "steps",
+    atValue: 4,
+    replaces: "KSamplerSelect",
+    node: {
+      class_type: "MiniMaxH3TurboSampler",
+      // Empty, as exported. The schedule is the node.
+      inputs: {},
+      _meta: { title: "MiniMax-H3 Turbo Sampler (4-step)" },
+    },
+    note: "At 4, the pack's dedicated 4-step sampler replaces the default one.",
   };
 }
 
