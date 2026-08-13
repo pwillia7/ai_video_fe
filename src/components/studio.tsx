@@ -17,6 +17,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { TipsModal } from "@/components/tips-modal";
 import { tipsFor } from "@/lib/workflows/tips";
 import { TokenGate } from "@/components/token-gate";
+import { PatchSwitches } from "@/components/patch-switches";
 import { TurboSwitch } from "@/components/turbo-switch";
 import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/ui/panel";
@@ -28,13 +29,16 @@ import { api, ApiError, getToken } from "@/lib/client";
 import {
   clampValues,
   hydrateAll,
-  hydrateModes,
+  hydratePatches,
+  hydrateTurbo,
   readStoredLowVram,
   writeStoredLowVram,
-  writeStoredModes,
   writeStoredParams,
+  writeStoredPatches,
+  writeStoredTurbo,
 } from "@/lib/param-storage";
-import { effectiveWorkflow, workflowLabel } from "@/lib/workflows/turbo";
+import { workflowLabel } from "@/lib/workflows/modes";
+import { effectiveWorkflow } from "@/lib/workflows/turbo";
 import {
   CLIP_ACTIONS,
   defaultValuesFor,
@@ -165,12 +169,24 @@ function Workbench({
   // because the values depend on the modes — a stored steps value is merged
   // against whichever range the mode it was saved under puts it in.
   const [initial] = useState(() => {
-    const modes = hydrateModes(workflows);
-    return { modes, values: hydrateAll(workflows, modes) };
+    const turbo = hydrateTurbo(workflows);
+    return {
+      turbo,
+      patches: hydratePatches(workflows),
+      values: hydrateAll(workflows, turbo),
+    };
   });
 
   /** Which workflows are in turbo. Only ever keyed by ones that offer it. */
-  const [turboByWorkflow, setTurboByWorkflow] = useState(initial.modes);
+  const [turboByWorkflow, setTurboByWorkflow] = useState(initial.turbo);
+
+  /**
+   * Which single-node switches are on, per workflow. Kept apart from turbo
+   * rather than folded into one map of mode objects because the two are
+   * independent — Remix offers the patches and not turbo — and because turbo is
+   * one boolean where this is a list.
+   */
+  const [patchesByWorkflow, setPatchesByWorkflow] = useState(initial.patches);
 
   /**
    * Turbo's low-VRAM path, for every workflow at once — it answers a question
@@ -191,8 +207,12 @@ function Workbench({
   }, [valuesByWorkflow]);
 
   useEffect(() => {
-    writeStoredModes(turboByWorkflow);
+    writeStoredTurbo(turboByWorkflow);
   }, [turboByWorkflow]);
+
+  useEffect(() => {
+    writeStoredPatches(patchesByWorkflow);
+  }, [patchesByWorkflow]);
 
   useEffect(() => {
     writeStoredLowVram(lowVram);
@@ -215,6 +235,14 @@ function Workbench({
   );
 
   const turboOn = Boolean(turboByWorkflow[selectedId]);
+  const patchesOn = useMemo(
+    () => patchesByWorkflow[selectedId] ?? [],
+    [patchesByWorkflow, selectedId],
+  );
+  const modes = useMemo(
+    () => ({ turbo: turboOn, patches: patchesOn }),
+    [turboOn, patchesOn],
+  );
 
   /**
    * The workflow as the switch has it: same everything, except that turbo
@@ -245,6 +273,33 @@ function Workbench({
           previous[selectedId] ?? {},
         ),
       }));
+    },
+    [picked, selectedId],
+  );
+
+  /**
+   * Nothing to clamp here, unlike turbo: a patch retunes no control, so turning
+   * one on cannot leave a value outside a range.
+   *
+   * The stored list is rebuilt from the workflow's own order rather than by
+   * appending, so it reads the same way the switches do and does not depend on
+   * the order they were clicked.
+   */
+  const setPatch = useCallback(
+    (id: string, on: boolean) => {
+      if (!picked) return;
+      setPatchesByWorkflow((previous) => {
+        const current = previous[selectedId] ?? [];
+        const wanted = on
+          ? [...current, id]
+          : current.filter((other) => other !== id);
+        return {
+          ...previous,
+          [selectedId]: picked.patches
+            .filter((patch) => wanted.includes(patch.id))
+            .map((patch) => patch.id),
+        };
+      });
     },
     [picked, selectedId],
   );
@@ -405,7 +460,7 @@ function Workbench({
   );
 
   const [tipsOpen, setTipsOpen] = useState(false);
-  const tips = selected ? tipsFor(selected.id, turboOn) : undefined;
+  const tips = selected ? tipsFor(selected.id, modes) : undefined;
 
   // Which generation's settings are on screen, by id rather than by value: a
   // poll can replace the job object mid-view, and holding the object would
@@ -449,7 +504,7 @@ function Workbench({
   const submit = useCallback(() => {
     if (!selected || jobs.submitting) return;
     void jobs.submit(selected, values, {
-      turbo: turboOn,
+      ...modes,
       lowVram,
       // Only meaningful on the workflow the clip was actually loaded into, and
       // only for the hand-off that put it there.
@@ -469,7 +524,7 @@ function Workbench({
         stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
     }
-  }, [selected, values, jobs, clipSource, turboOn, lowVram]);
+  }, [selected, values, jobs, clipSource, modes, lowVram]);
 
   // Cmd/Ctrl+Enter from anywhere fires the run. Held in a ref so the listener
   // is attached once rather than on every keystroke in the prompt box.
@@ -564,6 +619,7 @@ function Workbench({
               <WorkflowPicker
                 workflows={workflows}
                 turbo={turboByWorkflow}
+                patches={patchesByWorkflow}
                 selectedId={selectedId}
                 onSelect={(id) => {
                   // Choosing a workflow by hand supersedes whatever Remix or
@@ -584,7 +640,7 @@ function Workbench({
               >
                 <PanelHeader
                   title="Settings"
-                  hint={workflowLabel(selected.name, turboOn)}
+                  hint={workflowLabel(selected.name, modes, selected.patches)}
                   action={
                     <div className="flex shrink-0 items-center gap-2">
                       {tips ? (
@@ -621,6 +677,12 @@ function Workbench({
                     onLowVramChange={setLowVram}
                   />
                 ) : null}
+
+                <PatchSwitches
+                  patches={selected.patches}
+                  on={patchesOn}
+                  onChange={setPatch}
+                />
 
                 {clipNotice &&
                 selected.clipTarget?.action === clipNotice.action ? (
@@ -791,7 +853,7 @@ function Workbench({
         <TipsModal
           open={tipsOpen}
           onClose={() => setTipsOpen(false)}
-          title={workflowLabel(selected.name, turboOn)}
+          title={workflowLabel(selected.name, modes, selected.patches)}
           tips={tips}
         />
       ) : null}

@@ -9,6 +9,7 @@ import type { WorkflowSummary } from "@/lib/workflows/types";
 export function WorkflowPicker({
   workflows,
   turbo,
+  patches,
   selectedId,
   onSelect,
   disabled,
@@ -21,6 +22,12 @@ export function WorkflowPicker({
    * the mode you left it in.
    */
   turbo: Record<string, boolean>;
+  /**
+   * The same for the single-node switches, by id. They carry a badge each but
+   * usually no estimate of their own — what they cost is learned from this
+   * machine rather than declared.
+   */
+  patches: Record<string, string[]>;
   selectedId: string | null;
   onSelect: (id: string) => void;
   disabled?: boolean;
@@ -30,9 +37,16 @@ export function WorkflowPicker({
       {workflows.map((workflow) => {
         const selected = workflow.id === selectedId;
         const isTurbo = Boolean(turbo[workflow.id]) && Boolean(workflow.turbo);
-        const estimate = isTurbo
-          ? (workflow.turbo?.estimatedSeconds ?? workflow.estimatedSeconds)
-          : workflow.estimatedSeconds;
+        const on = patches[workflow.id] ?? [];
+        const active = workflow.patches.filter((patch) =>
+          on.includes(patch.id),
+        );
+        const estimate =
+          active
+            .map((patch) => patch.estimatedSeconds)
+            .findLast((seconds) => seconds !== undefined) ??
+          (isTurbo ? workflow.turbo?.estimatedSeconds : undefined) ??
+          workflow.estimatedSeconds;
         return (
           <button
             key={workflow.id}
@@ -62,14 +76,10 @@ export function WorkflowPicker({
               <span className="text-[13px] font-medium tracking-[-0.01em] text-fg">
                 {workflow.name}
               </span>
-              {isTurbo ? (
-                <span
-                  className="rounded bg-accent-subtle px-1.5 py-0.5 text-[10px] font-medium
-                    uppercase tracking-[0.06em] text-fg-muted"
-                >
-                  Turbo
-                </span>
-              ) : null}
+              {isTurbo ? <Badge>Turbo</Badge> : null}
+              {active.map((patch) => (
+                <Badge key={patch.id}>{patch.label}</Badge>
+              ))}
               {estimate ? (
                 <span className="ml-auto font-mono text-[11px] tabular-nums text-fg-subtle">
                   ~{formatEstimate(estimate)}
@@ -84,6 +94,18 @@ export function WorkflowPicker({
         );
       })}
     </div>
+  );
+}
+
+/** A mode the card is currently in, named on the card. */
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="rounded bg-accent-subtle px-1.5 py-0.5 text-[10px] font-medium
+        uppercase tracking-[0.06em] text-fg-muted"
+    >
+      {children}
+    </span>
   );
 }
 

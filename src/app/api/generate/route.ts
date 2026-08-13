@@ -4,6 +4,7 @@ import { allowedValuesFor } from "@/lib/dynamic-options";
 import { errorResponse } from "@/lib/errors";
 import { applyParams, ParamError, validateWorkflow } from "@/lib/params";
 import { getWorkflow } from "@/lib/workflows";
+import { enabledPatches } from "@/lib/workflows/patches";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
       params?: Record<string, unknown>;
       turbo?: boolean;
       lowVram?: boolean;
+      patches?: string[];
     };
 
     if (!body.workflowId) {
@@ -34,11 +36,17 @@ export async function POST(request: Request) {
       throw new ParamError(`Unknown workflow "${body.workflowId}".`);
     }
 
-    // A mode rather than a workflow of its own: the LoRA is spliced into the
-    // graph on the way past. See src/lib/workflows/turbo.ts.
+    // Modes rather than workflows of their own: each splices a node into the
+    // graph on the way past, and they stack. See src/lib/workflows/modes.ts.
     const turbo = body.turbo === true;
     if (turbo && !workflow.turbo) {
       throw new ParamError(`Workflow "${workflow.id}" has no turbo mode.`);
+    }
+    const patches = Array.isArray(body.patches) ? body.patches : [];
+    for (const id of patches) {
+      if (!workflow.patches?.some((patch) => patch.id === id)) {
+        throw new ParamError(`Workflow "${workflow.id}" has no "${id}" switch.`);
+      }
     }
     // Ignored rather than refused off turbo: the input it sets belongs to the
     // LoRA node, which a standard run never splices in, so there is nothing
@@ -70,7 +78,7 @@ export async function POST(request: Request) {
       workflow,
       body.params ?? {},
       allowedValues,
-      { turbo, lowVram },
+      { turbo, lowVram, patches },
     );
 
     const clientId = crypto.randomUUID();
@@ -81,7 +89,14 @@ export async function POST(request: Request) {
       queueNumber: result.number,
       clientId,
       resolved,
+      // Only ever a starting point: the client replaces it with this machine's
+      // own median for this workflow and these modes as soon as it has one, so
+      // the fact that neither number describes both switches at once costs a
+      // rough progress bar on the first run in a combination and nothing after.
       estimatedSeconds:
+        enabledPatches(workflow.patches, patches)
+          .map((patch) => patch.estimatedSeconds)
+          .findLast((seconds) => seconds !== undefined) ??
         (turbo ? workflow.turbo?.estimatedSeconds : undefined) ??
         workflow.estimatedSeconds ??
         null,

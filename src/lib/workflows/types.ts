@@ -1,4 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import { toClientPatch, type ClientPatch, type PatchDef } from "./patches";
 import type { ClientTurbo, TurboSpec } from "./turbo";
 
 /**
@@ -212,6 +213,12 @@ export interface WorkflowDef {
    * means anything different in one than the other. See turbo.ts.
    */
   turbo?: TurboSpec;
+  /**
+   * The single-node switches this graph offers — SageAttention, Spectrum — in
+   * the order they stack in the model's path. Independent of turbo and of each
+   * other: a run can have any combination of them, or none. See patches.ts.
+   */
+  patches?: PatchDef[];
   /** Which clip hand-off, if any, lands on this workflow. */
   clipTarget?: ClipTarget;
   /**
@@ -241,16 +248,24 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 
 export type ClientParam = DistributiveOmit<ParamDef, "targets" | "optionsFrom">;
 
-export type WorkflowSummary = Omit<WorkflowDef, "graph" | "params" | "turbo"> & {
+export type WorkflowSummary = Omit<
+  WorkflowDef,
+  "graph" | "params" | "turbo" | "patches"
+> & {
   params: ClientParam[];
   /** Present when the workflow offers the mode. Minus the node it splices in. */
   turbo?: ClientTurbo;
+  /** Always present, empty where the workflow offers none. Minus their nodes. */
+  patches: ClientPatch[];
 };
 
 export function toSummary(workflow: WorkflowDef): WorkflowSummary {
-  const { graph: _graph, params, turbo, ...rest } = workflow;
+  const { graph: _graph, params, turbo, patches, ...rest } = workflow;
   return {
     ...rest,
+    // Their nodes are withheld for the same reason as turbo's below: they are
+    // server-side wiring the form has no use for.
+    patches: (patches ?? []).map(toClientPatch),
     // Withheld for the same reason as the graph: the node names a model file
     // that exists on the ComfyUI box and nowhere else.
     turbo: turbo

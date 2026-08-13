@@ -1,5 +1,8 @@
 import type { ComfyGraph } from "@/lib/comfy";
-import { applyTurbo, modelLoaderIn, turboParams } from "@/lib/workflows/turbo";
+import { modelLoaderIn } from "@/lib/workflows/model-chain";
+import type { RunModes } from "@/lib/workflows/modes";
+import { applyPatch, enabledPatches } from "@/lib/workflows/patches";
+import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
 import type { ParamDef, ParamValue, WorkflowDef } from "@/lib/workflows/types";
 
 export class ParamError extends Error {
@@ -152,17 +155,16 @@ export interface AppliedParams {
 }
 
 /**
- * How the run is being made, as against what it is of. Neither of these is a
+ * How the run is being made, as against what it is of. None of these is a
  * param: they change which graph gets queued rather than a value inside one,
- * and the node they speak for is not in the stored graph at all. See turbo.ts.
+ * and the nodes they speak for are not in the stored graph at all. See
+ * modes.ts, and turbo.ts and patches.ts for the splices.
  *
- * An object rather than two more positional arguments because they are both
+ * An object rather than more positional arguments because two of the three are
  * booleans and would otherwise be tellable apart only by counting commas.
  */
-export interface RunMode {
-  /** Run with the distilled LoRA spliced in. */
-  turbo?: boolean;
-  /** Apply that LoRA the memory-sparing way. Only means anything with turbo. */
+export interface RunMode extends RunModes {
+  /** Apply the turbo LoRA the memory-sparing way. Only means anything with turbo. */
   lowVram?: boolean;
 }
 
@@ -184,13 +186,28 @@ export function applyParams(
   const graph = structuredClone(workflow.graph);
   const resolved: Record<string, ParamValue> = {};
 
+  // Every splice runs before the values are written, so `finalize` sees the
+  // graph that will actually be queued. Nothing targets the loader or any
+  // spliced node in any case.
+  //
+  // Turbo first and the patches after, so each ends up wrapping the model the
+  // one before it produced — though that ordering is enforced by SPLICE_ORDER
+  // rather than by the order of these lines, so rearranging them would be
+  // untidy rather than wrong.
   if (turbo) {
     if (!workflow.turbo) {
       throw new ParamError(`Workflow "${workflow.id}" has no turbo mode.`);
     }
-    // Before the values are written, so `finalize` sees the graph that will
-    // actually be queued. Nothing targets the loader or the LoRA either way.
     applyTurbo(graph, workflow.turbo, mode.lowVram === true);
+  }
+
+  for (const id of mode.patches ?? []) {
+    if (!workflow.patches?.some((patch) => patch.id === id)) {
+      throw new ParamError(`Workflow "${workflow.id}" has no "${id}" switch.`);
+    }
+  }
+  for (const patch of enabledPatches(workflow.patches, mode.patches)) {
+    applyPatch(graph, patch);
   }
 
   // The steps control has a different range in turbo, so the range a value is
@@ -284,7 +301,64 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
   }
 
   problems.push(...turboProblems(workflow));
+  problems.push(...patchProblems(workflow));
   problems.push(...directorProblems(workflow));
+
+  return problems;
+}
+
+/**
+ * Whether each patch's splice would work on this graph — asked here for the
+ * same reason as turbo's: a patch has no separate definition to check, and the
+ * failure would otherwise land minutes into a render.
+ *
+ * Two cases per patch, because they are different splices. Alone, a patch
+ * attaches to the UNET loader; in the full stack it attaches to a node that is
+ * itself only there at run time, and a graph where that second splice found
+ * nothing to sit in front of would pass the first check and fail the run.
+ *
+ * The full stack rather than every combination: with the splices anchored by
+ * SPLICE_ORDER, an intermediate combination cannot break one that both the
+ * alone and the everything-at-once case survive.
+ */
+function patchProblems(workflow: WorkflowDef): string[] {
+  const patches = workflow.patches ?? [];
+  if (patches.length === 0) return [];
+
+  const problems: string[] = [];
+
+  const seen = new Set<string>();
+  for (const patch of patches) {
+    if (seen.has(patch.id)) {
+      problems.push(`Two patches share the id "${patch.id}".`);
+    }
+    seen.add(patch.id);
+  }
+
+  const attempt = (
+    what: string,
+    where: string,
+    apply: (graph: ComfyGraph) => void,
+  ) => {
+    try {
+      apply(structuredClone(workflow.graph));
+    } catch (error) {
+      problems.push(
+        `${what} cannot be applied${where}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  };
+
+  for (const patch of patches) {
+    attempt(patch.label, " on its own", (graph) => applyPatch(graph, patch));
+  }
+
+  attempt("The switches", " together", (graph) => {
+    if (workflow.turbo) applyTurbo(graph, workflow.turbo);
+    for (const patch of patches) applyPatch(graph, patch);
+  });
 
   return problems;
 }

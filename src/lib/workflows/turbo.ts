@@ -1,4 +1,5 @@
 import type { ComfyGraph, ComfyNode } from "@/lib/comfy";
+import { spliceModel, type SpliceId } from "./model-chain";
 import type { ParamValue, WorkflowSummary } from "./types";
 
 /**
@@ -14,27 +15,12 @@ import type { ParamValue, WorkflowSummary } from "./types";
  * ComfyUI exports, which is the property that lets them be diffed against a
  * re-export, and the LoRA is spliced into a clone on the way to the queue.
  *
- * The consumers are found rather than declared. In every graph here they are
- * BasicScheduler and BasicGuider, but naming them per workflow would be a list
- * to keep in step with five graphs, and the graph already knows: anything
- * linked to the loader's output is a consumer by definition. Missing one would
- * be the quiet kind of wrong — sigmas scheduled against the distilled model
- * while the guider ran the base one.
+ * The splice itself lives in model-chain.ts, which the patches use too and which
+ * owns the order they all stack in.
  */
 
-/**
- * Node id for the spliced-in LoRA. Not a number, like the "105:" ids the
- * subgraph exports carry, and for the same reason those work: ComfyUI's API
- * format keys nodes by string.
- */
-const TURBO_NODE_ID = "turbo";
-
-/**
- * The class holding the diffusion model. Every graph here loads one this way;
- * a graph that used a checkpoint loader instead would need adding here, and
- * would fail `pnpm check:workflows` until it was.
- */
-const MODEL_LOADER = "UNETLoader";
+/** Node id for the spliced-in LoRA. */
+const TURBO_NODE_ID: SpliceId = "turbo";
 
 /**
  * A memory-for-time input on the spliced node, offered as a switch of its own.
@@ -118,24 +104,8 @@ export type ClientTurbo = Omit<
   lowVram?: Omit<TurboLowVram, "input">;
 };
 
-/** True for a link to the given node's first output. */
-function isLinkFrom(value: unknown, nodeId: string): boolean {
-  return Array.isArray(value) && value[0] === nodeId && value[1] === 0;
-}
-
-/** The one diffusion-model loader in the graph, or null if that is not what it has. */
-export function modelLoaderIn(graph: ComfyGraph): string | null {
-  const loaders = Object.keys(graph).filter(
-    (id) => graph[id].class_type === MODEL_LOADER,
-  );
-  return loaders.length === 1 ? loaders[0] : null;
-}
-
 /**
  * Splice the LoRA in, in place. Call it on a clone — `applyParams` does.
- *
- * Rewiring happens before the node is added, so the LoRA's own model input is
- * not caught by its own rewrite.
  *
  * `lowVram` is written onto the spliced node rather than reaching it as a param
  * like everything else the user sets, because the node it belongs to is not in
@@ -147,31 +117,6 @@ export function applyTurbo(
   spec: TurboSpec,
   lowVram = false,
 ): void {
-  const loader = modelLoaderIn(graph);
-  if (!loader) {
-    throw new Error(
-      `Turbo needs exactly one ${MODEL_LOADER} to attach to; this graph has ` +
-        `${Object.values(graph).filter((n) => n.class_type === MODEL_LOADER).length}.`,
-    );
-  }
-  if (graph[TURBO_NODE_ID]) {
-    throw new Error(`Turbo needs node id "${TURBO_NODE_ID}", which is taken.`);
-  }
-
-  let rewired = 0;
-  for (const node of Object.values(graph)) {
-    for (const [input, value] of Object.entries(node.inputs)) {
-      if (!isLinkFrom(value, loader)) continue;
-      node.inputs[input] = [TURBO_NODE_ID, 0];
-      rewired += 1;
-    }
-  }
-  if (rewired === 0) {
-    throw new Error(
-      `Nothing reads ${MODEL_LOADER} (node ${loader}), so there is nothing for turbo to sit in front of.`,
-    );
-  }
-
   if (spec.lowVram && !(spec.lowVram.input in spec.node.inputs)) {
     throw new Error(
       `Turbo offers a low-VRAM switch on "${spec.lowVram.input}", which ` +
@@ -179,14 +124,13 @@ export function applyTurbo(
     );
   }
 
-  graph[TURBO_NODE_ID] = {
-    ...spec.node,
-    inputs: {
-      ...spec.node.inputs,
-      [spec.modelInput]: [loader, 0],
-      ...(spec.lowVram ? { [spec.lowVram.input]: lowVram } : {}),
-    },
-  };
+  spliceModel(graph, {
+    id: TURBO_NODE_ID,
+    label: "Turbo",
+    node: spec.node,
+    modelInput: spec.modelInput,
+    inputs: spec.lowVram ? { [spec.lowVram.input]: lowVram } : undefined,
+  });
 }
 
 /**
@@ -247,12 +191,4 @@ export function effectiveWorkflow(
     estimatedSeconds:
       workflow.turbo.estimatedSeconds ?? workflow.estimatedSeconds,
   };
-}
-
-/**
- * How a run is named once the mode is part of what it is — in the history, in
- * the notification, and above the tips.
- */
-export function workflowLabel(name: string, turbo: boolean | undefined): string {
-  return turbo ? `${name} (Turbo)` : name;
 }

@@ -46,6 +46,13 @@ export interface Job {
    * teach the estimate a median that describes neither.
    */
   turbo?: boolean;
+  /**
+   * Which single-node switches were on, by id. Recorded for the same reason as
+   * turbo: each sits in front of the sampler, so each changes what a run costs,
+   * and the estimate is only honest if it is learned from runs made the same
+   * way.
+   */
+  patches?: string[];
   hasAudio: boolean;
   submittedAt: number;
   /**
@@ -150,12 +157,15 @@ export function renderMs(job: Job): number | null {
  * Median over the last few runs, so one anomalous render does not skew it.
  */
 export function learnedEstimateSeconds(jobs: Job[], job: Job): number | null {
+  const wanted = modeKey(job);
   const samples = jobs
     .filter(
       (other) =>
         other.workflowId === job.workflowId &&
-        // Same graph, very different render time.
-        Boolean(other.turbo) === Boolean(job.turbo) &&
+        // Same graph, very different render time — for every switch, so the
+        // whole set has to match. History from before a switch existed carries
+        // no record of it and so reads as off, which is what those runs were.
+        modeKey(other) === wanted &&
         other.phase === "done",
     )
     .map(renderMs)
@@ -166,6 +176,14 @@ export function learnedEstimateSeconds(jobs: Job[], job: Job): number | null {
 
   const sorted = [...samples].sort((a, b) => a - b);
   return Math.round(sorted[Math.floor(sorted.length / 2)] / 1000);
+}
+
+/**
+ * Which combination of switches a run was made with, as one comparable string.
+ * Sorted so two runs with the same switches on match however they were stored.
+ */
+function modeKey(job: Job): string {
+  return [job.turbo ? "turbo" : "", ...(job.patches ?? [])].sort().join("|");
 }
 
 export function formatDuration(ms: number): string {

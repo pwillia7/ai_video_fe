@@ -1,3 +1,4 @@
+import type { PatchDef } from "./patches";
 import type { TurboSpec } from "./turbo";
 import type { ParamDef, ParamTarget, ParamValue, SelectParam } from "./types";
 
@@ -269,6 +270,109 @@ export function h3Turbo(
     },
     estimatedSeconds,
     help: "Applies a distilled LoRA to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Needs the MiniMax-H3 Turbo node pack.",
+  };
+}
+
+/**
+ * The patches every H3 graph here offers, in the order they stack.
+ *
+ * A shared builder because nothing about either is per graph — unlike turbo,
+ * they attach to the sampling model rather than to a particular checkpoint, so
+ * there is no `requiresModel` equivalent to check and no step range to retune.
+ * The same two nodes, with the same settings, on all five.
+ *
+ * **Both need something the base graphs do not**, and neither failure is
+ * obvious: with the switch off every workflow runs, and with it on every
+ * workflow dies several minutes in on a class or a kernel nobody recognises.
+ * `pnpm check:nodes` checks the patched form of each graph too, and reports the
+ * owning package off the install itself, so it names what is missing rather than
+ * leaving you to guess.
+ */
+export function h3Patches(): PatchDef[] {
+  return [h3Sage(), h3Spectrum()];
+}
+
+/**
+ * The SageAttention patch: KJNodes' `PathchSageAttentionKJ`, swapping the
+ * attention implementation the model runs on.
+ *
+ * The class name's misspelling is the pack's, not a typo here — correcting it
+ * would name a node ComfyUI does not have.
+ *
+ * KJNodes is already required by Remix and Extend, so this switch usually adds
+ * no new pack. It does add a requirement the packs table cannot express: the
+ * `sageattention` Python package has to be installed in ComfyUI's own
+ * environment, because the node patches in a kernel rather than shipping one.
+ * A ComfyUI with the node but not the package fails at generation time.
+ *
+ * `sage_attention: "auto"` lets the node pick the best kernel the host actually
+ * has, which is the only value that is right on more than one machine.
+ * `allow_compile` is the export's, and is what makes the first run of a session
+ * slower than the ones after it.
+ */
+function h3Sage(): PatchDef {
+  return {
+    id: "sage",
+    label: "SageAttention",
+    node: {
+      class_type: "PathchSageAttentionKJ",
+      inputs: {
+        sage_attention: "auto",
+        allow_compile: true,
+      },
+      _meta: { title: "Patch Sage Attention KJ" },
+    },
+    modelInput: "model",
+    help: "Runs attention through SageAttention's quantised kernels instead of the default. Needs KJNodes and the sageattention package installed on the ComfyUI host.",
+  };
+}
+
+/**
+ * The Spectrum forecaster: one `SpectrumApplyMiniMaxH3` node wrapping whatever
+ * model is about to be sampled.
+ *
+ * The inputs below are the ComfyUI export verbatim. They are the node pack's
+ * own tuning of its method — what each one trades is its business, not this
+ * app's — so none of them is exposed and none should be edited here without a
+ * fresh export to copy from.
+ */
+function h3Spectrum(): PatchDef {
+  return {
+    id: "spectrum",
+    label: "Spectrum",
+    node: {
+      class_type: "SpectrumApplyMiniMaxH3",
+      inputs: {
+        enabled: true,
+        blend_weight: 0.5,
+        degree: 1,
+        ridge_lambda: 0.1,
+        window_size: 2,
+        flex_window: 0.75,
+        warmup_steps: 1,
+        tail_actual_steps: 1,
+        max_history: 8,
+        debug: false,
+        history_storage: "system_ram",
+        bootstrap_first_forecast: true,
+        anchor_residual_feedback: false,
+        selective_rollback_correction: false,
+        offline_smoothing_replay: true,
+        audio_blend_weight: 0,
+        offline_archive_storage: "system_ram",
+        model_aware_mode: "off",
+        model_aware_risk_threshold: 0.65,
+        model_aware_trust_shrinkage: false,
+        model_aware_replay_generic_correction: false,
+      },
+      _meta: { title: "Spectrum Apply MiniMax H3" },
+    },
+    modelInput: "model",
+    // Neither patch declares an estimate. Both plainly change how long a run
+    // takes, but by how much is a fact about this machine and this graph, and
+    // the history learns that from the first finished run in the combination.
+    // A number invented here would only be wrong until then.
+    help: "Forecasts sampler steps from the ones already taken instead of computing every one in full. Needs the Spectrum node pack.",
   };
 }
 

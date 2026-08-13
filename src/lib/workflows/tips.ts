@@ -7,6 +7,8 @@
  * meaningless on the others.
  */
 
+import type { RunModes } from "./modes";
+
 export interface TipSection {
   heading: string;
   items: string[];
@@ -222,12 +224,51 @@ const TURBO: TipSection = {
   ],
 };
 
+/**
+ * Prepended when the matching switch is on, on the same terms as TURBO and for
+ * the same reason: each changes how the run is made rather than what any
+ * control means, so one section per switch serves every workflow.
+ *
+ * Keyed by patch id, and in the order the switches stack.
+ */
+const PATCHES: Record<string, TipSection> = {
+  sage: {
+    heading: "SageAttention is on",
+    items: [
+      "Attention runs on SageAttention's quantised kernels instead of the default. It is a different implementation of the same operation, so nothing a user types behaves differently — but it is an approximation, and a take can come out slightly different from the same seed without it.",
+      "It needs two things, not one: KJNodes for the node, and the `sageattention` package installed in ComfyUI's own Python environment for the kernels. `pnpm check:nodes` can see the node but not the package, so a run that fails with the switch on and a node the checker calls present means the package is what is missing.",
+      "`auto` picks the best kernel the card actually supports, which is why nothing here asks you to choose one.",
+      "The first run of a session is slower than the ones after it — the node compiles on the way through. Judge what it saves on the second take, not the first.",
+    ],
+  },
+  spectrum: {
+    heading: "Spectrum is on",
+    items: [
+      "The sampler runs through the Spectrum node, which forecasts steps from the ones already taken rather than computing every one in full. As with the others, the prompt director, the length maths and the frame you start from are all unchanged.",
+      "It stacks with Turbo. The two do different things — Turbo changes how many steps are needed, Spectrum changes how a step is arrived at — and with both on the forecaster sits in front of the distilled model.",
+      "It is offered on every workflow, Remix included. Remix skips Turbo because it already samples at 8 steps, which is no argument here.",
+      "Like Turbo, this needs a node pack the base workflows do not. If every run fails with the switch on and succeeds with it off, that is what to check — `pnpm check:nodes` names the pack.",
+      "Forecast steps are approximations of computed ones. If a take comes out mushier than the same seed without it, that is the trade showing, and the switch is where to look first.",
+    ],
+  },
+};
+
 export function tipsFor(
   workflowId: string,
-  turbo?: boolean,
+  modes: RunModes = {},
 ): WorkflowTips | undefined {
   const tips = WORKFLOW_TIPS[workflowId];
   if (!tips) return undefined;
-  if (!turbo) return tips;
-  return { ...tips, sections: [TURBO, ...tips.sections] };
+
+  // Turbo first, then the patches in chain order, matching the order the
+  // switches sit in down the panel.
+  const extra = [
+    ...(modes.turbo ? [TURBO] : []),
+    ...Object.entries(PATCHES)
+      .filter(([id]) => modes.patches?.includes(id))
+      .map(([, section]) => section),
+  ];
+  if (extra.length === 0) return tips;
+
+  return { ...tips, sections: [...extra, ...tips.sections] };
 }

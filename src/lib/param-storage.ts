@@ -16,11 +16,16 @@ import {
 
 const STORAGE_KEY = "sorant-params";
 /**
- * Which workflows are in turbo, kept apart from the values rather than as a
- * pseudo-param: it is not something the graph reads, and mixing it in would
- * put a key in the params blob that no param declares.
+ * Which workflows are in each run mode, kept apart from the values rather than
+ * as pseudo-params: none of it is something the graph reads, and mixing it in
+ * would put keys in the params blob that no param declares.
+ *
+ * Two keys rather than one blob, because the two are stored differently: turbo
+ * is one boolean per workflow, and the patches are a list of the switch ids
+ * that were on.
  */
-const MODES_KEY = "sorant-turbo";
+const TURBO_KEY = "sorant-turbo";
+const PATCHES_KEY = "sorant-patches";
 /**
  * Whether turbo's low-VRAM path is on. One boolean for the whole app rather
  * than one per workflow, because what it answers is "will this card hold the
@@ -46,37 +51,66 @@ export function writeStoredLowVram(lowVram: boolean): void {
   }
 }
 
-export function readStoredModes(): StoredModes {
+function read<T>(key: string): Record<string, T> {
   try {
-    const raw = localStorage.getItem(MODES_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return {};
-    const parsed = JSON.parse(raw) as StoredModes;
+    const parsed = JSON.parse(raw) as Record<string, T>;
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
     return {};
   }
 }
 
-export function writeStoredModes(modes: StoredModes): void {
+function write(key: string, value: unknown): void {
   try {
-    localStorage.setItem(MODES_KEY, JSON.stringify(modes));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // As above — a storage failure costs the preference, nothing more.
   }
 }
 
+export const writeStoredTurbo = (modes: StoredModes) => write(TURBO_KEY, modes);
+
 /**
- * The stored mode for each workflow, ignoring anything stored against a
- * workflow that no longer offers turbo.
+ * The stored turbo setting for each workflow, ignoring anything stored against
+ * a workflow that no longer offers the mode.
  */
-export function hydrateModes(workflows: WorkflowSummary[]): StoredModes {
-  const stored = readStoredModes();
+export function hydrateTurbo(workflows: WorkflowSummary[]): StoredModes {
+  const stored = read<boolean>(TURBO_KEY);
   const modes: StoredModes = {};
   for (const workflow of workflows) {
     if (!workflow.turbo) continue;
     modes[workflow.id] = stored[workflow.id] === true;
   }
   return modes;
+}
+
+/** Which single-node switches are on, per workflow. */
+export type StoredPatches = Record<string, string[]>;
+
+export const writeStoredPatches = (patches: StoredPatches) =>
+  write(PATCHES_KEY, patches);
+
+/**
+ * The stored patch settings, keeping only ids the workflow still offers.
+ *
+ * A switch removed from a workflow — or renamed, which is the same thing here —
+ * would otherwise linger in storage and be sent on the next run, where the
+ * server would refuse the whole submission over a switch the form never showed.
+ */
+export function hydratePatches(workflows: WorkflowSummary[]): StoredPatches {
+  const stored = read<string[]>(PATCHES_KEY);
+  const patches: StoredPatches = {};
+  for (const workflow of workflows) {
+    const saved = stored[workflow.id];
+    patches[workflow.id] = Array.isArray(saved)
+      ? workflow.patches
+          .filter((patch) => saved.includes(patch.id))
+          .map((patch) => patch.id)
+      : [];
+  }
+  return patches;
 }
 
 export type StoredParams = Record<string, Record<string, ParamValue>>;
@@ -154,19 +188,20 @@ export function clampValues(
 /**
  * Every workflow's values, with anything stored layered on top.
  *
- * Takes the modes because a workflow in turbo is a different set of ranges to
- * merge against — see `clampValues`.
+ * Takes the turbo modes because a workflow in turbo is a different set of
+ * ranges to merge against — see `clampValues`. The patches are not here because
+ * they retune no control; each is a node in the graph and nothing else.
  */
 export function hydrateAll(
   workflows: WorkflowSummary[],
-  modes: StoredModes,
+  turbo: StoredModes,
 ): Record<string, Record<string, ParamValue>> {
   const stored = readStoredParams();
   return Object.fromEntries(
     workflows.map((workflow) => [
       workflow.id,
       mergeWithDefaults(
-        effectiveWorkflow(workflow, modes[workflow.id]),
+        effectiveWorkflow(workflow, turbo[workflow.id]),
         stored[workflow.id],
       ),
     ]),

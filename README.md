@@ -11,9 +11,11 @@ Five MiniMax H3 workflows — text to video, image to video, reference to video,
 **Remix** (rebuild a clip you already made) and **Extend** (carry one on past
 where it stopped) — each with a hand-picked set of controls rather than the
 whole graph. All but Remix can be run in **Turbo**, a switch that applies a
-distilled LoRA and samples in a handful of steps instead of a dozen or more.
-Generations queue, run in the background, and stay in a per-device history you
-can replay, download or feed straight back in.
+distilled LoRA and samples in a handful of steps instead of a dozen or more;
+all five carry **SageAttention** and **Spectrum**, which swap the attention
+kernel and forecast sampler steps respectively. All three stack. Generations
+queue, run in the background, and stay in a per-device history you can replay,
+download or feed straight back in.
 
 It is a front end and nothing else: no model weights, no inference, no
 database. Everything expensive happens on your ComfyUI machine.
@@ -74,14 +76,27 @@ reports those missing, update ComfyUI rather than hunting for node packs.
 
 ### Custom nodes
 
-Most of the node classes these graphs use are ComfyUI built-ins. Six are not.
-All three packs install from ComfyUI Manager by name:
+Most of the node classes these graphs use are ComfyUI built-ins. Seven are not.
+The first three packs install from ComfyUI Manager by name:
 
 | Pack | Provides | Needed by |
 | --- | --- | --- |
 | [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow |
-| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate` | Remix, Extend |
+| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate`, `PathchSageAttentionKJ` | Remix, Extend, and the SageAttention switch everywhere |
 | [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA` | the Turbo switch — every workflow but Remix |
+| whichever pack you got `SpectrumApplyMiniMaxH3` from | `SpectrumApplyMiniMaxH3` | the Spectrum switch — every workflow |
+
+The Spectrum row is deliberately not a link: this repo takes the node from a
+ComfyUI export rather than shipping a pack, and search by class name in the
+Manager is the reliable way to find it. Once it is installed, `pnpm check:nodes`
+reads the owning package off your install and prints it, so you never have to
+take this table's word for where a class came from.
+
+**The SageAttention switch needs a Python package as well as a node.**
+`PathchSageAttentionKJ` patches in a kernel rather than shipping one, so
+`sageattention` has to be installed in ComfyUI's own environment. That is the one
+requirement on this page `check:nodes` cannot see: it will report the node
+present and the run will still fail with the switch on.
 
 **The OpenAI pack is not optional.** Every graph runs what you type through an
 LLM before the video model sees it ([details](#the-prompt-is-rewritten-before-the-model-sees-it)),
@@ -396,7 +411,7 @@ track. They share sampling, timing and encoding controls via
 | `minimax-h3-ref2v` — remix | The source clip's frames, measured by `GetImageSizeAndCount` — length included |
 | `minimax-h3-extend` — extend | The source clip's **last frame**, measured by `GetImageSize` |
 
-### Turbo is a mode, not a sixth workflow
+### Turbo, SageAttention and Spectrum are modes, not more workflows
 
 Four of them — everything but Remix — offer a **Turbo**
 switch in the settings panel. Turning it on splices a `MiniMaxH3TurboLoRA` node
@@ -436,12 +451,50 @@ turbo mode in this app was exactly that graph. The spec still lists the models
 the LoRA may land on, so a graph on some third UNET fails `check:workflows`
 rather than finishing a run that looks subtly wrong.
 
-The graphs on disk stay verbatim from their ComfyUI exports — the LoRA is added
-to a clone on the way to the queue, in `src/lib/workflows/turbo.ts`. Both forms
-are checked: `pnpm check:workflows` proves the splice resolves and lands on the
-right model, and `pnpm check:nodes` asks ComfyUI about the turbo graphs as well
-as the stored ones, since the LoRA node and its file are the only pieces that
-need a pack nothing else does.
+#### The patches
+
+Under the Turbo switch are two more, and **all five workflows offer both**:
+
+- **SageAttention** splices KJNodes' `PathchSageAttentionKJ`, running attention
+  on quantised kernels instead of the default. The class name's misspelling is
+  the pack's. It needs `sageattention` installed in ComfyUI's Python as well as
+  the node, and it compiles on the first run of a session, so judge what it saves
+  on the second take.
+- **Spectrum** splices `SpectrumApplyMiniMaxH3`, which forecasts sampler steps
+  from the ones already taken instead of computing every one in full.
+
+These are plain on/offs rather than Turbo's two-position control, because off
+really is their absence: the node is only in the graph when the switch is on, so
+a run with all of them off needs none of these packs installed. Both are
+described in `src/lib/workflows/patches.ts` as a list rather than as named
+fields, since they differ only in which node they carry.
+
+Remix offers both. Turbo is refused there because 8 steps is already the top of
+the LoRA's range; these change how a step is arrived at rather than how many
+there are, so that argument does not apply.
+
+**They stack, in a fixed order.** Turbo's LoRA attaches to the raw diffusion
+model, the attention patch swaps the kernel on whatever weights are in play by
+then, and Spectrum wraps whatever model is going to be sampled — so with all
+three on the chain is `UNETLoader → MiniMaxH3TurboLoRA → PathchSageAttentionKJ →
+SpectrumApplyMiniMaxH3 → BasicScheduler`/`BasicGuider`, which is what the ComfyUI
+export they came from does. The order lives in `SPLICE_ORDER` in
+`src/lib/workflows/model-chain.ts` rather than in the order the switches happen
+to be applied, because any other arrangement would fail nothing and quietly
+sample something none of the nodes was meant to produce.
+
+Unlike Turbo, neither patch retunes a control or declares a time estimate. What
+they cost is a fact about your machine, and the progress bar learns it from your
+own history — which counts each combination of switches separately, so a
+Spectrum run is never paced against a standard one's median.
+
+The graphs on disk stay verbatim from their ComfyUI exports — every node is added
+to a clone on the way to the queue, in `src/lib/workflows/turbo.ts` and
+`patches.ts` over the shared splice in `model-chain.ts`. Every form is checked:
+`pnpm check:workflows` proves each splice resolves on its own, that turbo's lands
+on the right model, and that they all still work stacked; `pnpm check:nodes` asks
+ComfyUI about each patched graph as well as the stored ones, since those nodes
+and turbo's LoRA file are the only pieces that need packs nothing else does.
 
 ### The prompt is rewritten before the model sees it
 
@@ -769,8 +822,10 @@ pnpm check:workflows
 It resolves every `target` against the graph and fails on anything stale, so a
 bad mapping surfaces immediately instead of sending a subtly wrong job to the
 GPU. The same check runs on `/api/workflows` and again before every submit. It
-also catches two couplings that are invisible in a diff: that turbo's LoRA lands
-on a model it belongs on, and that a graph driving a prompt director declares a
+also catches three couplings that are invisible in a diff: that turbo's LoRA
+lands on a model it belongs on, that each patch still finds something to sit in
+front of once the switches above it have moved the wiring, and that a graph
+driving a prompt director declares a
 `duration` or `source_seconds` param — the length block is found by param id, so
 renaming one would otherwise drop it from the instruction and the only symptom
 would be shot cut times landing past the end of the video.

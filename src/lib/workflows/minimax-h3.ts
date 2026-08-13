@@ -5,6 +5,7 @@ import {
   FRAME_EXPRESSION,
   durationParam,
   TEXT_DIRECTOR,
+  h3Patches,
   h3Turbo,
   promptParam,
   samplingParams,
@@ -267,4 +268,5 @@ export const minimaxH3: WorkflowDef = {
   graph,
   params,
   turbo: h3Turbo(130),
+  patches: h3Patches(),
 };

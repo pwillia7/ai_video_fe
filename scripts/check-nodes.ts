@@ -15,8 +15,14 @@
  * itself rather than by a list in the README that goes stale.
  */
 import { readFileSync } from "node:fs";
-import { enumValuesFor, getNodeSchema, systemStats } from "../src/lib/comfy";
+import {
+  enumValuesFor,
+  getNodeSchema,
+  systemStats,
+  type ComfyGraph,
+} from "../src/lib/comfy";
 import { WORKFLOWS } from "../src/lib/workflows";
+import { patchGraph } from "../src/lib/workflows/patches";
 import { turboGraph } from "../src/lib/workflows/turbo";
 
 /**
@@ -67,16 +73,31 @@ function collect() {
   const models = new Map<string, { loader: string; input: string } & Need>();
 
   for (const workflow of WORKFLOWS) {
-    // The turbo graph as well as the stored one. Turbo is a mode rather than a
-    // second workflow, so the LoRA node and its file appear in no graph on
-    // disk — and they are exactly the pieces most likely to be missing, since
-    // they are the only ones that need a custom pack.
-    const graphs = [workflow.graph];
+    // Each mode's graph as well as the stored one. Both are modes rather than
+    // second workflows, so the nodes they splice in — and the LoRA file turbo
+    // names — appear in no graph on disk, and they are exactly the pieces most
+    // likely to be missing, since they are the only ones that need a custom
+    // pack.
+    //
+    // The two are checked separately rather than stacked: what is being asked
+    // is whether each class and file exists, and neither node's presence
+    // affects the answer for the other.
+    const graphs: Array<{ label: string; graph: ComfyGraph }> = [
+      { label: workflow.id, graph: workflow.graph },
+    ];
     if (workflow.turbo) {
-      graphs.push(turboGraph(workflow.graph, workflow.turbo));
+      graphs.push({
+        label: `${workflow.id} (turbo)`,
+        graph: turboGraph(workflow.graph, workflow.turbo),
+      });
     }
-    for (const [index, graph] of graphs.entries()) {
-      const used = index === 0 ? workflow.id : `${workflow.id} (turbo)`;
+    for (const patch of workflow.patches ?? []) {
+      graphs.push({
+        label: `${workflow.id} (${patch.id})`,
+        graph: patchGraph(workflow.graph, patch),
+      });
+    }
+    for (const { label: used, graph } of graphs) {
       for (const node of Object.values(graph)) {
         const existing = classes.get(node.class_type);
         if (existing) existing.workflows.add(used);

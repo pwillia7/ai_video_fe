@@ -5,6 +5,7 @@ import {
   directorTarget,
   durationParam,
   REFERENCE_DIRECTOR,
+  h3Patches,
   h3Turbo,
   promptParam,
   referenceFacets,
@@ -343,6 +344,8 @@ export const minimaxH3Reference: WorkflowDef = {
    * finished turbo run on a machine replaces it with that machine's median.
    */
   turbo: h3Turbo(220),
+
+  patches: h3Patches(),
 
   /**
    * With no second reference, the variadic inputs and the loader must be

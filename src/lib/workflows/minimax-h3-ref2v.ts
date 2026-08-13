@@ -3,6 +3,7 @@ import type { ParamDef, WorkflowDef } from "./types";
 import {
   directorTarget,
   clipDurationParam,
+  h3Patches,
   promptParam,
   REMIX_DIRECTOR,
   samplingParams,
@@ -300,6 +301,12 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * buy no time at all and spend quality per step for the privilege. Add
    * `h3Turbo` here if that ever stops being true.
    */
+  /**
+   * The patches do apply, though, and for the reason turbo does not: they
+   * change how a step is arrived at rather than how many there are, so a low
+   * step count is no argument against either of them.
+   */
+  patches: h3Patches(),
   /**
    * The prompt is the one thing the clip cannot supply, so it comes across
    * from the generation being remixed. See ClipTarget for what deliberately

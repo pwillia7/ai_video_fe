@@ -12,12 +12,17 @@ let failed = false;
 for (const workflow of WORKFLOWS) {
   const problems = validateWorkflow(workflow);
   const nodeCount = Object.keys(workflow.graph).length;
+  const spliced = [
+    ...(workflow.turbo ? ["turbo"] : []),
+    ...(workflow.patches ?? []).map((patch) => patch.id),
+  ];
 
   if (problems.length === 0) {
     console.log(
       `  ok   ${workflow.id} — ${workflow.params.length} params over ${nodeCount} nodes` +
-        // validateWorkflow proves the splice works as well as the targets do.
-        (workflow.turbo ? ", turbo splices cleanly" : ""),
+        // validateWorkflow proves the splices work as well as the targets do —
+        // each on its own, and all of them stacked.
+        (spliced.length > 0 ? `, ${spliced.join(" + ")} splice cleanly` : ""),
     );
     continue;
   }

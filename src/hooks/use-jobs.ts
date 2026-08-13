@@ -13,7 +13,7 @@ import {
   type Job,
 } from "@/lib/jobs";
 import { notify } from "@/lib/notifications";
-import { workflowLabel } from "@/lib/workflows/turbo";
+import { workflowLabel, type RunModes } from "@/lib/workflows/modes";
 import type { ParamValue, WorkflowSummary } from "@/lib/workflows/types";
 
 const POLL_INTERVAL_MS = 1500;
@@ -67,10 +67,9 @@ export interface JobsController {
   submit: (
     workflow: WorkflowSummary,
     values: Record<string, ParamValue>,
-    options?: {
-      /** Run with the distilled LoRA. Only offered where the workflow declares it. */
-      turbo?: boolean;
-      /** Apply that LoRA the memory-sparing way. Nothing without turbo. */
+    /** Each mode is only offered where the workflow declares it. */
+    options?: RunModes & {
+      /** Apply the turbo LoRA the memory-sparing way. Nothing without turbo. */
       lowVram?: boolean;
       /** The generation whose clip this one was made from, if any. */
       derivedFrom?: string;
@@ -308,9 +307,10 @@ export function useJobs(): JobsController {
     async (
       workflow: WorkflowSummary,
       values: Record<string, ParamValue>,
-      options?: { turbo?: boolean; lowVram?: boolean; derivedFrom?: string },
+      options?: RunModes & { lowVram?: boolean; derivedFrom?: string },
     ) => {
       const turbo = Boolean(options?.turbo);
+      const patches = options?.patches ?? [];
       setSubmitting(true);
       setSubmitError(null);
       setSubmitErrorField(null);
@@ -322,6 +322,7 @@ export function useJobs(): JobsController {
             workflowId: workflow.id,
             params: values,
             turbo,
+            patches,
             lowVram: Boolean(options?.lowVram),
           }),
         });
@@ -329,11 +330,16 @@ export function useJobs(): JobsController {
         const job: Job = {
           promptId: response.promptId,
           workflowId: workflow.id,
-          // The mode is part of what the run was, so it belongs in the name
+          // The modes are part of what the run was, so they belong in the name
           // that shows in the history and in the notification.
-          workflowName: workflowLabel(workflow.name, turbo),
+          workflowName: workflowLabel(
+            workflow.name,
+            { turbo, patches },
+            workflow.patches,
+          ),
           prompt: String(values.prompt ?? ""),
           turbo,
+          patches,
           derivedFrom: options?.derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),
