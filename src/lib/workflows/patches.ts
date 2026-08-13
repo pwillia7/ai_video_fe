@@ -48,6 +48,8 @@ export interface PatchDef {
    * than not saying.
    */
   estimatedSeconds?: number;
+  /** Where the switch starts before anyone has touched it. See DEFAULTS_VERSION. */
+  defaultOn?: boolean;
   /** One line under the switch. */
   help: string;
 }

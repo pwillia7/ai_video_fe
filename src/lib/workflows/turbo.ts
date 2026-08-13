@@ -83,6 +83,8 @@ export interface TurboSpec {
   lowVram?: TurboLowVram;
   /** Wall-clock estimate with the LoRA applied, if it differs. */
   estimatedSeconds?: number;
+  /** Where the switch starts before anyone has touched it. See DEFAULTS_VERSION. */
+  defaultOn?: boolean;
   /** One line under the switch. */
   help: string;
 }

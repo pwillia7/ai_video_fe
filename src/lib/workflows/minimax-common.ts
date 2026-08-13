@@ -270,6 +270,16 @@ export function h3Turbo(
       help: "Applies the LoRA the memory-sparing way the node pack offers. Slower, and only worth it if a turbo run dies out of memory on this card.",
     },
     estimatedSeconds,
+    /**
+     * On unless someone turns it off. The distilled LoRA is how these graphs
+     * are meant to be run here — a standard take costs several times the time
+     * for a difference most shots do not show — so the useful default is the
+     * fast one, and the switch is there for the take you want to compare.
+     *
+     * It does mean a fresh install needs the turbo pack before anything
+     * generates. That is the trade, and `pnpm check:nodes` names the pack.
+     */
+    defaultOn: true,
     help: "Applies a distilled LoRA to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Needs the MiniMax-H3 Turbo node pack.",
   };
 }
@@ -318,12 +328,12 @@ export function h3StepSampler(): StepSampler {
  * there is no `requiresModel` equivalent to check and no step range to retune.
  * The same two nodes, with the same settings, on all five.
  *
- * **Both need something the base graphs do not**, and neither failure is
- * obvious: with the switch off every workflow runs, and with it on every
- * workflow dies several minutes in on a class or a kernel nobody recognises.
- * `pnpm check:nodes` checks the patched form of each graph too, and reports the
- * owning package off the install itself, so it names what is missing rather than
- * leaving you to guess.
+ * **Both need something the base graphs do not**, and both start on — so on an
+ * install missing either pack, every workflow dies several minutes in on a class
+ * or a kernel nobody recognises, and turning the switch off is the way back to a
+ * graph that runs. `pnpm check:nodes` checks the patched form of each graph too,
+ * and reports the owning package off the install itself, so it names what is
+ * missing rather than leaving you to guess.
  */
 export function h3Patches(): PatchDef[] {
   return [h3Sage(), h3Spectrum()];
@@ -360,6 +370,7 @@ function h3Sage(): PatchDef {
       _meta: { title: "Patch Sage Attention KJ" },
     },
     modelInput: "model",
+    defaultOn: true,
     help: "Runs attention through SageAttention's quantised kernels instead of the default. Needs KJNodes and the sageattention package installed on the ComfyUI host.",
   };
 }
@@ -409,6 +420,10 @@ function h3Spectrum(): PatchDef {
     // takes, but by how much is a fact about this machine and this graph, and
     // the history learns that from the first finished run in the combination.
     // A number invented here would only be wrong until then.
+    //
+    // Both start on, for the same reason turbo does: they are how these graphs
+    // are meant to be run here, and the switch is there to take one back out.
+    defaultOn: true,
     help: "Forecasts sampler steps from the ones already taken instead of computing every one in full. Needs the Spectrum node pack.",
   };
 }

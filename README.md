@@ -13,9 +13,11 @@ where it stopped) — each with a hand-picked set of controls rather than the
 whole graph. All but Remix can be run in **Turbo**, a switch that applies a
 distilled LoRA and samples in a handful of steps instead of a dozen or more;
 all five carry **SageAttention** and **Spectrum**, which swap the attention
-kernel and forecast sampler steps respectively. All three stack. Generations
-queue, run in the background, and stay in a per-device history you can replay,
-download or feed straight back in.
+kernel and forecast sampler steps respectively. All three stack, and **all three
+start on** — they are how these graphs are meant to be run here, so the switches
+are there to take one back out. That does mean a first run needs every node pack
+below. Generations queue, run in the background, and stay in a per-device
+history you can replay, download or feed straight back in.
 
 It is a front end and nothing else: no model weights, no inference, no
 database. Everything expensive happens on your ComfyUI machine.
@@ -421,8 +423,8 @@ track. They share sampling, timing and encoding controls via
 ### Turbo, SageAttention and Spectrum are modes, not more workflows
 
 Four of them — everything but Remix — offer a **Turbo**
-switch in the settings panel. Turning it on splices a `MiniMaxH3TurboLoRA` node
-between the graph's `UNETLoader` and
+switch in the settings panel, **on by default**. It splices a
+`MiniMaxH3TurboLoRA` node between the graph's `UNETLoader` and
 everything that reads it — in practice `BasicScheduler` and `BasicGuider`, both
 of which have to move or the sigmas would be scheduled against the distilled
 model while the guider ran the base one. The consumers are found in the graph
@@ -460,7 +462,8 @@ rather than finishing a run that looks subtly wrong.
 
 #### The patches
 
-Under the Turbo switch are two more, and **all five workflows offer both**:
+Under the Turbo switch are two more. **All five workflows offer both, and both
+start on:**
 
 - **SageAttention** splices KJNodes' `PathchSageAttentionKJ`, running attention
   on quantised kernels instead of the default. The class name's misspelling is
@@ -472,9 +475,19 @@ Under the Turbo switch are two more, and **all five workflows offer both**:
 
 These are plain on/offs rather than Turbo's two-position control, because off
 really is their absence: the node is only in the graph when the switch is on, so
-a run with all of them off needs none of these packs installed. Both are
-described in `src/lib/workflows/patches.ts` as a list rather than as named
+turning all three off gets you back to a graph that needs none of these packs —
+which is the thing to try first if a fresh install fails on every workflow. Both
+are described in `src/lib/workflows/patches.ts` as a list rather than as named
 fields, since they differ only in which node they carry.
+
+**Where the defaults live.** Each switch declares its own starting position —
+`defaultOn` on the turbo spec and on each patch — and the settings panel is the
+only thing that overrides it, per workflow, remembered in `localStorage`.
+Changing a default in code cannot reach a browser that has already run the app,
+because the stored maps are written back in full on every load and so always
+have an explicit entry: `DEFAULTS_VERSION` in `src/lib/param-storage.ts` moves
+the storage keys when that needs to happen, forgetting deliberate choices once
+in exchange.
 
 Remix offers both. Turbo is refused there because 8 steps is already the top of
 the LoRA's range; these change how a step is arrived at rather than how many

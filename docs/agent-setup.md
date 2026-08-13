@@ -63,8 +63,13 @@ Tell them plainly what has to be true, then let them go do it:
   needs it, and unlike turbo it needs no model file and every workflow offers
   it. This repo has the node from a ComfyUI export rather than from a named
   pack, so search the Manager by class name; `pnpm check:nodes` will report the
-  owning package once it is installed. Every workflow runs without it as long as
-  the switch is left off.
+  owning package once it is installed.
+
+**Treat all four as required.** Turbo, SageAttention and Spectrum all start
+switched on, so a fresh install needs every pack here before the first
+generation succeeds — a user who has not installed one will see every run fail
+rather than only the runs that opted in. They can be turned off per workflow in
+the settings panel if a pack is genuinely unavailable.
 
 The remaining node classes are ComfyUI built-ins — including the four
 `MiniMaxH3*` sampling nodes and `ComfyMathExpression`. If those come back

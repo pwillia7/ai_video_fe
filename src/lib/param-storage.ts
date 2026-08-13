@@ -16,6 +16,20 @@ import {
 
 const STORAGE_KEY = "sorant-params";
 /**
+ * Bumped when a switch's default changes, which is the only way such a change
+ * can reach anyone who has already run the app.
+ *
+ * The maps below are written back in full on every load, not only when
+ * something is toggled — so after one visit storage holds an explicit entry for
+ * every workflow, and "absent" stops meaning "never chose". A new default would
+ * be silently outvoted by a value nobody set. Moving the key retires those
+ * entries in one go, at the cost of forgetting deliberate choices once.
+ *
+ * Only the switches. Params keep their key, because they are what someone
+ * actually typed.
+ */
+const DEFAULTS_VERSION = 2;
+/**
  * Which workflows are in each run mode, kept apart from the values rather than
  * as pseudo-params: none of it is something the graph reads, and mixing it in
  * would put keys in the params blob that no param declares.
@@ -24,8 +38,8 @@ const STORAGE_KEY = "sorant-params";
  * is one boolean per workflow, and the patches are a list of the switch ids
  * that were on.
  */
-const TURBO_KEY = "sorant-turbo";
-const PATCHES_KEY = "sorant-patches";
+const TURBO_KEY = `sorant-turbo-v${DEFAULTS_VERSION}`;
+const PATCHES_KEY = `sorant-patches-v${DEFAULTS_VERSION}`;
 /**
  * Whether turbo's low-VRAM path is on. One boolean for the whole app rather
  * than one per workflow, because what it answers is "will this card hold the
@@ -73,15 +87,19 @@ function write(key: string, value: unknown): void {
 export const writeStoredTurbo = (modes: StoredModes) => write(TURBO_KEY, modes);
 
 /**
- * The stored turbo setting for each workflow, ignoring anything stored against
- * a workflow that no longer offers the mode.
+ * The stored turbo setting for each workflow, falling back to what the mode
+ * declares and ignoring anything stored against a workflow that no longer
+ * offers it.
  */
 export function hydrateTurbo(workflows: WorkflowSummary[]): StoredModes {
   const stored = read<boolean>(TURBO_KEY);
   const modes: StoredModes = {};
   for (const workflow of workflows) {
     if (!workflow.turbo) continue;
-    modes[workflow.id] = stored[workflow.id] === true;
+    modes[workflow.id] =
+      typeof stored[workflow.id] === "boolean"
+        ? stored[workflow.id]
+        : workflow.turbo.defaultOn === true;
   }
   return modes;
 }
@@ -93,22 +111,26 @@ export const writeStoredPatches = (patches: StoredPatches) =>
   write(PATCHES_KEY, patches);
 
 /**
- * The stored patch settings, keeping only ids the workflow still offers.
+ * The stored patch settings, falling back to whichever switches declare
+ * themselves on, and keeping only ids the workflow still offers.
  *
  * A switch removed from a workflow — or renamed, which is the same thing here —
  * would otherwise linger in storage and be sent on the next run, where the
  * server would refuse the whole submission over a switch the form never showed.
+ *
+ * A stored empty list is a real answer, not a missing one: it is what having
+ * turned every switch off looks like, and it has to survive a reload.
  */
 export function hydratePatches(workflows: WorkflowSummary[]): StoredPatches {
   const stored = read<string[]>(PATCHES_KEY);
   const patches: StoredPatches = {};
   for (const workflow of workflows) {
     const saved = stored[workflow.id];
-    patches[workflow.id] = Array.isArray(saved)
-      ? workflow.patches
-          .filter((patch) => saved.includes(patch.id))
-          .map((patch) => patch.id)
-      : [];
+    patches[workflow.id] = workflow.patches
+      .filter((patch) =>
+        Array.isArray(saved) ? saved.includes(patch.id) : patch.defaultOn,
+      )
+      .map((patch) => patch.id);
   }
   return patches;
 }
