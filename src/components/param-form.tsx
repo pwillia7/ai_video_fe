@@ -16,6 +16,7 @@ import {
 import { VideoUpload } from "@/components/ui/video-upload";
 import {
   paramVisible,
+  pinnedValue,
   type ClientParam,
   type ParamValue,
 } from "@/lib/workflows/types";
@@ -96,6 +97,10 @@ export function ParamForm({
                 key={param.id}
                 param={param}
                 value={values[param.id]}
+                // Something else is holding this control at a value — see
+                // `pinnedBy`. Resolved here rather than inside the control so
+                // it reads the same submission `paramVisible` just did.
+                pinned={pinnedValue(param, values)}
                 onChange={onChange}
                 disabled={disabled}
                 error={
@@ -171,13 +176,16 @@ export function Disclosure({
 
 function Control({
   param,
-  value,
+  value: stored,
+  pinned,
   onChange,
   disabled,
   error,
 }: {
   param: ClientParam;
   value: ParamValue | undefined;
+  /** The value this control is held at, if it is. See `pinnedBy`. */
+  pinned?: ParamValue;
   onChange: (id: string, value: ParamValue) => void;
   disabled?: boolean;
   error?: string;
@@ -185,13 +193,28 @@ function Control({
   const id = `param-${param.id}`;
 
   /**
+   * A pinned control shows what will run rather than what is stored, and cannot
+   * be moved off it. The stored value is untouched underneath — removing
+   * whatever pinned it brings the control back with that number in it, which is
+   * why this substitutes rather than writing through `onChange`.
+   */
+  const locked = pinned !== undefined;
+  const value = locked ? pinned : stored;
+  const readOnly = disabled || locked;
+
+  /**
    * The consequence of the value that is actually set, if this control has one
    * to declare — see `noteAt`. Compared loosely against the default so an
    * untouched control still reports it: `value` is undefined until something
    * writes it, and what the run would do is the same either way.
+   *
+   * A pin's own line wins, because it explains both the number and why the
+   * control is not taking input — which the value's note, on its own, would
+   * leave looking like a control that had stopped working.
    */
-  const note =
-    param.noteAt && (value ?? param.default) === param.noteAt.value
+  const note = locked
+    ? param.pinnedBy?.note
+    : param.noteAt && (value ?? param.default) === param.noteAt.value
       ? param.noteAt.text
       : undefined;
 
@@ -218,7 +241,7 @@ function Control({
             value={String(value ?? param.default)}
             onChange={(next) => onChange(param.id, next)}
             placeholder={param.placeholder}
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -240,7 +263,7 @@ function Control({
             placeholder={param.placeholder}
             rows={param.rows}
             maxLength={param.maxLength}
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -271,7 +294,7 @@ function Control({
             max={param.max}
             step={param.step}
             onChange={(next) => onChange(param.id, next)}
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -299,7 +322,7 @@ function Control({
             max={param.max}
             step={param.step}
             onChange={(next) => onChange(param.id, next)}
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -319,7 +342,7 @@ function Control({
             value={String(value ?? param.default)}
             options={param.options}
             onChange={(next) => onChange(param.id, next)}
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -338,7 +361,7 @@ function Control({
             id={id}
             checked={Boolean(value ?? param.default)}
             onChange={(next) => onChange(param.id, next)}
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -357,7 +380,7 @@ function Control({
             id={id}
             value={String(value ?? "")}
             onChange={(next) => onChange(param.id, next)}
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -381,7 +404,7 @@ function Control({
             onMeasure={
               measures ? (seconds) => onChange(measures, seconds) : undefined
             }
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -401,7 +424,7 @@ function Control({
             id={id}
             value={String(value ?? "")}
             onChange={(next) => onChange(param.id, next)}
-            disabled={disabled}
+            disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
@@ -426,7 +449,7 @@ function Control({
             <Button
               variant="quiet"
               size="xs"
-              disabled={disabled}
+              disabled={readOnly}
               onClick={() => onChange(param.id, isRandom ? 0 : -1)}
             >
               {isRandom ? "Set manually" : "Randomise"}
@@ -448,7 +471,7 @@ function Control({
               max={Number.MAX_SAFE_INTEGER}
               step={1}
               onChange={(next) => onChange(param.id, next)}
-              disabled={disabled}
+              disabled={readOnly}
               describedBy={describedBy}
             />
           )}

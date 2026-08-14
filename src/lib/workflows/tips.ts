@@ -75,11 +75,11 @@ const REFERENCE_TRACK: TipSection = {
   heading: "Building a video around a track",
   items: [
     "A piece of music can be a reference too. Press Create video on a finished track and it arrives in the Reference track slot here, ready to generate.",
-    "A track and reference images cannot be used together: attaching a track takes the image slots out of the panel, and removing it brings them back with whatever was in them. Sending both makes ComfyUI fail on a tensor shape mismatch — nothing in the model's own documentation says it should, so this is an observed limit rather than a published one.",
-    "So a run is built from one or the other. With a track, everything on screen comes from your prompt: describe the subject fully, because there is no picture for the model to take it from.",
+    "It goes to the model as a reference audio, alongside whatever pictures you attach — the two are separate references and neither replaces the other. A track and no picture is allowed; so is a picture and no track. One of the two is required, and with no picture everything on screen comes from your prompt.",
+    "A loaded track pins Steps to 4. That is the step count this workflow takes a track at: at 4 it loads the bf16 diffusion model and text encoder, which is the pair that accepts a track and pictures together. Remove the track and the control is yours again. Leave Turbo on — four steps without the distilled LoRA is not a usable take.",
     "The video is still the length of the Duration control. A four-minute song attached to a five-second clip is a reference to five seconds of music, not an instruction to make a four-minute video — nothing here can generate one.",
     "The soundtrack that comes back is the model's own. The attached track steers it rather than being copied into the output, so treat it as a brief for the score and not as the score.",
-    "The director is told a track is attached and stops writing a score of its own. Without that it invents one, and the model is then asked for a second piece of music over the one it was handed. It is also told there are no pictures, so it stops writing the <Picture 1> citations the reference format otherwise calls for.",
+    "The director is told a track is attached and stops writing a score of its own. Without that it invents one, and the model is then asked for a second piece of music over the one it was handed.",
     "It cannot hear the track — the director is shown pictures and nothing else — so if you want the action timed to the music, say so in the prompt. Anything on the beat has to come from you.",
     "Uploading a track by hand is capped at 4 MB, which a few minutes of mp3 will exceed. The button has no such limit: it copies the file between ComfyUI's own directories and never sends it through the browser.",
   ],
@@ -244,7 +244,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       {
         heading: "What to do with a finished track",
         items: [
-          "Create video sends it to Reference to Video as a reference track, the same way Remix and Extend send a clip. What is on screen then comes from your prompt: a track and reference images cannot be sent together, so the image slots step aside while the track is loaded.",
+          "Create video sends it to Reference to Video as a reference track, the same way Remix and Extend send a clip. The picture is then yours to supply — a reference image, a prompt, or both — and that run is pinned to 4 steps, which is where the track works.",
           "The video is as long as that workflow's own Duration control, which tops out at 20 seconds. A finished song is a reference for those seconds rather than a length to fill.",
           "The file never goes through your browser: it is copied between ComfyUI's own directories, so the upload size limit does not apply to it.",
         ],

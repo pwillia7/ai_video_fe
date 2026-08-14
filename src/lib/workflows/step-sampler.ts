@@ -2,7 +2,8 @@ import type { ComfyGraph, ComfyNode } from "@/lib/comfy";
 import type { ParamValue } from "./types";
 
 /**
- * The sampler a graph uses at one particular step count.
+ * The form a graph takes at one particular step count: which sampler it uses,
+ * and — where they differ — which weights it loads.
  *
  * The turbo pack ships a sampler built for exactly four steps — it carries the
  * schedule internally, which is why its node takes no inputs at all — and at
@@ -32,6 +33,28 @@ export interface StepSampler {
   /** The node that takes its place, as ComfyUI exports it. */
   node: ComfyNode;
   /**
+   * Loader inputs this step count also rewrites — a graph whose four-step form
+   * loads different weights from its standard one.
+   *
+   * Reference to Video is why. The ComfyUI export that finally produced a
+   * working four-step take with a reference track loads
+   * `minimax_h3_ref2va_bf16` and `qwen3vl_32b_minimax_h3_bf16` where the
+   * standard graph loads the quantised pair, and that is not a second workflow
+   * any more than the sampler swap is: same graph, same controls, same
+   * everything a user types.
+   *
+   * Hung off this spec rather than declared separately because it is the same
+   * fact — what this graph *is* at that step count — and keeping it here means
+   * one trigger, one note, and one form of the graph for `check:nodes` to ask
+   * ComfyUI about. A second, independently-triggered declaration could drift
+   * out of step with this one and load the quantised model under the distilled
+   * sampler.
+   *
+   * Node ids rather than classes, because a graph can have two loaders of the
+   * same class — this one has two `VAELoader`s — and the point is to name one.
+   */
+  models?: StepModel[];
+  /**
    * The line the form shows under that control while the swap is in effect.
    *
    * Here rather than on the param so it cannot drift from the rule that
@@ -40,6 +63,16 @@ export interface StepSampler {
    * which is why it appears and disappears with the number.
    */
   note: string;
+}
+
+/** One loader input, and the file it names at the swapping step count. */
+export interface StepModel {
+  /** Id of the loader in the stored graph. */
+  node: string;
+  /** The input naming the file — `unet_name`, `clip_name`, `vae_name`. */
+  input: string;
+  /** What it loads instead. */
+  value: string;
 }
 
 /** The one node this would replace, or null if that is not what the graph has. */
@@ -89,7 +122,44 @@ export function applyStepSampler(
   }
 
   graph[target] = { ...spec.node };
+
+  // The loaders keep their nodes and change one input each: everything wired to
+  // them is wired to the same node whichever weights it loads, so there is
+  // nothing here to rewire. Anything missing is a mistake in the spec rather
+  // than a graph that declined the swap, and `modelProblems` catches it before
+  // a run does — this throws for the same reason the sampler above does.
+  for (const model of spec.models ?? []) {
+    const loader = graph[model.node];
+    if (!loader || !(model.input in loader.inputs)) {
+      throw new Error(
+        `The ${spec.atValue}-step form loads ${model.value} into node ${model.node}.${model.input}, ` +
+          `which ${loader ? `${loader.class_type} does not accept` : "this graph does not have"}.`,
+      );
+    }
+    loader.inputs[model.input] = model.value;
+  }
+
   return true;
+}
+
+/** What is wrong with the model swaps, if anything. Read by `check:workflows`. */
+export function modelProblems(spec: StepSampler, graph: ComfyGraph): string[] {
+  const problems: string[] = [];
+  for (const model of spec.models ?? []) {
+    const loader = graph[model.node];
+    if (!loader) {
+      problems.push(
+        `The ${spec.atValue}-step form loads ${model.value} into node ${model.node}, which is not in the graph.`,
+      );
+      continue;
+    }
+    if (!(model.input in loader.inputs)) {
+      problems.push(
+        `The ${spec.atValue}-step form loads ${model.value} into "${model.input}", which ${loader.class_type} (node ${model.node}) does not accept.`,
+      );
+    }
+  }
+  return problems;
 }
 
 /**

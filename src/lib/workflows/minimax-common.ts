@@ -1,9 +1,10 @@
 import type { PatchDef } from "./patches";
-import type { StepSampler } from "./step-sampler";
+import type { StepModel, StepSampler } from "./step-sampler";
 import type { TurboSpec } from "./turbo";
 import type {
   ImageParam,
   ParamDef,
+  ParamPin,
   ParamTarget,
   ParamValue,
   SelectParam,
@@ -311,7 +312,18 @@ export function h3Turbo(
  * no loss in practice, since a four-step run without the LoRA is not a usable
  * take either way.
  */
-export function h3StepSampler(): StepSampler {
+export function h3StepSampler({
+  models,
+  note = "",
+}: {
+  /**
+   * Loaders this graph points at different files at four steps — see `models`
+   * on StepSampler. Only Reference to Video has any.
+   */
+  models?: StepModel[];
+  /** Appended to the shared note, for a graph that swaps more than the sampler. */
+  note?: string;
+} = {}): StepSampler {
   return {
     param: "steps",
     atValue: 4,
@@ -322,7 +334,10 @@ export function h3StepSampler(): StepSampler {
       inputs: {},
       _meta: { title: "MiniMax-H3 Turbo Sampler (4-step)" },
     },
-    note: "At 4, the pack's dedicated 4-step sampler replaces the default one.",
+    models,
+    note:
+      "At 4, the pack's dedicated 4-step sampler replaces the default one." +
+      (note ? ` ${note}` : ""),
   };
 }
 
@@ -496,11 +511,7 @@ function keepMode(value: ParamValue | undefined): (typeof KEEP_MODES)[KeepMode] 
 export function referenceKeepParam(
   director: ParamTarget,
   index: number,
-  {
-    advanced = false,
-    revealedBy,
-    hiddenBy,
-  }: { advanced?: boolean; revealedBy?: string; hiddenBy?: string } = {},
+  { advanced = false, revealedBy }: { advanced?: boolean; revealedBy?: string } = {},
 ): SelectParam {
   return {
     id: keepParamId(index),
@@ -516,7 +527,6 @@ export function referenceKeepParam(
     group: "References",
     advanced,
     revealedBy,
-    hiddenBy,
     targets: [director],
   };
 }
@@ -551,19 +561,11 @@ export function referenceSlot({
   node,
   director,
   firstRequired = true,
-  hiddenBy,
 }: {
   index: number;
   /** The LoadImage this slot's upload fills. */
   node: string;
   director: ParamTarget;
-  /**
-   * A param whose value takes this slot out of the form entirely — for a graph
-   * where some other reference cannot be combined with a picture. Both halves
-   * of the slot take it, so a hidden slot leaves no orphaned facet select
-   * behind, and the graph's `finalize` has to drop the same slots it hides.
-   */
-  hiddenBy?: string;
   /**
    * Whether a run has to have a picture in the first slot.
    *
@@ -588,7 +590,6 @@ export function referenceSlot({
         : `Optional. Refer to it as <Picture ${index}>.`,
     group: "References",
     revealedBy: index === 1 ? undefined : imageParamId(index - 1),
-    hiddenBy,
     targets: [{ node, input: "image" }],
   };
 
@@ -598,7 +599,6 @@ export function referenceSlot({
     // nobody has uploaded describes nothing.
     referenceKeepParam(director, index, {
       revealedBy: index === 1 ? undefined : imageParamId(index),
-      hiddenBy,
     }),
   ];
 }
@@ -637,11 +637,10 @@ export function leadingReferences(
  * on every run, and left to itself it invents a score, which is then the score
  * the model is asked for on top of the one it was handed.
  *
- * It also has to say there are no pictures, because on the one graph that
- * offers this a track and pictures cannot be sent together — see
- * `trackAttached` in minimax-h3-ref.ts. Without that the director writes the
- * reference format it always writes, citing <Picture 1> at a model that was
- * given no picture at all.
+ * It says nothing about what is on screen. A track sits alongside whatever
+ * pictures are attached rather than in place of them, and a run with a track
+ * and no picture is told so by `referenceFacets` instead — that appendix speaks
+ * for the pictures, so it is the one that has to say when there are none.
  *
  * Keyed off the param id rather than passed a boolean, on the same terms as
  * every other appendix here: it reads the submission, so a graph adding the
@@ -651,17 +650,15 @@ export function referenceTrack(paramId: string): DirectorAppendix {
   return (values) => {
     if (!String(values[paramId] ?? "").trim()) return "";
 
-    return `THE REFERENCE IS A TRACK, AND THERE ARE NO PICTURES
+    return `A TRACK HAS BEEN ATTACHED
 
-The user has supplied a piece of music as the reference, and the model is given it directly. You have not heard it and you are not being asked to describe it.
+The user has supplied a piece of music as a reference, and the model is given it directly. You have not heard it and you are not being asked to describe it.
 
-There are no reference images on this run. Do not cite <Picture 1> or any other picture, do not write a subject_definitions line that refers to one, and do not describe anyone or anything as being "in" an image you were shown — you were shown none. Every subject in this video is invented from the user's text, so define it from the text and describe it fully enough to be built from nothing.
-
-Write non_diegetic_music as deference rather than as a specification: say that the score is the supplied reference track and that it plays throughout, and name no genre, tempo, key or instrument you have not been told. Inventing one asks the model for a second piece of music over the one it already has.
+So write non_diegetic_music as deference rather than as a specification: say that the score is the supplied reference track and that it plays throughout, and name no genre, tempo, key or instrument you have not been told. Inventing one asks the model for a second piece of music over the one it already has.
 
 overall_soundscape is still yours to write, and it is the diegetic sound — what is audible in the scene itself. Keep it to that, and keep it sparse enough to sit under a track rather than compete with one.
 
-Nothing about the attached track changes what is on screen unless the user's own text says it does — but if they have asked for movement on the beat, a performance, or anything else timed to the music, write that into the action.`;
+What is on screen is where your attention belongs. Nothing about the attached track changes it unless the user's own text says it does — but if they have asked for movement on the beat, a performance, or anything else timed to the music, write that into the action.`;
   };
 }
 
@@ -676,6 +673,10 @@ Nothing about the attached track changes what is on screen unless the user's own
  * loader in that case, and describing a picture the model was never given is
  * how a phantom second subject gets into the scene. Both sides read the count
  * off `leadingReferences`, so what is described here is exactly what is wired.
+ *
+ * No pictures at all is the one case that is not silence: on a graph that can
+ * run on a reference track alone, the director has to be told there is nothing
+ * to cite, or it writes the citations its format calls for anyway.
  */
 export function referenceFacets(count: number): DirectorAppendix {
   return (values) => {
@@ -689,7 +690,17 @@ export function referenceFacets(count: number): DirectorAppendix {
       );
     }
 
-    if (lines.length === 0) return "";
+    // No pictures at all, which only the graph that also takes a reference
+    // track can reach. Silence would leave the director writing the <Picture 1>
+    // citations its format always calls for at a model that was given none, so
+    // this says the opposite of what the block below says rather than nothing.
+    if (lines.length === 0) {
+      return `THERE ARE NO REFERENCE IMAGES
+
+Nothing has been attached for you to look at. Do not cite <Picture 1> or any other picture, do not write a subject_definitions line that refers to one, and do not describe anyone or anything as being "in" an image you were shown — you were shown none.
+
+Every subject in this video is invented from the user's text. Define each one from that text and describe it fully enough to be built from nothing.`;
+    }
 
     return `WHAT EACH REFERENCE IS FOR
 
@@ -703,8 +714,19 @@ Where the user's own text says something more specific about a picture, follow t
 
 export function samplingParams(
   ids: Pick<MinimaxNodeIds, "noise" | "scheduler">,
-  /** The remix graph runs fewer steps than the rest. */
-  { steps = 12 }: { steps?: number } = {},
+  {
+    steps = 12,
+    pinSteps,
+  }: {
+    /** The remix graph runs fewer steps than the rest. */
+    steps?: number;
+    /**
+     * A control that takes the step count out of the user's hands while it is
+     * set — see `pinnedBy`. Reference to Video's track does, because the only
+     * form of that graph that survives a reference track is the four-step one.
+     */
+    pinSteps?: ParamPin;
+  } = {},
 ): ParamDef[] {
   return [
     {
@@ -725,6 +747,7 @@ export function samplingParams(
       max: 60,
       step: 1,
       group: "Sampling",
+      pinnedBy: pinSteps,
       targets: [{ node: ids.scheduler, input: "steps" }],
     },
   ];

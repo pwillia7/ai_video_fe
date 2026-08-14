@@ -139,13 +139,15 @@ rewrite step with an error that says nothing about models. If they hit that,
 have them change it to a model their key can use — once per file in
 `src/lib/workflows/`.
 
-**Nine model files**, named literally in the graphs:
+**Eleven model files**, named literally in the graphs:
 
 | File | Directory | Needed by |
 | --- | --- | --- |
 | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | all but the reference and music workflows |
 | `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | the reference workflows |
+| `minimax_h3_ref2va_bf16.safetensors` | `models/diffusion_models/` | Reference to Video at 4 steps, which is where a reference track runs |
 | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | the five video workflows |
+| `qwen3vl_32b_minimax_h3_bf16.safetensors` | `models/text_encoders/` | Reference to Video at 4 steps, alongside the bf16 diffusion model |
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video workflows |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video workflows |
 | `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every video workflow but Remix) |

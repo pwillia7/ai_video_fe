@@ -1,6 +1,7 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { ParamError } from "@/lib/params";
-import type { ParamDef, ParamValue, WorkflowDef } from "./types";
+import type { StepModel } from "./step-sampler";
+import type { ParamDef, ParamPin, ParamValue, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   directorTarget,
@@ -41,9 +42,9 @@ import {
  *   what the Create video button on a finished track fills in — see
  *   `clipTarget` — and the reason this graph, alone among the H3 ones, has a
  *   LoadAudio in it.
- * - **A track and pictures cannot be sent together.** ComfyUI raises a tensor
- *   shape error on the pair, so the form hides one while the other is set and
- *   `finalize` drops what the form hid. See `trackAttached`.
+ * - **A track pins the run to four steps**, and four steps loads a different
+ *   diffusion model and text encoder from the rest of the range. See
+ *   `FOUR_STEP_MODELS` and `TRACK_PINS_STEPS`.
  */
 const ids: MinimaxNodeIds = {
   prompt: { node: "138", input: "value" },
@@ -72,38 +73,58 @@ const AUDIO_NODE = "155";
 const AUDIO_INPUT = "ref_audios.ref_audio_0";
 const AUDIO_PARAM = "reference_audio";
 
-/**
- * A track and pictures are not combinable, and the track wins.
- *
- * Not a rule of the model as documented: ComfyUI's node takes up to 9 images,
- * 3 videos and 3 standalone audios with no exclusion stated, and MiniMax's own
- * model card describes mixed references with a cap of 12 files across all
- * modalities. It is a rule because a run with both comes back from ComfyUI as
- * `RuntimeError: The size of tensor a (3) must match the size of tensor b (2)
- * at non-singleton dimension 0`, and reading the whole reference path in
- * comfy_extras/nodes_minimax_h3.py, comfy/ldm/minimax/model.py and
- * comfy/text_encoders/minimax.py turned up nothing that says it should. So this
- * is an observed failure fenced off, not a specification followed — if a later
- * ComfyUI takes the pair, deleting this and the `hiddenBy` below is the whole
- * revert.
- *
- * The track wins rather than the pictures because of where the pair comes from:
- * pressing Create video on a finished song is the only way to get one, and
- * silently dropping the thing that was just pressed would be the worse
- * surprise. Removing the track brings the picture slots straight back with
- * whatever was in them.
- */
+/** Whether this run has a reference track, which several things turn on. */
 const trackAttached = (values: Record<string, ParamValue>): boolean =>
   String(values[AUDIO_PARAM] ?? "").trim() !== "";
 
 /**
- * How many pictures this run actually uses, which is none while a track is
- * attached. Read by `finalize` and by the director's facet block, so what is
- * described and what is wired cannot disagree — the same guarantee
- * `leadingReferences` gives on its own.
+ * The weights this graph loads at four steps, in place of the ones the stored
+ * graph names.
+ *
+ * A track and reference images together used to come back from ComfyUI as
+ * `RuntimeError: The size of tensor a (3) must match the size of tensor b (2)
+ * at non-singleton dimension 0`, and the pair was fenced off in the form
+ * because nothing in the reference path — nodes_minimax_h3.py,
+ * ldm/minimax/model.py, text_encoders/minimax.py — said it should fail. It was
+ * the quantised pair: `minimax_h3_ref2va_pruned_int8_convrot` with
+ * `qwen3vl_32b_minimax_h3_nvfp4_awq`. The bf16 diffusion model and the bf16
+ * text encoder take the same references, together, at four steps, which is
+ * where the fence went and why there is no longer one.
+ *
+ * Only this graph swaps. The other H3 graphs run `fl2va` and have never had the
+ * failure, so pointing them at weights nobody here has tested would be a change
+ * with no evidence behind it — and one more pair of files a fresh install has
+ * to download.
  */
-const picturesInPlay = (values: Record<string, ParamValue>): number =>
-  trackAttached(values) ? 0 : leadingReferences(values, REF_NODES.length);
+const FOUR_STEP_MODELS: StepModel[] = [
+  {
+    node: "127",
+    input: "unet_name",
+    value: "minimax_h3_ref2va_bf16.safetensors",
+  },
+  {
+    node: "128",
+    input: "clip_name",
+    value: "qwen3vl_32b_minimax_h3_bf16.safetensors",
+  },
+];
+
+/**
+ * A reference track holds the step count at four, which is the only step count
+ * this graph is known to take one at.
+ *
+ * The bf16 pair above is loaded at four steps and nowhere else, so any other
+ * value would run a track through the quantised models that failed on it. That
+ * is a rule about the run rather than a preference, which is why it pins the
+ * control instead of nudging its default: a stored 12 from a previous run would
+ * otherwise sail straight past it. Removing the track hands the control back
+ * with whatever number was in it.
+ */
+const TRACK_PINS_STEPS: ParamPin = {
+  whenSet: AUDIO_PARAM,
+  value: 4,
+  note: "A reference track pins this to 4 — the step count the bf16 model pair and the pack's own sampler take a track at. Leave Turbo on: four steps without the distilled LoRA is not a usable take.",
+};
 
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
 const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
@@ -339,13 +360,8 @@ const graph: ComfyGraph = {
  * The appendix is told how many slots this graph wires; it reads the submitted
  * values to find out how many actually have an image in them.
  */
-const facets = referenceFacets(REF_NODES.length);
-
 const director = directorTarget(ids, REFERENCE_DIRECTOR, [
-  // Silent while a track is attached, because `finalize` has dropped every
-  // picture by then and a facet instruction for one is an instruction about a
-  // subject the model was never given.
-  (values) => (trackAttached(values) ? "" : facets(values)),
+  referenceFacets(REF_NODES.length),
   referenceTrack(AUDIO_PARAM),
 ]);
 
@@ -357,20 +373,14 @@ const params: ParamDef[] = [
     // helper is used: a track is a reference too, and a run with one and no
     // pictures is a real thing to want. What replaces the check is in
     // `finalize`, which can see both controls at once.
-    referenceSlot({
-      index: position + 1,
-      node,
-      director,
-      firstRequired: false,
-      hiddenBy: AUDIO_PARAM,
-    }),
+    referenceSlot({ index: position + 1, node, director, firstRequired: false }),
   ),
   {
     id: AUDIO_PARAM,
     label: "Reference track",
     type: "audio",
     default: "",
-    help: "Optional, and not combinable with reference images — attaching one sets them aside. The video is still the length of the Duration control.",
+    help: "Optional. Pins the run to 4 steps, which is where a track works. The video is still the length of the Duration control — a long track is a reference, not a running time.",
     group: "References",
     targets: [
       { node: AUDIO_NODE, input: "audio" },
@@ -389,8 +399,6 @@ const params: ParamDef[] = [
     help: "max keeps more likeness, and is slower.",
     group: "References",
     advanced: true,
-    // A setting about reference images, so it goes when they do.
-    hiddenBy: AUDIO_PARAM,
     targets: [{ node: REFERENCE_NODE, input: "ref_image_size" }],
   },
 
@@ -428,7 +436,7 @@ const params: ParamDef[] = [
     targets: [{ node: "115", input: "megapixels" }],
   },
 
-  ...samplingParams(ids),
+  ...samplingParams(ids, { pinSteps: TRACK_PINS_STEPS }),
 ];
 
 export const minimaxH3Reference: WorkflowDef = {
@@ -454,7 +462,10 @@ export const minimaxH3Reference: WorkflowDef = {
   turbo: h3Turbo(220),
 
   patches: h3Patches(),
-  stepSampler: h3StepSampler(),
+  stepSampler: h3StepSampler({
+    models: FOUR_STEP_MODELS,
+    note: "It also loads the bf16 diffusion model and text encoder, which are the pair that takes a reference track.",
+  }),
 
   /**
    * Where a finished track goes when you press Create video on it.
@@ -492,10 +503,7 @@ export const minimaxH3Reference: WorkflowDef = {
    * order — and it is the same count the director was given.
    */
   finalize(graph, values) {
-    // Not `leadingReferences` directly: a track takes every picture out of the
-    // run, and the form has already taken their controls out of the panel. See
-    // picturesInPlay.
-    const filled = picturesInPlay(values);
+    const filled = leadingReferences(values, REF_NODES.length);
     for (let index = filled + 1; index <= REF_NODES.length; index += 1) {
       delete graph[REFERENCE_NODE].inputs[refInput(index)];
       delete graph[BATCH_NODE].inputs[batchInput(index)];

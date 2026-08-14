@@ -88,6 +88,34 @@ interface ParamBase {
    * not do; today that is the workflow's `stepSampler`.
    */
   noteAt?: { value: ParamValue; text: string };
+  /**
+   * A value this control is held at while another param is set, and the line
+   * that says so. The third of the same family as `revealedBy` and `hiddenBy`,
+   * for the case where a control neither waits nor stands down but stops being
+   * the user's to choose.
+   *
+   * Unlike those two this is *not* presentation only: `applyParams` overwrites
+   * the submitted value with the pinned one after coercion, so what runs is the
+   * pinned value whatever the form did. It has to be, because the things that
+   * read a value downstream — the step sampler, the model swap that comes with
+   * it — would otherwise act on a number the user cannot see and did not pick.
+   * The form shows the pinned value and disables the control so that the two
+   * agree.
+   *
+   * The stored value is untouched, so removing whatever pinned it hands the
+   * control straight back with the number that was in it.
+   */
+  pinnedBy?: ParamPin;
+}
+
+/** See `pinnedBy`. */
+export interface ParamPin {
+  /** Id of the param whose being set pins this one. */
+  whenSet: string;
+  /** What this control is held at while it is. */
+  value: ParamValue;
+  /** The line shown under the control while it is pinned. */
+  note: string;
 }
 
 export interface TextParam extends ParamBase {
@@ -395,6 +423,34 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
 }
 
 /**
+ * What "set" means for every control that keys off another one — a value that
+ * is neither empty nor false. Shared so `revealedBy`, `hiddenBy` and `pinnedBy`
+ * cannot disagree about whether the same param counts as answered.
+ */
+function isSet(value: ParamValue | undefined): boolean {
+  return value !== undefined && value !== "" && value !== false;
+}
+
+/**
+ * The value this control is held at right now, or undefined when it is the
+ * user's to set. See `pinnedBy`.
+ *
+ * Read by the form, which shows it and disables the control, and by
+ * `applyParams`, which writes it over whatever was submitted. Both call this
+ * rather than testing the trigger themselves, so the number on screen is the
+ * number that runs.
+ */
+export function pinnedValue(
+  param: Pick<ParamBase, "pinnedBy">,
+  values: Record<string, ParamValue>,
+): ParamValue | undefined {
+  if (!param.pinnedBy) return undefined;
+  return isSet(values[param.pinnedBy.whenSet])
+    ? param.pinnedBy.value
+    : undefined;
+}
+
+/**
  * Whether a control is in play at these values — see `revealedBy` and
  * `hiddenBy`, which are the same question asked in opposite directions.
  *
@@ -411,9 +467,6 @@ export function paramVisible(
   param: Pick<ParamBase, "revealedBy" | "hiddenBy">,
   values: Record<string, ParamValue>,
 ): boolean {
-  const isSet = (value: ParamValue | undefined) =>
-    value !== undefined && value !== "" && value !== false;
-
   if (param.revealedBy && !isSet(values[param.revealedBy])) return false;
 
   const hiddenBy =

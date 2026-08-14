@@ -2,9 +2,18 @@ import type { ComfyGraph } from "@/lib/comfy";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import type { RunModes } from "@/lib/workflows/modes";
 import { applyPatch, enabledPatches } from "@/lib/workflows/patches";
-import { applyStepSampler, samplerNodeIn } from "@/lib/workflows/step-sampler";
+import {
+  applyStepSampler,
+  modelProblems,
+  samplerNodeIn,
+} from "@/lib/workflows/step-sampler";
 import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
-import type { ParamDef, ParamValue, WorkflowDef } from "@/lib/workflows/types";
+import {
+  pinnedValue,
+  type ParamDef,
+  type ParamValue,
+  type WorkflowDef,
+} from "@/lib/workflows/types";
 
 export class ParamError extends Error {
   constructor(
@@ -242,6 +251,15 @@ export function applyParams(
     );
   }
 
+  // Between the two passes, because a pin is decided by another control's
+  // coerced value and every later reader — the targets below, the step sampler,
+  // `finalize`, and the record of the run that is stored afterwards — has to see
+  // the pinned number rather than the submitted one. See `pinnedBy`.
+  for (const param of params) {
+    const pinned = pinnedValue(param, resolved);
+    if (pinned !== undefined) resolved[param.id] = pinned;
+  }
+
   for (const param of params) {
     const value = resolved[param.id];
 
@@ -316,10 +334,56 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
     }
   }
 
+  problems.push(...pinProblems(workflow));
   problems.push(...turboProblems(workflow));
   problems.push(...patchProblems(workflow));
   problems.push(...stepSamplerProblems(workflow));
   problems.push(...directorProblems(workflow));
+
+  return problems;
+}
+
+/**
+ * Whether every pin names a control that exists and holds a value that control
+ * would accept — in either mode, because turbo moves the numeric ranges.
+ *
+ * A pin onto a param that has since been renamed would silently never fire; one
+ * onto a number outside the control's range would fire and be rejected at
+ * submit, on a control the user was shown as not theirs to fix. Both are the
+ * kind of thing that only shows up on the run that needed it. See `pinnedBy`.
+ */
+function pinProblems(workflow: WorkflowDef): string[] {
+  const problems: string[] = [];
+
+  for (const param of workflow.params) {
+    const pin = param.pinnedBy;
+    if (!pin) continue;
+
+    if (!workflow.params.some((other) => other.id === pin.whenSet)) {
+      problems.push(
+        `Param "${param.id}" is pinned by "${pin.whenSet}", which this workflow has no param for.`,
+      );
+    }
+
+    if (param.type !== "slider" && param.type !== "number") continue;
+    const ranges: Array<[string, number, number]> = [
+      ["standard", param.min, param.max],
+    ];
+    if (workflow.turbo && workflow.turbo.steps.param === param.id) {
+      ranges.push([
+        "turbo",
+        workflow.turbo.steps.min,
+        workflow.turbo.steps.max,
+      ]);
+    }
+    for (const [mode, min, max] of ranges) {
+      if (Number(pin.value) < min || Number(pin.value) > max) {
+        problems.push(
+          `Param "${param.id}" is pinned to ${String(pin.value)}, which is outside its own ${min}–${max} range in ${mode} mode.`,
+        );
+      }
+    }
+  }
 
   return problems;
 }
@@ -339,6 +403,8 @@ function stepSamplerProblems(workflow: WorkflowDef): string[] {
   if (!spec) return [];
 
   const problems: string[] = [];
+
+  problems.push(...modelProblems(spec, workflow.graph));
 
   if (!samplerNodeIn(workflow.graph, spec)) {
     const found = Object.values(workflow.graph).filter(

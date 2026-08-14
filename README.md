@@ -22,7 +22,7 @@ node pack below; Music needs none of them. Generations queue, run in the
 background, and stay in a per-device history you can replay, download or feed
 straight back in — a finished clip with **Remix** or **Extend**, a finished
 song with **Create video**, which loads it into reference to video as a
-reference track.
+reference track alongside whatever pictures you attach.
 
 It is a front end and nothing else: no model weights, no inference, no
 database. Everything expensive happens on your ComfyUI machine.
@@ -197,7 +197,7 @@ case the stock `api_key: "-"` is correct and you can skip the patch above.
 
 ### Models
 
-Nine files, named literally in the graphs. Get the five H3 ones from ComfyUI's
+Eleven files, named literally in the graphs. Get the seven H3 ones from ComfyUI's
 [MiniMax H3 tutorial](https://docs.comfy.org/tutorials/video/minimax/minimax-h3),
 which is also the current word on what the model needs from your GPU. The turbo
 LoRA comes from its own pack, and the three Music 3 files from
@@ -207,7 +207,9 @@ LoRA comes from its own pack, and the three Music 3 files from
 | --- | --- | --- |
 | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | text/image to video, Extend |
 | `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | reference to video, Remix |
+| `minimax_h3_ref2va_bf16.safetensors` | `models/diffusion_models/` | reference to video at 4 steps |
 | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | the five video graphs |
+| `qwen3vl_32b_minimax_h3_bf16.safetensors` | `models/text_encoders/` | reference to video at 4 steps |
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video graphs |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video graphs |
 | [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow but Remix |
@@ -894,37 +896,45 @@ and has never had image references — its `MiniMaxH3ReferenceToVideo` gets
 `ref_videos.*` and `ref_audios.*` from the source and no `ref_images.*` at all.
 Neither of those facts changed here.
 
-Reference to Video still offers its **four reference image slots**, each with
-its own preservation-facet select, each revealed by the one before it, all wired
-to `ref_images.ref_image_0…3` exactly as before. What changed is that a run is
-now built from *either* the pictures or a track — see below — so the first image
+The pictures are untouched by it. Reference to Video still offers its **four
+reference image slots**, each with its own preservation-facet select, each
+revealed by the one before it, all wired to `ref_images.ref_image_0…3` exactly
+as before. A run can have four pictures and a track, or a track and nothing
+else, or the pictures alone as it always could — which is why the first image
 slot is no longer `required`. "At least one of two controls" is not something
 `required` can say, so the check moved to `finalize`, where both answers are
 visible, and throws the same `ParamError` a rejected value does. A run with no
 pictures at all also drops `BatchImagesNode` and the director's `images` input:
 an empty batch is not an empty list of images, it is a node that cannot produce
-the IMAGE its consumer asked for.
+the IMAGE its consumer asked for. `referenceFacets` says so in words as well,
+because `REFERENCE_DIRECTOR` otherwise writes the `<Picture 1>` citations its
+format calls for at a model that was given none.
 
-**A track and pictures cannot be sent together, and this is a fence rather than
-a specification.** ComfyUI fails the pair with `RuntimeError: The size of tensor
-a (3) must match the size of tensor b (2) at non-singleton dimension 0`, and
-nothing documents why it should: the node's own docs allow up to 9 images, 3
-videos and 3 standalone audios with no exclusion stated, MiniMax's model card
-describes mixed references capped at 12 files across all modalities, and reading
-`nodes_minimax_h3.py`, `ldm/minimax/model.py` and `text_encoders/minimax.py`
-turns up no path that treats the combination differently. So the app fences it
-off: `hiddenBy` takes the image slots (and the reference-handling select) out of
-the panel while a track is loaded, and `finalize` drops the same slots the form
-hid, via `picturesInPlay`. The track wins rather than the pictures because
-pressing Create video is the only way to get one — silently discarding what was
-just pressed would be the worse surprise — and removing it brings the slots back
-with whatever was in them. If a later ComfyUI takes the pair, deleting
-`trackAttached` and the `hiddenBy` is the whole revert.
+**A track pins the run to four steps, and four steps loads different weights.**
+The pair used to fail: a track with pictures came back from ComfyUI as
+`RuntimeError: The size of tensor a (3) must match the size of tensor b (2) at
+non-singleton dimension 0`, and nothing documented why it should — the node's
+own docs allow up to 9 images, 3 videos and 3 standalone audios with no
+exclusion stated, and reading `nodes_minimax_h3.py`, `ldm/minimax/model.py` and
+`text_encoders/minimax.py` turns up no path that treats the combination
+differently. It was the quantised weights. At four steps this graph loads
+`minimax_h3_ref2va_bf16` and `qwen3vl_32b_minimax_h3_bf16` in place of
+`minimax_h3_ref2va_pruned_int8_convrot` and `qwen3vl_32b_minimax_h3_nvfp4_awq`,
+and that pair takes references of both kinds together.
 
-The director has to be told, too: `referenceTrack` suppresses the facet block
-and states outright that there are no pictures, because `REFERENCE_DIRECTOR`
-otherwise writes the `<Picture 1>` citations its format calls for at a model
-that was given none.
+Two declarations do it, both in `minimax-h3-ref.ts`. `FOUR_STEP_MODELS` hangs
+off the workflow's `stepSampler` — the same trigger that already swaps in the
+pack's four-step sampler, so there is one form of this graph at four steps
+rather than two rules that could disagree, and `check:nodes` asks ComfyUI about
+the bf16 files because `stepSamplerGraph` produces them. `TRACK_PINS_STEPS` is a
+`pinnedBy` on the steps control: while a track is loaded the control shows 4,
+takes no input, and submits 4 whatever was stored — `applyParams` overwrites the
+submitted value after coercion, so a stored 12 from an earlier run cannot sail
+past it. Removing the track hands the control back with that number still in it.
+
+Leave **Turbo** on for those runs. Four steps swaps the sampler but not the
+distilled LoRA, which is a switch of its own, and four steps without it is not a
+usable take — see the note under the control.
 
 Three further things are deliberately *not* true of it:
 
