@@ -1,23 +1,26 @@
 # Soran’t
 
-A small Next.js front end for driving video generation on your own ComfyUI
-instance. Deploys to Vercel; the ComfyUI box stays where it is.
+A small Next.js front end for driving video and music generation on your own
+ComfyUI instance. Deploys to Vercel; the ComfyUI box stays where it is.
 
 ![The Extend workflow running: workflow picker and settings on the left, the
 finished clip and generation history on the
 right](https://i.imgur.com/cUqFq7x.png)
 
-Five MiniMax H3 workflows — text to video, image to video, reference to video,
-**Remix** (rebuild a clip you already made) and **Extend** (carry one on past
-where it stopped) — each with a hand-picked set of controls rather than the
-whole graph. All but Remix can be run in **Turbo**, a switch that applies a
-distilled LoRA and samples in a handful of steps instead of a dozen or more;
-all five carry **SageAttention** and **Spectrum**, which swap the attention
-kernel and forecast sampler steps respectively. All three stack, and **all three
+Five MiniMax H3 video workflows — text to video, image to video, reference to
+video, **Remix** (rebuild a clip you already made) and **Extend** (carry one on
+past where it stopped) — plus **Music**, which runs MiniMax Music 3 and comes
+back with a song rather than a clip. Each has a hand-picked set of controls
+rather than the whole graph. Of the video ones, all but Remix can be run in
+**Turbo**, a switch that applies a distilled LoRA and samples in a handful of
+steps instead of a dozen or more; all five carry **SageAttention** and
+**Spectrum**, which swap the attention kernel and forecast sampler steps
+respectively. All three stack, and **all three
 start on** — they are how these graphs are meant to be run here, so the switches
-are there to take one back out. That does mean a first run needs every node pack
-below. Generations queue, run in the background, and stay in a per-device
-history you can replay, download or feed straight back in.
+are there to take one back out. That does mean a first video run needs every
+node pack below; Music needs none of them. Generations queue, run in the
+background, and stay in a per-device history you can replay, download or feed
+straight back in.
 
 It is a front end and nothing else: no model weights, no inference, no
 database. Everything expensive happens on your ComfyUI machine.
@@ -59,7 +62,7 @@ a checklist if you would rather do it yourself.
 Four steps, in this order. Doing them out of order is the usual reason a setup
 fails confusingly.
 
-1. [Get ComfyUI ready](#1-get-comfyui-ready) — three node packs, six model files
+1. [Get ComfyUI ready](#1-get-comfyui-ready) — three node packs, nine model files
 2. [Make ComfyUI reachable](#2-make-comfyui-reachable) — only if deploying
 3. [Run it locally](#3-run-it-locally)
 4. [Deploy to Vercel](#4-deploy-to-vercel)
@@ -110,6 +113,12 @@ present and the run will still fail with the switch on.
 **The OpenAI pack is not optional.** Every graph runs what you type through an
 LLM before the video model sees it ([details](#the-prompt-is-rewritten-before-the-model-sees-it)),
 so without those nodes nothing generates at all.
+
+**Music needs no pack but that one.** Every other class in that graph —
+`MiniMaxMusic3TextEncode`, `EmptyMiniMaxMusic3LatentAudio`, `SaveAudioAdvanced`,
+`VAEDecodeAudioTiled`, `SeedNode`, `ComfySwitchNode` — is a ComfyUI built-in, so
+a recent ComfyUI plus the three Music 3 model files below is the whole
+requirement. None of the switches apply to it either.
 
 Restart ComfyUI after installing.
 
@@ -170,7 +179,8 @@ failing after a ComfyUI Manager update, check here first.
 
 ### Which model the rewrite asks for
 
-All five graphs request `model: "gpt-5.6-terra"`. If your account cannot reach
+Every graph requests `model: "gpt-5.6-terra"` — twice in the music one, which
+runs a second call for lyrics. If your account cannot reach
 that model the job fails at the rewrite step, which reads as a generic node
 error rather than anything about models. Change it to one your key can actually
 use — it appears once per file in `src/lib/workflows/`:
@@ -185,19 +195,27 @@ case the stock `api_key: "-"` is correct and you can skip the patch above.
 
 ### Models
 
-Six files, named literally in the graphs. Get the first five from ComfyUI's
+Nine files, named literally in the graphs. Get the five H3 ones from ComfyUI's
 [MiniMax H3 tutorial](https://docs.comfy.org/tutorials/video/minimax/minimax-h3),
 which is also the current word on what the model needs from your GPU. The turbo
-LoRA comes from its own pack instead.
+LoRA comes from its own pack, and the three Music 3 files from
+[Comfy-Org/MiniMax-Music-3](https://huggingface.co/Comfy-Org/MiniMax-Music-3).
 
 | File | Goes in | Used by |
 | --- | --- | --- |
 | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | text/image to video, Extend |
 | `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | reference to video, Remix |
-| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | all five |
-| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | all five |
-| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | all five |
-| [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every workflow but Remix |
+| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | the five video graphs |
+| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video graphs |
+| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video graphs |
+| [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow but Remix |
+| `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
+| `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
+| `minimax_music3_dav.safetensors` | `models/vae/` | Music |
+
+There is an `int8_convrot` build of the Music 3 DiT for low-VRAM cards. If you
+use it, change `unet_name` in `minimax-music3.ts` to match — the filename is a
+value in the graph, not a choice in the UI.
 
 **The filenames have to match**, because they are values inside the graph rather
 than choices in the UI. If your build is named or quantised differently, edit
@@ -408,9 +426,8 @@ state to keep.
 
 ## The bundled workflows
 
-All five target **MiniMax H3** and produce a video with a generated audio
-track. They share sampling, timing and encoding controls via
-`minimax-common.ts`.
+Five target **MiniMax H3** and produce a video with a generated audio track.
+They share sampling, timing and encoding controls via `minimax-common.ts`.
 
 | Workflow | Output size comes from |
 | --- | --- |
@@ -420,9 +437,13 @@ track. They share sampling, timing and encoding controls via
 | `minimax-h3-ref2v` — remix | The source clip's frames, measured by `GetImageSizeAndCount` — length included |
 | `minimax-h3-extend` — extend | The source clip's **last frame**, measured by `GetImageSize` |
 
+The sixth, `minimax-music3`, is a different model family and the only one that
+produces no picture at all — see [Music](#music). It shares the director
+machinery and nothing else, and none of the switches below apply to it.
+
 ### Turbo, SageAttention and Spectrum are modes, not more workflows
 
-Four of them — everything but Remix — offer a **Turbo**
+Four of the video workflows — everything but Remix — offer a **Turbo**
 switch in the settings panel, **on by default**. It splices a
 `MiniMaxH3TurboLoRA` node between the graph's `UNETLoader` and
 everything that reads it — in practice `BasicScheduler` and `BasicGuider`, both
@@ -463,8 +484,8 @@ rather than finishing a run that looks subtly wrong.
 
 #### The patches
 
-Under the Turbo switch are two more. **All five workflows offer both, and both
-start on:**
+Under the Turbo switch are two more. **All five video workflows offer both, and
+both start on:**
 
 - **SageAttention** splices KJNodes' `PathchSageAttentionKJ`, running attention
   on quantised kernels instead of the default. The class name's misspelling is
@@ -558,16 +579,18 @@ wrong sampler and coming back a worse video rather than an error.
 
 Every graph runs what you type through an LLM first. A
 `PrimitiveStringMultiline` node holds the raw input, an `OAIAPI_ChatCompletion`
-node expands it into a shot-by-shot description, and only that output reaches
-the video node. The image and reference workflows also hand their uploads to
-the rewrite, so it can describe what is actually in frame.
+node expands it into the model's own format, and only that output reaches the
+generation node. The image and reference workflows also hand their uploads to
+the rewrite, so it can describe what is actually in frame. Everything in this
+section is about the five video graphs; the music one runs the same machinery
+against a different format, and is described under [Music](#music).
 
 **Every director writes MiniMax H3's own structured output format**, which the
 model was trained on and reads far more reliably than equivalent free prose:
 timed `[Shot N]` markers, a closed camera vocabulary, `(S1)` speaker IDs with
 the spoken words inside `<d>[English] ...</d>`, and separate `overall_soundscape`
 and `non_diegetic_music` fields. That grammar lives once, in `H3_GRAMMAR`, and
-is spliced into all five. The envelope around it is per mode, and there are
+is spliced into all five video directors. The envelope around it is per mode, and there are
 three of them — the base three-field form for text-to-video; the same plus an
 alignment line naming `<Picture 1>` for the two graphs that start from a frame;
 and the six-section full-reference form (`subject_definitions`, `summary`,
@@ -576,6 +599,27 @@ two that run `MiniMaxH3ReferenceToVideo`. The formats are specified in
 [MiniMax's own prompt-writing guides](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md),
 and in ComfyUI it is the prompt text that has to carry the reference tags —
 nothing in the node pack inserts them.
+
+Four rules in there are worth naming, because each exists to stop a specific
+thing going wrong rather than to tidy the output:
+
+- **`[unclear]`, on Remix.** That director is told to preserve the source's
+  dialogue and has never heard the source — it gets five sampled frames and no
+  audio. The guide's rule for reused speech is to reproduce it exactly or write
+  `[unclear]` for what you cannot make out, never to guess, so without the
+  escape the only available move was to invent a plausible line. A guessed line
+  is not a preserved line; it is a new one, spoken in place of what was there.
+- **A voice inside reused music is not a speaker.** Verbal content that exists
+  only within a reused soundtrack cites `<Audio 1>` and gets no `(Sx)`. Remix
+  reuses the whole track, so a lyric or a broadcast under the scene was exactly
+  what would otherwise be handed a speaker ID.
+- **Punctuation inside `<d>` is standardised** to `,` `.` `?` `!` with the
+  decoration stripped. Whatever is in there gets spoken, and an emoji is not
+  speakable. The words stay verbatim.
+- **The style is named in H3's own vocabulary** — Cinematic, live-action,
+  2D-animated, 3D CG, claymation, watercolor, vintage film — since every
+  director was asked to state a style without ever being given the words the
+  model reads most reliably.
 
 **Each director is also told how long the finished video will be**, written into
 its `system_prompt` by the duration control like any other param value. Not a
@@ -612,9 +656,12 @@ instruction. The facets cover appearance only — expression, gaze and body
 language belong to the scene, so a subject can be `fully_preserved` and still do
 something it is not doing in the photograph.
 
-**On reference to video you set that per image.** Each upload gets a *What to
-keep* select, and the four options are the four `retention_analysis` markers in
-the terms someone uploading a photograph thinks in:
+**On reference to video you set that per image, across four slots.** The graph
+wires `ref_images.ref_image_0` through `_3` and the form offers each slot only
+once the one before it has an image, so it opens as a single upload and grows
+with what you actually use. Every slot gets a *What to keep* select, and the
+four options are the four `retention_analysis` markers in the terms someone
+uploading a photograph thinks in:
 
 | What to keep | Marker | What the director is told |
 | --- | --- | --- |
@@ -626,9 +673,19 @@ the terms someone uploading a photograph thinks in:
 The marker used to be inferred from your prose, which is the one part of the
 format the director had no evidence for. Your prompt still governs the detail
 and still wins outright on a genuine contradiction: the setting says whether the
-coat is preserved, the prompt says which coat. A slot with no image contributes
-nothing, so an unused second reference cannot put a phantom subject in the
-scene.
+coat is preserved, the prompt says which coat.
+
+**An unused slot leaves the graph entirely.** `finalize` deletes its variadic
+input on both consumers — the video node and the batch that shows the references
+to the rewrite — and then the `LoadImage` itself, in that order, since dropping
+the node while something still links to it would queue a graph referencing a
+node that is not there. Leaving a blank loader wired would fail validation, and
+leaving a blank slot *described* would put a phantom subject in the scene, so
+the director is told about exactly the slots that survived. Both ends count with
+`leadingReferences`, which stops at the first gap: filled slots are contiguous
+because the form only reveals them that way, but a value cleared afterwards
+would otherwise leave the graph sending one picture while the instructions
+described two.
 
 **A short exclusion clause is allowed, and is not the same as a negative
 prompt.** H3 has no negative field, so ruling something out happens in the body,
@@ -830,10 +887,153 @@ indentation serves remixes and extensions.
 
 ### Audio
 
-Every graph decodes an audio track into `CreateVideo`, so they set
+Every video graph decodes an audio track into `CreateVideo`, so they set
 `hasAudio: true`. The result player does not autoplay audio workflows —
 browsers only allow autoplay while muted, which would throw away the
 soundtrack the model just spent minutes generating.
+
+Music produces no picture at all, which the app tells from the file that came
+back rather than from the workflow that made it — `isAudioOnly` in `jobs.ts`
+tests the extension, so history entries still answer correctly after a workflow
+has been renamed or removed. An audio result gets an `<audio>` player instead of
+a 60vh black rectangle, a small note glyph in the history list, and
+`contentTypeFor` learned the audio MIME types so an mp3 is played rather than
+downloaded. The Generate button reads "Generate music" from the workflow's
+`makes` field, and a finished mp3 raises a notification that says so.
+
+### Music
+
+`minimax-music3` runs **MiniMax Music 3**. The graph is ComfyUI's own template
+for the model, and the only thing added to it is what the two directors write.
+
+| Control | Writes | |
+| --- | --- | --- |
+| Describe the music | node 44, via the caption director | One line is enough |
+| Write the lyrics for me | — | Adds the lyricist at node 47 |
+| What the song is about | the lyricist's system prompt | Only while that switch is on |
+| Lyrics | `37:13.lyrics` | Verbatim. Empty means instrumental |
+| Plan the sections | `37:13.lyrics` | Only while the box is empty and the lyricist off |
+| Maximum length | `37:13.max_duration` | A ceiling, not a target |
+| Seed | `37:38.seed` | Feeds the AR stage and the sampler both |
+| Steps | `37:9.steps` | The diffusion stage only |
+| Caption guidance | `37:13.cfg_scale` | Holds structure, and the ending |
+| Sampler CFG | `37:9.cfg` | Holds the sound. Leave it |
+| Top-k | `37:13.top_k` | The one that actually holds a length |
+
+Nothing here sits behind an Advanced disclosure. The two that used to —
+guidance and Top-k — turn out to be what decides whether two runs of the same
+prompt come back the same length, which is not expert trivia.
+
+**Two inputs reach the model and they are not alike.** `caption` is the music
+description and comes from the director at node 46; `lyrics` is what gets
+*performed*, and by default it goes from the form to the model untouched. That
+asymmetry is the thing to hold on to — anything that lands in the lyrics field
+is sung, including a sentence that was meant as commentary.
+
+**The caption is a structured format, not prose.** Music 3 reads three fixed
+headings with fixed field labels under each: `Global Metadata` (BPM, key, genre,
+emotional progression, imagery, production profile), `Vocal Details` (timbre,
+style, harmony, effects) and `Arrangement` (instrument lifecycles, groove,
+textures). `MUSIC_DIRECTOR` in `music3-director.ts` writes exactly that. The
+field names are copied from the template files in
+[MiniMax's music-caption-rewriter skill](https://github.com/MiniMax-AI/MiniMax-Music3#prompt-enhancement)
+rather than paraphrased from its prose, because they are what the model was
+trained to read. What could not be borrowed is the skill's other half: it works
+by progressive disclosure over a thousand bundled reference captions, and this
+is one chat completion with no filesystem. So the output contract, the
+precedence rules and the refusal to invent unstated facts came across; the
+retrieval did not.
+
+**Lyrics have three possible sources.**
+
+| Source | When | Wiring |
+| --- | --- | --- |
+| What you typed | The box has words | Straight to `37:13.lyrics` |
+| A second director | *Write the lyrics for me* | Node 47's output, linked in by `finalize` |
+| A section plan | The box is empty | Built in this app, written in as a value |
+
+The lyricist at node 47 is the same node class as the caption director on the
+same client, so it needs nothing new installed, and **its user message is node
+46's output**. Reading the finished caption is what lets it know the genre, the
+tempo, the singer and the arrangement it is writing into without any of that
+being described twice. What the song should be *about* travels the other way, in
+the system prompt, because the prompt input is taken and the caption is the
+better thing to spend it on.
+
+**An empty box means instrumental, and that took some defending.** The caption
+is what decides whether there is a voice, so the instrumental instruction now
+overrides your own description where the two disagree — the starting description
+asks for a soft female vocal, and leaving that in while clearing the lyrics is
+the usual way a track meant to be instrumental comes back sung. `Vocal Details`
+is written as a refusal with its four lines given verbatim, and a voice is
+banned from every other field by name.
+
+**The section plan is built here rather than by a model, deliberately.** The
+lyrics field is Music 3's structural channel — `normalize_lyrics` keeps every
+bracketed tag, lowercases it and puts it in the prompt after `[start]`, and
+ComfyUI's own template note says the tags "are the only executable structural
+instructions; the lyric text itself only conveys mood". An instrumental sends
+that channel empty, which is a fair part of why it is the case that comes back
+shortest. `instrumentalPlan` fills it with `[Intro - 20 seconds]`, a run of
+`[Instrumental - 36 seconds]` and `[Outro - 20 seconds]`, summing to the running
+time exactly at every setting the slider offers. It started as an LLM writing
+those tags; it is not one any more, because an LLM asked for tags and only tags
+writes "Here is the plan:" often enough, and that sentence would be sung. There
+is nowhere to sanitise it either — the plan would reach the encode node over a
+link inside ComfyUI that this app never sees. *Plan the sections* turns it off,
+and appears only when neither the box nor the lyricist is supplying anything.
+
+#### Length is a ceiling, and the sampler decides the rest
+
+`max_duration` is a **decode limit**, not a target. ComfyUI's node hands it to
+the autoregressive stage, which generates acoustic frames until it emits its own
+end token or reaches that limit, whichever lands first — and the latent is then
+sized from what was actually produced, which is why a short song is a short file
+rather than a long one padded with silence. Nothing in the prompt states a
+target: the frame budget never reaches the text.
+
+The ceiling is **six minutes**, from the node's own limit of 9000 frames at 25 a
+second. MiniMax's model card says five.
+
+That leaves two levers, and they are not the ones you would guess:
+
+- **Structure, in the caption.** The director is told the running time and asked
+  to spend it as a section list — sections in order, each sized in bars, repeats
+  or seconds, that takes that long to play. It is explicitly told *not* to state
+  the duration as a fact anywhere, because MiniMax's own caption templates carry
+  BPM, key, genre and an arrangement and never a running time, so a line saying
+  the piece lasts 3:40 is text the model was not trained to act on. Typing a
+  length into your own description has the same problem.
+- **Top-k, which acts mechanically.** The end-of-song token is an ordinary
+  candidate in the same draw as the audio codes: `_sample_c0` takes the top
+  `top_k` of the conditioned logits, softmaxes and samples one. So a song ends
+  the frame that token happens to come up, and it can only come up on a frame
+  where it ranks inside `top_k`. At 25 frames a second a four-minute take is
+  6000 draws, so a per-frame stop chance of even 0.03% ends it early more often
+  than not — which is why length varies so much between runs of the same prompt,
+  and why no amount of caption wording fixes it. Narrowing `top_k` removes the
+  candidate instead of shrinking a probability. 20, then 12; below about 10 the
+  music flattens.
+
+Since the ending is a draw, it is decided by the seed — so **Reuse seed** on a
+take that came back the length you wanted keeps it while you change other
+things.
+
+#### The two guidance scales
+
+Music 3 generates in two stages, and each has its own CFG:
+
+| Control | Node input | What it guides |
+| --- | --- | --- |
+| Caption guidance | `MiniMaxMusic3TextEncode.cfg_scale` | The autoregressive stage that writes the song as tokens — genre, sections, where it ends |
+| Sampler CFG | `KSampler.cfg` | The diffusion stage that renders those tokens into audio |
+
+Both ship at 1.7, in this export and in ComfyUI's template, and that coincidence
+was once the argument for driving them from one control. It does not survive
+reading what they do: raising guidance to hold a length is advice about the
+first stage, and carrying the renderer up with it changes how the audio sounds
+for no reason anyone asked for. Caption guidance at 2.0–2.5 is worth trying
+alongside a lower `top_k`; Sampler CFG is the one to leave alone.
 
 ## Adding your own workflow
 
@@ -890,8 +1090,36 @@ param id, so renaming one would otherwise drop it from the instruction and the
 only symptom would be shot cut times landing past the end of the video.
 
 Param types available: `text`, `textarea`, `number`, `slider`, `select`,
-`toggle`, `seed`, `image`, `video`. Mark a param `advanced: true` to tuck it behind the disclosure;
-`group` sets the section heading.
+`toggle`, `seed`, `image`, `video`, and `measured` for a value the browser reads
+off a loaded clip rather than the user setting it. `group` sets the section
+heading and `advanced: true` tucks a control behind that group's disclosure.
+
+Three more fields on a param, each of which exists for one of the workflows
+above:
+
+- **`revealedBy`** keeps a control out of the form until the named param has a
+  value — the chain of optional reference slots, each waiting on the one before.
+- **`hiddenBy`** is the same question backwards, and takes a list: the music
+  workflow's *Plan the sections* is hidden by both the lyrics box and the
+  lyricist, so it appears only when neither is supplying words. Both are
+  presentation only. A hidden control still submits its stored value; what stops
+  it reaching ComfyUI is `finalize`.
+- **`makes`** is the noun the Generate button uses — `"video"` unless you say
+  `"music"`.
+
+**`finalize` is for structural changes params cannot make.** Params write values
+into inputs that already exist; `finalize` runs last, on the cloned graph, with
+the resolved values, and can delete nodes and inputs or swap a value for a link.
+Both non-obvious cases in this repo are there: reference slots removing their
+loaders when unused, and the music graph pointing `lyrics` at the lyricist's
+output instead of at a string. The visibility rules above and `finalize` are
+deliberately independent — one decides what the form shows, the other decides
+what ComfyUI is sent.
+
+The same visibility rules are applied to the record of a past run: a control the
+form was hiding took no part in it, so `paramVisible` is shared between the form
+and the settings modal. That is what stops a lyric sheet sitting unused in a
+hidden box being read back as the words a track was sung with.
 
 ## Queueing, history and leaving it running
 
@@ -960,10 +1188,20 @@ take reproducible. **Settings** on the stage opens them for whichever generation
 is being viewed, failed ones included, where the first question is usually what
 it was run with.
 
+Every written field is shown, each under its own heading and with its line
+breaks intact — the description, the lyrics, whatever the workflow declares —
+rather than only the prompt. **Reuse settings** in that modal loads the lot back
+into the form and switches to the workflow that made it, mode switches included,
+merged against the workflow *as that mode has it* so a steps value from a turbo
+run lands in the turbo range. Not the seed: varying a take is what this is for,
+and reproducing one exactly is the button on the result. Nothing is submitted.
+
 That record outlives the workflow that made it. Params get renamed, removed or
 added between a run and the reading of it, so the modal labels what the current
 definition still recognises and falls back to the raw id for the rest, rather
-than dropping values someone is trying to reconstruct from.
+than dropping values someone is trying to reconstruct from — and the button is
+withheld entirely when that workflow is no longer registered, since there would
+be nothing to load into.
 
 Active jobs are polled in **one batched request** regardless of how many are in
 flight — `/api/status?promptIds=a,b,c` reads the queue once and resolves every
@@ -1181,6 +1419,14 @@ are independent, and ComfyUI stays directly reachable regardless of the former.
 - **History is per device.** It lives in `localStorage`, so it does not follow
   you between desktop and phone. Making it portable would mean real storage
   (Vercel Blob) and a decision about retention.
+- **A music track's length is not something you set.** The slider is a ceiling
+  and the model ends the song where it decides to, so takes vary between runs of
+  the same prompt. [Length is a ceiling](#length-is-a-ceiling-and-the-sampler-decides-the-rest)
+  covers why and which controls actually move it.
+- **The lyricist and the caption director are one API call each.** A music run
+  with *Write the lyrics for me* on makes two, and if the host cannot reach the
+  API the run fails at that node — as it does on every video workflow, since
+  none of these graphs wires a bypass around the rewrite.
 
 ## License
 
@@ -1188,8 +1434,8 @@ MIT — see [LICENSE](LICENSE).
 
 The workflow graphs under `src/lib/workflows/` are ComfyUI exports and are
 covered by the same licence, but the things they *name* are not: the MiniMax H3
-weights, the Qwen3-VL text encoder and the custom node packs each carry their
-own terms. Check those before redistributing anything built on them.
+and Music 3 weights, the Qwen3-VL text encoder and the custom node packs each
+carry their own terms. Check those before redistributing anything built on them.
 
 ## Support
 

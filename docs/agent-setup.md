@@ -133,25 +133,34 @@ Restart ComfyUI after either change.
 key, so the stock `api_key: "-"` is right and the patch above is unnecessary.
 
 **The model name will bite some people.** Every graph asks for
-`model: "gpt-5.6-terra"`. If their account cannot reach it the job dies at the
+`model: "gpt-5.6-terra"` — the music one twice, since it runs a second call for
+lyrics. If their account cannot reach it the job dies at the
 rewrite step with an error that says nothing about models. If they hit that,
 have them change it to a model their key can use — once per file in
 `src/lib/workflows/`.
 
-**Six model files**, named literally in the graphs:
+**Nine model files**, named literally in the graphs:
 
 | File | Directory | Needed by |
 | --- | --- | --- |
-| `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | all but the reference workflows |
+| `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | all but the reference and music workflows |
 | `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | the reference workflows |
-| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | everything |
-| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | everything |
-| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | everything |
-| `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every workflow but Remix) |
+| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | the five video workflows |
+| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video workflows |
+| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video workflows |
+| `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every video workflow but Remix) |
+| `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
+| `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
+| `minimax_music3_dav.safetensors` | `models/vae/` | Music |
 
-Source: <https://docs.comfy.org/tutorials/video/minimax/minimax-h3>. The turbo
-LoRA is not from there — see the third node pack above. Neither the SageAttention
-nor the Spectrum switch adds a model file of its own.
+Sources: <https://docs.comfy.org/tutorials/video/minimax/minimax-h3> for the H3
+files and <https://huggingface.co/Comfy-Org/MiniMax-Music-3> for the Music 3
+ones. The turbo LoRA is not from either — see the third node pack above. Neither
+the SageAttention nor the Spectrum switch adds a model file of its own.
+
+**Music needs no node pack but the OpenAI one.** Every other class in that graph
+is a ComfyUI built-in, so if they only want music, the three files above plus a
+recent ComfyUI is the whole of Phase 1 for them.
 
 The filenames must match, because they are values inside the graph rather than
 choices in the UI. If theirs are named differently, the better fix is editing
