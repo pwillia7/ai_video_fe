@@ -116,6 +116,23 @@ export function isActive(job: Job): boolean {
   return job.phase === "queued" || job.phase === "running";
 }
 
+/** What a generation can come back as with no picture in it. */
+const AUDIO_ONLY = /\.(mp3|flac|wav|opus|ogg|m4a)$/i;
+
+/**
+ * Whether this generation is sound and nothing else.
+ *
+ * Read off the file that came back rather than off the workflow that made it,
+ * because history outlives the registry: a job stored last month names a
+ * workflow id that may since have been renamed or removed, and its own filename
+ * still answers the question. False while a job is still running, which is
+ * correct — there is nothing to play yet either.
+ */
+export function isAudioOnly(job: Job): boolean {
+  const primary = job.outputs[0];
+  return primary !== undefined && AUDIO_ONLY.test(primary.filename);
+}
+
 export function readJobs(): Job[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

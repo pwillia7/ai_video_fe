@@ -222,12 +222,22 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         heading: "Two inputs that never mix",
         items: [
           "Describe the music says what the record sounds like. Lyrics are the words that get sung. They travel separately and neither becomes the other.",
-          "Only the description is rewritten. A director expands it into the structured caption Music 3 was trained on — three fixed sections covering the metadata, the voice and the arrangement — so a line about the genre, the mood and the singer is enough to write.",
-          "Your lyrics are never rewritten, summarised or paraphrased. They reach the model exactly as typed.",
+          "The description is always rewritten. A director expands it into the structured caption Music 3 was trained on — three fixed sections covering the metadata, the voice and the arrangement — so a line about the genre, the mood and the singer is enough to write.",
+          "Lyrics you type are never rewritten, summarised or paraphrased. They reach the model exactly as typed. The switch below is the only thing that writes words for you, and it replaces the box rather than editing it.",
         ],
       },
       {
-        heading: "Writing lyrics",
+        heading: "Or let it write the lyrics",
+        items: [
+          "Write the lyrics for me turns on a second director that writes the words instead of you, and the lyrics box stands down while it is on. What you typed there is kept and comes back when you switch it off.",
+          "It is handed the finished caption as its brief, so it already knows the genre, the tempo, the singer and the section-by-section arrangement. You do not need to describe the music again.",
+          "What the song is about is the only thing it cannot get from the music. A subject, a situation, a person, a line you want in it — as much or as little as you like. Left empty, it takes its subject from the mood and imagery in the caption.",
+          "With the switch on, the song's structure is decided by the caption rather than by a lyric sheet: the music director lays out the sections and the lyricist writes into them.",
+          "It writes to the running time — roughly how many lines fit, counted against the seconds — so a short track gets a short lyric rather than one crammed in.",
+        ],
+      },
+      {
+        heading: "Writing lyrics yourself",
         items: [
           "Tag the sections in square brackets on their own lines: [Intro], [Verse], [Pre-Chorus], [Chorus], [Bridge], [Instrumental], [Solo], [Outro].",
           "Those tags are the one part of the lyrics the director is shown — as a list of section names, never the words — so the arrangement it writes develops where your song actually changes.",

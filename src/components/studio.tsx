@@ -544,8 +544,12 @@ function Workbench({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Named after what the selected workflow actually makes: pressing "Generate
+  // video" and getting an mp3 is a small lie the app was telling.
   const queueLabel =
-    jobs.activeCount > 0 ? `Queue another (${jobs.activeCount} running)` : "Generate video";
+    jobs.activeCount > 0
+      ? `Queue another (${jobs.activeCount} running)`
+      : `Generate ${selected?.makes ?? "video"}`;
 
   return (
     <div className="min-h-dvh">

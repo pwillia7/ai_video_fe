@@ -124,18 +124,24 @@ export function ParamForm({
 }
 
 /**
- * Whether a control that waits on another one is available yet — see
- * `revealedBy`. Empty is the only thing that holds it back, so a slider sitting
- * at 0 or a switch that is off would still reveal what follows them; today only
- * the reference uploads use it, and for an upload empty is exactly the question.
+ * Whether a control that depends on another one is showing — see `revealedBy`
+ * and `hiddenBy`, which are the same question asked in opposite directions.
+ *
+ * "Set" means a value that is neither empty nor false, which reads correctly
+ * for both users: an upload slot waits on the picture before it, and the music
+ * workflow's lyrics box stands down while its switch is on.
  */
 function revealed(
   param: ClientParam,
   values: Record<string, ParamValue>,
 ): boolean {
-  if (!param.revealedBy) return true;
-  const gate = values[param.revealedBy];
-  return gate !== undefined && gate !== "" && gate !== false;
+  if (param.revealedBy && !isSet(values[param.revealedBy])) return false;
+  if (param.hiddenBy && isSet(values[param.hiddenBy])) return false;
+  return true;
+}
+
+function isSet(value: ParamValue | undefined): boolean {
+  return value !== undefined && value !== "" && value !== false;
 }
 
 /** A quiet show/hide control with a chevron that turns. */

@@ -65,6 +65,16 @@ interface ParamBase {
    */
   revealedBy?: string;
   /**
+   * The other way round: the control is left out while the named param *does*
+   * have a value. For a control something else has taken over — the music
+   * workflow's lyrics box, once the lyricist is switched on.
+   *
+   * Presentation only, on the same terms as `revealedBy`. The value is kept and
+   * comes back when the switch goes off; what stops it reaching ComfyUI is the
+   * workflow's `finalize`.
+   */
+  hiddenBy?: string;
+  /**
    * A line shown under the control only while the value matches — for a
    * consequence of a particular setting that would be noise at every other one.
    *
@@ -225,6 +235,17 @@ export interface WorkflowDef {
    * it just spent minutes generating is silently thrown away.
    */
   hasAudio?: boolean;
+  /**
+   * The noun for what comes out, used where the UI has to name it — the
+   * Generate button. Defaults to "video", which is what every graph here made
+   * until the music one.
+   *
+   * A word rather than a medium ("audio") because the only place it is read is
+   * a sentence shown to someone, and "Generate music" is what they are doing.
+   * The history list does not use this: it reads the file that came back, which
+   * still answers after a workflow has been renamed or removed. See isAudioOnly.
+   */
+  makes?: "video" | "music";
   graph: ComfyGraph;
   params: ParamDef[];
   /**

@@ -98,6 +98,20 @@ export function lyricSections(): DirectorAppendix {
   return (values) => {
     const lyrics = String(values.lyrics ?? "").trim();
 
+    // Nothing to read: the lyrics for this run do not exist yet, and are about
+    // to be written from the caption this director is producing. So the song
+    // form is decided here, in the arrangement, rather than described from a
+    // structure someone already typed — and the lyric writer follows it.
+    if (values.write_lyrics === true) {
+      return `THE SONG'S SECTIONS ARE YOURS TO CHOOSE
+
+The user has asked for the lyrics to be written for them, and that happens after you, from your caption. So there is no lyric sheet to build around: the song form is whatever your Arrangement says it is, and the words will be written to fit it.
+
+Lay out a real song form in the arrangement — name its sections, in order, in the language a lyric sheet uses: intro, verse, pre-chorus, chorus, bridge, instrumental, outro. Keep it to what the running time can hold.
+
+The piece is sung. Fill in Vocal Details for a real performance, and let the voice you describe there be one the words can be written for.`;
+    }
+
     if (!lyrics) {
       return `THIS ONE IS INSTRUMENTAL
 
@@ -160,21 +174,145 @@ function sectionTags(lyrics: string): string[] {
 export const musicLength: DirectorAppendix = (
   values: Record<string, ParamValue>,
 ) => {
-  const seconds = Number(values.duration);
-  if (!Number.isFinite(seconds) || seconds <= 0) return "";
-
-  const minutes = Math.floor(seconds / 60);
-  const rest = Math.round(seconds % 60);
-  const spoken =
-    minutes === 0
-      ? `${rest} seconds`
-      : rest === 0
-        ? `${minutes} minute${minutes === 1 ? "" : "s"}`
-        : `${minutes}:${String(rest).padStart(2, "0")}`;
+  const seconds = trackSeconds(values);
+  if (!seconds) return "";
 
   return `HOW LONG THE TRACK IS
 
-This one runs about ${spoken}. That is already decided and the caption cannot change it.
+This one runs about ${spokenLength(seconds)}. That is already decided and the caption cannot change it.
 
 Fit the arrangement inside it. Every section you describe has to have room to be heard — under a minute is an intro, one idea and an ending, not a full song form — and the piece must reach an ending rather than being cut off mid-phrase.`;
+};
+
+/** The duration control's value, or 0 when it says nothing usable. */
+function trackSeconds(values: Record<string, ParamValue>): number {
+  const seconds = Number(values.duration);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
+function spokenLength(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  if (minutes === 0) return `${rest} seconds`;
+  if (rest === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+/**
+ * The second director: the one that writes the words, when the user has asked
+ * for that instead of typing them.
+ *
+ * It runs after the caption director and its *user message is that director's
+ * caption* — the graph wires node 46's output into node 47's prompt. That is
+ * the whole reason this arrangement works: a lyric writer that has read the
+ * caption knows the genre, the tempo, the singer and the section-by-section
+ * arrangement it is writing into, and none of that has to be restated here or
+ * re-derived from the user's one-line description.
+ *
+ * What the user wants the song to be *about* travels the other way, in the
+ * system prompt, via `lyricsBrief` below. It is an unusual place for it, and
+ * the reason is that the prompt input is taken: an OAIAPI_ChatCompletion has
+ * one string in and one string out, and the caption is the more valuable thing
+ * to spend it on.
+ */
+export const LYRICS_DIRECTOR = `You are a lyricist working to a brief.
+
+You are given the production brief for a song that is about to be generated — its genre, tempo, singer, mood and section-by-section arrangement. You write the words that get sung over it.
+
+Your entire output is the lyric sheet. It goes straight into the model's lyrics field, so a title, an explanation, a note about your choices, a comment on the brief or a closing remark is not commentary — it is words that will be sung.
+
+THE FORM
+
+Mark every section with its name in square brackets on its own line, and put the lines of that section beneath it:
+
+[Verse]
+first line
+second line
+
+Use only these tags: [Intro], [Verse], [Pre-Chorus], [Chorus], [Post-Chorus], [Bridge], [Instrumental], [Solo], [Outro].
+
+Follow the song form the brief lays out — its sections, in its order. It describes the record that is being made; you are writing into it, not proposing a different one. If the brief names a section you have no words for, mark it [Instrumental] and leave it empty.
+
+A chorus that returns is written out again in full, in the same words, rather than marked as a repeat. The model sings what it is given and nothing else, so a note saying "repeat chorus" is sung as those two words.
+
+Wordless singing is written as it sounds — Mmm..., Ooh..., La la la — and belongs in intros, outros and behind a chorus.
+
+Backing vocals and asides go in round brackets on the line they answer: a shout, an echo of the last phrase, a second voice under the lead.
+
+WRITING FOR A SINGER
+
+Every line is sung out loud by a voice with a fixed amount of time. Write lines a person can breathe through: plain words, an even number of stresses, and phrases that end where a singer would take a breath.
+
+Say one thing per section and develop it. A verse sets the scene, a pre-chorus tilts toward the hook, a chorus is the hook and can afford to be simple and repeated, a bridge turns or undercuts what came before.
+
+Rhyme where it helps the line land and never at the cost of sense. Near rhyme is rhyme.
+
+Concrete beats abstract. An object, a place, a time of day and a small action will carry a feeling that naming the feeling will not.
+
+Match the voice the brief describes and the world it puts the song in. Write in English unless the brief or the user's subject asks for another language, and then write in that one throughout.
+
+Do not describe the music, name the instruments, or narrate the arrangement. That is what the brief is for. Do not write stage directions, verse numbers, or annotations of any kind outside the section tags and the round-bracket asides.`;
+
+/**
+ * What the song is about, from the control that only appears while the lyric
+ * writer is switched on.
+ *
+ * Empty is a real answer rather than a missing one: the brief the writer is
+ * handed already carries a mood, a scene and an imagery line, and a song can be
+ * written from those alone. Saying so beats leaving it to guess whether some
+ * subject was meant to arrive and did not.
+ */
+export function lyricsBrief(): DirectorAppendix {
+  return (values) => {
+    const about = String(values.lyrics_about ?? "").trim();
+
+    if (!about) {
+      return `WHAT THIS SONG IS ABOUT
+
+The user has not said. Take the subject from the brief itself — its emotional progression, and the scene named in its imagery line — and write about that.
+
+Choose one situation and stay in it. A song with no subject is a song of general feelings, which is the one thing a lyric cannot survive being.`;
+    }
+
+    return `WHAT THIS SONG IS ABOUT
+
+The user asked for this, in their words:
+
+${about}
+
+That is the subject. Everything else you write serves it, and nothing in the brief overrides it — the brief says how the record sounds, this says what it is about.
+
+Where they have named details — a person, a place, a line they want in it — use them. Where they have left the rest open, invent freely, but stay inside the situation they described rather than widening it into a different song.`;
+  };
+}
+
+/**
+ * How much lyric there is room for.
+ *
+ * The same running time the caption director is given, spent on the other
+ * question: not how many sections fit, but how many words. A lyric sheet
+ * written for three minutes and sung in forty seconds is the failure here, and
+ * it is a quiet one — the model does not run over, it crams or truncates.
+ */
+export const lyricsLength: DirectorAppendix = (
+  values: Record<string, ParamValue>,
+) => {
+  const seconds = trackSeconds(values);
+  if (!seconds) return "";
+
+  // Roughly two and a half seconds a sung line at an ordinary tempo, and about
+  // a third of the track spent on intros, instrumental passages and the space
+  // between phrases. Deliberately a range and deliberately conservative: too
+  // few words leaves a singer holding a note, too many get crammed or cut.
+  const singable = Math.round((seconds * 0.66) / 2.5);
+  const low = Math.max(4, Math.round(singable * 0.8));
+  const high = Math.max(low + 2, Math.round(singable * 1.2));
+
+  return `HOW MUCH THERE IS ROOM FOR
+
+The track runs about ${spokenLength(seconds)}, and that is fixed. Everything you write has to be sung inside it.
+
+That is somewhere around ${low} to ${high} sung lines in total, across every section — count them. Intros, instrumental passages and the breath between phrases take up the rest.
+
+If the form in the brief will not fit in that many lines, keep the form and write fewer lines per section rather than dropping a section.`;
 };

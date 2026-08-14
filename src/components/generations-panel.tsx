@@ -10,6 +10,7 @@ import {
   formatWhen,
   groupByDay,
   isActive,
+  isAudioOnly,
   lineageOrder,
   type Job,
 } from "@/lib/jobs";
@@ -341,8 +342,35 @@ function Row({
               {formatWhen(job.submittedAt, now)}
             </span>
           </span>
-          <span className="mt-0.5 block truncate text-[11px] text-fg-subtle">
-            {job.prompt.trim() || job.workflowName}
+          <span className="mt-0.5 flex items-center gap-1 text-[11px] text-fg-subtle">
+            {/* Which kind of file this row leads to, for a list that now holds
+                two. Deliberately small and in the muted colour the line it sits
+                on already uses: it is a distinction worth being able to see at
+                a glance and not worth a badge. Nothing marks a video — the
+                absence is the other half of the signal, and marking both would
+                put a glyph on every row and distinguish nothing. */}
+            {isAudioOnly(job) ? (
+              <svg
+                viewBox="0 0 16 16"
+                className="size-2.5 shrink-0"
+                fill="none"
+                role="img"
+                aria-label="Audio"
+              >
+                <path
+                  d="M6 11.5V3.5l6-1.2v8"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <circle cx="4.5" cy="11.5" r="1.7" stroke="currentColor" strokeWidth="1.4" />
+                <circle cx="10.5" cy="10.3" r="1.7" stroke="currentColor" strokeWidth="1.4" />
+              </svg>
+            ) : null}
+            <span className="min-w-0 truncate">
+              {job.prompt.trim() || job.workflowName}
+            </span>
           </span>
         </span>
       </button>

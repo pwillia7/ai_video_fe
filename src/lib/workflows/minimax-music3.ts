@@ -1,6 +1,13 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { directorTarget } from "./minimax-common";
-import { MUSIC_DIRECTOR, lyricSections, musicLength } from "./music3-director";
+import {
+  LYRICS_DIRECTOR,
+  MUSIC_DIRECTOR,
+  lyricSections,
+  lyricsBrief,
+  lyricsLength,
+  musicLength,
+} from "./music3-director";
 import type { ParamDef, WorkflowDef } from "./types";
 
 /**
@@ -17,15 +24,24 @@ import type { ParamDef, WorkflowDef } from "./types";
  *   director at 46 rather than from the form. Music 3 reads a structured
  *   caption with fixed field names, which is not something anyone should have
  *   to type — see music3-director.ts.
- * - `lyrics` on the same node is what gets sung, and it goes there from the
- *   form untouched. No rewrite, no expansion, no LLM anywhere near it. The
- *   director is shown the section tags and nothing else.
+ * - `lyrics` on the same node is what gets sung. By default it goes there from
+ *   the form untouched: no rewrite, no expansion, no LLM anywhere near it, and
+ *   the caption director is shown the section tags and nothing else.
+ *
+ * The "Write the lyrics for me" switch is the exception, and it adds a second
+ * director rather than changing the first. Node 47 runs after 46 and *reads its
+ * caption as its user message*, so the lyricist knows the genre, the singer and
+ * the section-by-section arrangement it is writing into. Its output replaces
+ * the lyrics box as the input to 37:13. See `finalize`, which is where the
+ * switch actually does its work, and LYRICS_DIRECTOR for why the subject the
+ * user types travels in the system prompt instead.
  *
  * The graph's ids come from a flattened subgraph, so most of them are "37:n"
- * with the four nodes added around it numbered plainly.
+ * with the nodes added around it numbered plainly.
  */
 const PROMPT_NODE = "44";
 const DIRECTOR_NODE = "46";
+const LYRICIST_NODE = "47";
 const ENCODE_NODE = "37:13";
 const SAMPLER_NODE = "37:9";
 const SEED_NODE = "37:38";
@@ -74,6 +90,28 @@ const graph: ComfyGraph = {
       // at here, and the lyrics stay out on purpose.
     },
     _meta: { title: "OpenAI API - Chat Completion" },
+  },
+
+  // The lyricist. Not in the ComfyUI export: it is the same node class as 46
+  // on the same client, so it needs nothing installed that the graph did not
+  // already need.
+  //
+  // Its user message is the caption node's output — that is the whole trick,
+  // and the reason the words come back in the right genre for the right singer
+  // without anything being described twice. Deleted outright on a run where the
+  // user wrote their own lyrics; see `finalize`.
+  "47": {
+    class_type: "OAIAPI_ChatCompletion",
+    inputs: {
+      model: "gpt-5.6-terra",
+      force_regen: false,
+      prompt: ["46", 0],
+      // Written per run, like 46's: LYRICS_DIRECTOR plus what the user said
+      // the song should be about.
+      system_prompt: "",
+      client: ["45", 0],
+    },
+    _meta: { title: "OpenAI API - Chat Completion (Lyrics)" },
   },
 
   "37:6": {
@@ -193,6 +231,24 @@ const director = directorTarget(
   musicLength,
 );
 
+/**
+ * The same idea one node along: every control that shapes the *lyrics* writes
+ * node 47's system prompt in full. Only two do — the switch itself and the
+ * subject box — plus the duration, which decides how many lines there is room
+ * to sing.
+ *
+ * Written on every run, including the ones where the lyricist is deleted before
+ * the graph is queued. Assembling an instruction for a node that is about to go
+ * costs nothing, and the alternative is a param that writes a target only
+ * sometimes, which `applyParams` would have to be taught about.
+ */
+const lyricist = directorTarget(
+  { director: LYRICIST_NODE },
+  LYRICS_DIRECTOR,
+  [lyricsBrief()],
+  lyricsLength,
+);
+
 /** The export's own lyrics, kept as the default so the tag format is visible. */
 const DEFAULT_LYRICS = `[Intro]
 Mmm...
@@ -233,6 +289,31 @@ const params: ParamDef[] = [
     targets: [{ node: PROMPT_NODE, input: "value" }],
   },
   {
+    id: "write_lyrics",
+    label: "Write the lyrics for me",
+    type: "toggle",
+    default: false,
+    help: "A second director writes them from the caption, so they match the style.",
+    group: "Song",
+    // It shapes both instructions: the caption director stops describing a
+    // lyric sheet that does not exist yet, and the lyricist is what it turns
+    // on. The graph rewiring itself is `finalize`'s job, not a target's.
+    targets: [director, lyricist],
+  },
+  {
+    id: "lyrics_about",
+    label: "What the song is about",
+    type: "textarea",
+    rows: 4,
+    default: "",
+    placeholder: "A subject, a story, a person, a line you want in it.",
+    maxLength: 2000,
+    help: "Optional. Left empty, the lyricist takes its subject from the music.",
+    group: "Song",
+    revealedBy: "write_lyrics",
+    targets: [lyricist],
+  },
+  {
     id: "lyrics",
     label: "Lyrics",
     type: "textarea",
@@ -242,6 +323,11 @@ const params: ParamDef[] = [
     maxLength: 6000,
     help: "Sung exactly as written — no rewrite. Tag sections as [Verse], [Chorus], [Instrumental]. Leave empty for an instrumental.",
     group: "Song",
+    // Kept out of the form while the lyricist is on rather than disabled in
+    // place: what someone typed is still here and comes back with the switch,
+    // but a box whose contents are being ignored invites the belief that they
+    // are not.
+    hiddenBy: "write_lyrics",
     targets: [
       // Trimmed on the way in, so that a box holding only whitespace is the
       // same instrumental to the model as an empty one — which is what the
@@ -337,6 +423,7 @@ export const minimaxMusic3: WorkflowDef = {
   // it with this machine's median as soon as one run has finished.
   estimatedSeconds: 180,
   hasAudio: true,
+  makes: "music",
   graph,
   params,
   /**
@@ -345,4 +432,25 @@ export const minimaxMusic3: WorkflowDef = {
    * has never been run against it here, so it is not offered rather than
    * offered untested.
    */
+
+  /**
+   * Which of the two lyric sources is actually wired up.
+   *
+   * A param cannot do this: `lyrics` on the encode node is either a string the
+   * form wrote or a link to node 47, and swapping a value for a link is a
+   * change to the graph rather than to a value in it.
+   *
+   * Off is the default and deletes the lyricist outright. Leaving it in place
+   * unused would still run it — ComfyUI executes every node an output depends
+   * on, and nothing else would be reading this one, but a node with no consumer
+   * is a node someone will later wire up by accident. It also spends an API
+   * call per run on words nobody asked for.
+   */
+  finalize(graph, values) {
+    if (values.write_lyrics === true) {
+      graph[ENCODE_NODE].inputs.lyrics = [LYRICIST_NODE, 0];
+      return;
+    }
+    delete graph[LYRICIST_NODE];
+  },
 };

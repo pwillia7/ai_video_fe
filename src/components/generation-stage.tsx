@@ -3,7 +3,7 @@
 import { Badge, Dot } from "@/components/ui/panel";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { withToken } from "@/lib/client";
-import { formatDuration, type Job } from "@/lib/jobs";
+import { formatDuration, isAudioOnly, type Job } from "@/lib/jobs";
 import type { ClipAction } from "@/lib/workflows/types";
 
 /**
@@ -260,14 +260,6 @@ function Closed({ job }: { job: Job }) {
 /** What can be fed back into another workflow as a clip; a still cannot. */
 const REUSABLE = /\.(mp4|webm|mkv|mov|m4v)$/i;
 
-/**
- * A result with no picture in it — the music workflow's output.
- *
- * Worth telling apart even though a <video> element will happily play an mp3:
- * it would play it as a black rectangle sixty vh tall, and the transport
- * controls would be the only part of it that meant anything.
- */
-const AUDIO_ONLY = /\.(mp3|flac|wav|opus|ogg|m4a)$/i;
 
 /**
  * The label and icon for each hand-off. Keyed by action so the buttons are
@@ -353,7 +345,7 @@ function Result({
 
   return (
     <div className="flex flex-1 flex-col gap-3">
-      {AUDIO_ONLY.test(primary.filename) ? (
+      {isAudioOnly(job) ? (
         // A player and the filename, on the panel's own background rather than
         // the black a video sits on — there is nothing to letterbox.
         <div
