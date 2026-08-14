@@ -499,7 +499,8 @@ export function referenceKeepParam(
   {
     advanced = false,
     revealedBy,
-  }: { advanced?: boolean; revealedBy?: string } = {},
+    hiddenBy,
+  }: { advanced?: boolean; revealedBy?: string; hiddenBy?: string } = {},
 ): SelectParam {
   return {
     id: keepParamId(index),
@@ -515,6 +516,7 @@ export function referenceKeepParam(
     group: "References",
     advanced,
     revealedBy,
+    hiddenBy,
     targets: [director],
   };
 }
@@ -549,11 +551,19 @@ export function referenceSlot({
   node,
   director,
   firstRequired = true,
+  hiddenBy,
 }: {
   index: number;
   /** The LoadImage this slot's upload fills. */
   node: string;
   director: ParamTarget;
+  /**
+   * A param whose value takes this slot out of the form entirely — for a graph
+   * where some other reference cannot be combined with a picture. Both halves
+   * of the slot take it, so a hidden slot leaves no orphaned facet select
+   * behind, and the graph's `finalize` has to drop the same slots it hides.
+   */
+  hiddenBy?: string;
   /**
    * Whether a run has to have a picture in the first slot.
    *
@@ -578,6 +588,7 @@ export function referenceSlot({
         : `Optional. Refer to it as <Picture ${index}>.`,
     group: "References",
     revealedBy: index === 1 ? undefined : imageParamId(index - 1),
+    hiddenBy,
     targets: [{ node, input: "image" }],
   };
 
@@ -587,6 +598,7 @@ export function referenceSlot({
     // nobody has uploaded describes nothing.
     referenceKeepParam(director, index, {
       revealedBy: index === 1 ? undefined : imageParamId(index),
+      hiddenBy,
     }),
   ];
 }
@@ -625,6 +637,12 @@ export function leadingReferences(
  * on every run, and left to itself it invents a score, which is then the score
  * the model is asked for on top of the one it was handed.
  *
+ * It also has to say there are no pictures, because on the one graph that
+ * offers this a track and pictures cannot be sent together — see
+ * `trackAttached` in minimax-h3-ref.ts. Without that the director writes the
+ * reference format it always writes, citing <Picture 1> at a model that was
+ * given no picture at all.
+ *
  * Keyed off the param id rather than passed a boolean, on the same terms as
  * every other appendix here: it reads the submission, so a graph adding the
  * control gets the instruction with it.
@@ -633,15 +651,17 @@ export function referenceTrack(paramId: string): DirectorAppendix {
   return (values) => {
     if (!String(values[paramId] ?? "").trim()) return "";
 
-    return `A TRACK HAS BEEN ATTACHED
+    return `THE REFERENCE IS A TRACK, AND THERE ARE NO PICTURES
 
-The user has supplied a piece of music as a reference, and the model is given it directly. You have not heard it and you are not being asked to describe it.
+The user has supplied a piece of music as the reference, and the model is given it directly. You have not heard it and you are not being asked to describe it.
 
-So write non_diegetic_music as deference rather than as a specification: say that the score is the supplied reference track and that it plays throughout, and name no genre, tempo, key or instrument you have not been told. Inventing one asks the model for a second piece of music over the one it already has.
+There are no reference images on this run. Do not cite <Picture 1> or any other picture, do not write a subject_definitions line that refers to one, and do not describe anyone or anything as being "in" an image you were shown — you were shown none. Every subject in this video is invented from the user's text, so define it from the text and describe it fully enough to be built from nothing.
+
+Write non_diegetic_music as deference rather than as a specification: say that the score is the supplied reference track and that it plays throughout, and name no genre, tempo, key or instrument you have not been told. Inventing one asks the model for a second piece of music over the one it already has.
 
 overall_soundscape is still yours to write, and it is the diegetic sound — what is audible in the scene itself. Keep it to that, and keep it sparse enough to sit under a track rather than compete with one.
 
-The picture is where your attention belongs. Nothing about the attached track changes what is on screen unless the user's own text says it does — but if they have asked for movement on the beat, a performance, or anything else timed to the music, write that into the action.`;
+Nothing about the attached track changes what is on screen unless the user's own text says it does — but if they have asked for movement on the beat, a performance, or anything else timed to the music, write that into the action.`;
   };
 }
 

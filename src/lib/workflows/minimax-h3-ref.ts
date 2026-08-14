@@ -1,6 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { ParamError } from "@/lib/params";
-import type { ParamDef, WorkflowDef } from "./types";
+import type { ParamDef, ParamValue, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   directorTarget,
@@ -41,6 +41,9 @@ import {
  *   what the Create video button on a finished track fills in — see
  *   `clipTarget` — and the reason this graph, alone among the H3 ones, has a
  *   LoadAudio in it.
+ * - **A track and pictures cannot be sent together.** ComfyUI raises a tensor
+ *   shape error on the pair, so the form hides one while the other is set and
+ *   `finalize` drops what the form hid. See `trackAttached`.
  */
 const ids: MinimaxNodeIds = {
   prompt: { node: "138", input: "value" },
@@ -68,6 +71,40 @@ const BATCH_NODE = "146";
 const AUDIO_NODE = "155";
 const AUDIO_INPUT = "ref_audios.ref_audio_0";
 const AUDIO_PARAM = "reference_audio";
+
+/**
+ * A track and pictures are not combinable, and the track wins.
+ *
+ * Not a rule of the model as documented: ComfyUI's node takes up to 9 images,
+ * 3 videos and 3 standalone audios with no exclusion stated, and MiniMax's own
+ * model card describes mixed references with a cap of 12 files across all
+ * modalities. It is a rule because a run with both comes back from ComfyUI as
+ * `RuntimeError: The size of tensor a (3) must match the size of tensor b (2)
+ * at non-singleton dimension 0`, and reading the whole reference path in
+ * comfy_extras/nodes_minimax_h3.py, comfy/ldm/minimax/model.py and
+ * comfy/text_encoders/minimax.py turned up nothing that says it should. So this
+ * is an observed failure fenced off, not a specification followed — if a later
+ * ComfyUI takes the pair, deleting this and the `hiddenBy` below is the whole
+ * revert.
+ *
+ * The track wins rather than the pictures because of where the pair comes from:
+ * pressing Create video on a finished song is the only way to get one, and
+ * silently dropping the thing that was just pressed would be the worse
+ * surprise. Removing the track brings the picture slots straight back with
+ * whatever was in them.
+ */
+const trackAttached = (values: Record<string, ParamValue>): boolean =>
+  String(values[AUDIO_PARAM] ?? "").trim() !== "";
+
+/**
+ * How many pictures this run actually uses, which is none while a track is
+ * attached. Read by `finalize` and by the director's facet block, so what is
+ * described and what is wired cannot disagree — the same guarantee
+ * `leadingReferences` gives on its own.
+ */
+const picturesInPlay = (values: Record<string, ParamValue>): number =>
+  trackAttached(values) ? 0 : leadingReferences(values, REF_NODES.length);
+
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
 const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
 const batchInput = (index: number) => `images.image${index - 1}`;
@@ -302,8 +339,13 @@ const graph: ComfyGraph = {
  * The appendix is told how many slots this graph wires; it reads the submitted
  * values to find out how many actually have an image in them.
  */
+const facets = referenceFacets(REF_NODES.length);
+
 const director = directorTarget(ids, REFERENCE_DIRECTOR, [
-  referenceFacets(REF_NODES.length),
+  // Silent while a track is attached, because `finalize` has dropped every
+  // picture by then and a facet instruction for one is an instruction about a
+  // subject the model was never given.
+  (values) => (trackAttached(values) ? "" : facets(values)),
   referenceTrack(AUDIO_PARAM),
 ]);
 
@@ -315,14 +357,20 @@ const params: ParamDef[] = [
     // helper is used: a track is a reference too, and a run with one and no
     // pictures is a real thing to want. What replaces the check is in
     // `finalize`, which can see both controls at once.
-    referenceSlot({ index: position + 1, node, director, firstRequired: false }),
+    referenceSlot({
+      index: position + 1,
+      node,
+      director,
+      firstRequired: false,
+      hiddenBy: AUDIO_PARAM,
+    }),
   ),
   {
     id: AUDIO_PARAM,
     label: "Reference track",
     type: "audio",
     default: "",
-    help: "Optional. The video is still the length of the Duration control — a long track is a reference, not a running time.",
+    help: "Optional, and not combinable with reference images — attaching one sets them aside. The video is still the length of the Duration control.",
     group: "References",
     targets: [
       { node: AUDIO_NODE, input: "audio" },
@@ -341,6 +389,8 @@ const params: ParamDef[] = [
     help: "max keeps more likeness, and is slower.",
     group: "References",
     advanced: true,
+    // A setting about reference images, so it goes when they do.
+    hiddenBy: AUDIO_PARAM,
     targets: [{ node: REFERENCE_NODE, input: "ref_image_size" }],
   },
 
@@ -442,7 +492,10 @@ export const minimaxH3Reference: WorkflowDef = {
    * order — and it is the same count the director was given.
    */
   finalize(graph, values) {
-    const filled = leadingReferences(values, REF_NODES.length);
+    // Not `leadingReferences` directly: a track takes every picture out of the
+    // run, and the form has already taken their controls out of the panel. See
+    // picturesInPlay.
+    const filled = picturesInPlay(values);
     for (let index = filled + 1; index <= REF_NODES.length; index += 1) {
       delete graph[REFERENCE_NODE].inputs[refInput(index)];
       delete graph[BATCH_NODE].inputs[batchInput(index)];
@@ -466,8 +519,7 @@ export const minimaxH3Reference: WorkflowDef = {
     // reason: a LoadAudio with an empty filename fails validation, and a
     // variadic input left in place tells H3 to expect a reference that was
     // never supplied.
-    const track = String(values[AUDIO_PARAM] ?? "").trim();
-    if (!track) {
+    if (!trackAttached(values)) {
       delete graph[REFERENCE_NODE].inputs[AUDIO_INPUT];
       delete graph[AUDIO_NODE];
     }
@@ -483,7 +535,7 @@ export const minimaxH3Reference: WorkflowDef = {
      * are known, and it throws the same ParamError the coercion would, so it
      * reaches the form the same way any other rejected value does.
      */
-    if (filled === 0 && !track) {
+    if (filled === 0 && !trackAttached(values)) {
       throw new ParamError(
         "Add a reference image or a reference track — this workflow needs at least one to build from.",
         "reference_image_1",

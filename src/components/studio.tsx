@@ -64,7 +64,7 @@ const CLIP_NOTICE: Record<ClipAction, { verb: string; detail: string }> = {
   illustrate: {
     verb: "Scoring",
     detail:
-      "The track is loaded as a reference below. Add a picture if you want one, say what should be on screen, then generate — the video is the length of its own control, not the track's.",
+      "The track is loaded as the reference below. Reference images are set aside while it is there — the model will not take both — so say what should be on screen in the prompt. The video is the length of its own control, not the track's.",
   },
   remix: {
     verb: "Remixing",
