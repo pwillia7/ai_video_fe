@@ -1,6 +1,8 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import { hideDirectorOnly } from "./director";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
+  directorBypassFor,
   directorTarget,
   FRAME_EXPRESSION,
   durationParam,
@@ -8,6 +10,7 @@ import {
   h3Patches,
   h3StepSampler,
   h3Turbo,
+  literalPromptParam,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -222,6 +225,8 @@ const ids: MinimaxNodeIds = {
  */
 const director = directorTarget(ids, TEXT_DIRECTOR);
 
+const bypass = directorBypassFor(ids);
+
 const params: ParamDef[] = [
   promptParam(
     ids,
@@ -229,6 +234,7 @@ const params: ParamDef[] = [
     "One line is enough. A director model fills in the shots, camera and sound, and keeps whatever you do specify.",
     6,
   ),
+  literalPromptParam(),
 
   durationParam(ids, director),
   {
@@ -267,7 +273,10 @@ export const minimaxH3: WorkflowDef = {
   estimatedSeconds: 180,
   hasAudio: true,
   graph,
-  params,
+  // A control that only ever wrote the director's instructions goes out of
+  // the form with it. See hideDirectorOnly.
+  params: hideDirectorOnly(params, bypass),
+  directorBypass: bypass,
   turbo: h3Turbo(130),
   patches: h3Patches(),
   stepSampler: h3StepSampler(),

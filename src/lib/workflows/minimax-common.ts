@@ -1,3 +1,4 @@
+import type { DirectorBypass } from "./director";
 import type { PatchDef } from "./patches";
 import type { StepModel, StepSampler } from "./step-sampler";
 import type { TurboSpec } from "./turbo";
@@ -116,6 +117,55 @@ export function promptParam(
     help,
     group: "Prompt",
     targets: [{ node: ids.prompt.node, input: ids.prompt.input }],
+  };
+}
+
+/**
+ * The id every graph's bypass switch uses. One id rather than one per workflow
+ * so the answer travels with the rest of the form: someone who writes their own
+ * prompts keeps the switch where they left it when they change workflow, the
+ * same way the prompt itself is remembered.
+ */
+export const LITERAL_PROMPT = "literal_prompt";
+
+/**
+ * The switch that takes the prompt-rewrite stage out of the run — see
+ * director.ts, which does the unwiring, and `directorBypassFor` below, which is
+ * what a workflow declares to get it.
+ *
+ * It writes no node input at all, which no other control here does. The whole
+ * effect is structural: with it on, the node this would have written to is not
+ * in the queued graph. `validateWorkflow` knows about the exception and allows
+ * it for this param and no other.
+ *
+ * Sits with the prompt rather than beside the Turbo switch, because it is about
+ * what this particular prompt is — already in the model's format, or a line to
+ * be expanded into it — rather than about how the run is made.
+ */
+export function literalPromptParam({
+  label = "Send my prompt as written",
+  help = "Skips the rewrite: the model gets exactly what is in the box, and no OpenAI node runs. You are writing the model's own format then, not a brief for it.",
+  group = "Prompt",
+}: { label?: string; help?: string; group?: string } = {}): ParamDef {
+  return {
+    id: LITERAL_PROMPT,
+    label,
+    type: "toggle",
+    default: false,
+    help,
+    group,
+    targets: [],
+  };
+}
+
+/** What a graph declares to offer the switch above. */
+export function directorBypassFor(
+  ids: Pick<MinimaxNodeIds, "director" | "prompt">,
+): DirectorBypass {
+  return {
+    param: LITERAL_PROMPT,
+    node: ids.director,
+    prompt: { node: ids.prompt.node },
   };
 }
 

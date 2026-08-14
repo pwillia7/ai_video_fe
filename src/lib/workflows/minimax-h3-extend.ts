@@ -1,6 +1,8 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import { hideDirectorOnly } from "./director";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
+  directorBypassFor,
   directorTarget,
   FRAME_EXPRESSION,
   durationParam,
@@ -8,6 +10,7 @@ import {
   h3Patches,
   h3StepSampler,
   h3Turbo,
+  literalPromptParam,
   promptParam,
   samplingParams,
   type MinimaxNodeIds,
@@ -296,6 +299,8 @@ const graph: ComfyGraph = {
  */
 const director = directorTarget(ids, EXTEND_DIRECTOR);
 
+const bypass = directorBypassFor(ids);
+
 const params: ParamDef[] = [
   {
     id: "source_video",
@@ -314,6 +319,7 @@ const params: ParamDef[] = [
     "Say what happens next, not what the clip already showed. It can see the last frame.",
     6,
   ),
+  literalPromptParam(),
 
   // Times the addition, not the result — the source's own length is whatever it
   // already was, and the two are concatenated afterwards. Worth saying on the
@@ -335,7 +341,10 @@ export const minimaxH3Extend: WorkflowDef = {
   estimatedSeconds: 300,
   hasAudio: true,
   graph,
-  params,
+  // A control that only ever wrote the director's instructions goes out of
+  // the form with it. See hideDirectorOnly.
+  params: hideDirectorOnly(params, bypass),
+  directorBypass: bypass,
   turbo: h3Turbo(220),
   patches: h3Patches(),
   stepSampler: h3StepSampler(),

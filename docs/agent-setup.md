@@ -132,6 +132,13 @@ Restart ComfyUI after either change.
 (Ollama, vLLM, LM Studio) in `src/lib/workflows/*.ts`. Those generally need no
 key, so the stock `api_key: "-"` is right and the patch above is unnecessary.
 
+**Not using an LLM at all?** Every workflow has a **Send my prompt as written**
+switch beside its prompt box, which queues a graph with no OpenAI node in it —
+no key, no patch, no `comfyui-openai-api` pack needed for that run. Say so if
+they have no key to hand, but do not offer it as the way to run the app: the
+rewrite is most of what makes a one-line prompt produce a usable video, and the
+switch is for someone writing MiniMax's own format by hand.
+
 **The model name will bite some people.** Every graph asks for
 `model: "gpt-5.6-terra"` — the music one twice, since it runs a second call for
 lyrics. If their account cannot reach it the job dies at the

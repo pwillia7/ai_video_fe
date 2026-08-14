@@ -1,4 +1,9 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import {
+  applyBypass,
+  bypassApplies,
+  bypassProblems,
+} from "@/lib/workflows/director";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import type { RunModes } from "@/lib/workflows/modes";
 import { applyPatch, enabledPatches } from "@/lib/workflows/patches";
@@ -296,6 +301,13 @@ export function applyParams(
   // redundant — an unused optional input, and the node that fed it.
   workflow.finalize?.(graph, resolved);
 
+  // After even that, because taking the director out prunes whatever was only
+  // ever shown to it — including nodes `finalize` writes to on its way past.
+  // See applyBypass.
+  if (workflow.directorBypass && bypassApplies(workflow.directorBypass, resolved)) {
+    applyBypass(graph, workflow.directorBypass);
+  }
+
   return { graph, resolved };
 }
 
@@ -314,7 +326,14 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
     }
     seenIds.add(param.id);
 
-    if (param.targets.length === 0) {
+    // The one control that is allowed to write nothing: the director bypass
+    // does its work by unwiring a node rather than by setting a value, and a
+    // target invented for it would have to write something it does not mean.
+    // Anything else with no targets is a control that does nothing at all.
+    if (
+      param.targets.length === 0 &&
+      param.id !== workflow.directorBypass?.param
+    ) {
       problems.push(`Param "${param.id}" has no targets.`);
     }
 
@@ -334,6 +353,15 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
     }
   }
 
+  if (workflow.directorBypass) {
+    problems.push(
+      ...bypassProblems(
+        workflow.directorBypass,
+        workflow.graph,
+        workflow.params,
+      ),
+    );
+  }
   problems.push(...pinProblems(workflow));
   problems.push(...turboProblems(workflow));
   problems.push(...patchProblems(workflow));

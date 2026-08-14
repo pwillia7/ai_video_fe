@@ -1,5 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { toClientPatch, type ClientPatch, type PatchDef } from "./patches";
+import type { DirectorBypass } from "./director";
 import type { StepSampler } from "./step-sampler";
 import type { ClientTurbo, TurboSpec } from "./turbo";
 
@@ -339,6 +340,13 @@ export interface WorkflowDef {
    * `RunModes` and nothing to remember between runs. See step-sampler.ts.
    */
   stepSampler?: StepSampler;
+  /**
+   * Set when this graph's prompt-rewrite stage can be skipped, sending what the
+   * user typed to the model unedited. A control rather than a mode, because it
+   * is about what this particular prompt is rather than how the run is made —
+   * so it sits with the prompt box. See director.ts.
+   */
+  directorBypass?: DirectorBypass;
   /** Which clip hand-off, if any, lands on this workflow. */
   clipTarget?: ClipTarget;
   /**
@@ -370,20 +378,31 @@ export type ClientParam = DistributiveOmit<ParamDef, "targets" | "optionsFrom">;
 
 export type WorkflowSummary = Omit<
   WorkflowDef,
-  "graph" | "params" | "turbo" | "patches" | "stepSampler"
+  "graph" | "params" | "turbo" | "patches" | "stepSampler" | "directorBypass"
 > & {
   params: ClientParam[];
   /** Present when the workflow offers the mode. Minus the node it splices in. */
   turbo?: ClientTurbo;
   /** Always present, empty where the workflow offers none. Minus their nodes. */
   patches: ClientPatch[];
-  // No `stepSampler`. All the browser needs of it is the note, which lands on
-  // the control it belongs to below; the rest is the node it swaps in.
+  // No `stepSampler` and no `directorBypass`. All the browser needs of the
+  // first is the note, which lands on the control it belongs to below; the rest
+  // of both is node ids.
 };
 
 export function toSummary(workflow: WorkflowDef): WorkflowSummary {
-  const { graph: _graph, params, turbo, patches, stepSampler, ...rest } =
-    workflow;
+  const {
+    graph: _graph,
+    params,
+    turbo,
+    patches,
+    stepSampler,
+    // Withheld like the graph itself: which node the switch unwires is server
+    // wiring, and the form needs only the toggle, which is a param like any
+    // other.
+    directorBypass: _directorBypass,
+    ...rest
+  } = workflow;
   return {
     ...rest,
     // Their nodes are withheld for the same reason as turbo's below: they are

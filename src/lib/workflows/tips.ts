@@ -35,6 +35,13 @@ const PROMPT_STRUCTURE: TipSection = {
   ],
 };
 
+/**
+ * The bypass switch, said once and shown wherever the rewrite is described —
+ * it is the one control that turns off everything the section above it says.
+ */
+const LITERAL_NOTE =
+  "Send my prompt as written turns all of that off: the model gets your text exactly as typed, and no LLM node runs at all. It expects the model's own format, so it is for a prompt you have written by hand rather than a line to be expanded.";
+
 const DURATION_NOTE =
   "Duration snaps to the model's 17-frame grid (17k+5) at 24fps, so a clip can land slightly longer than you asked for.";
 
@@ -55,6 +62,7 @@ const REFERENCE_REWRITE: TipSection = {
     "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it. A single sentence is enough to start.",
     "It is shown your reference images too, so it can build the scene around what is actually in them.",
     "<Picture 1>, <Picture 2> and the rest survive the rewrite — it turns them into the labelled subject definitions the model expects, so keep using them.",
+    LITERAL_NOTE,
   ],
 };
 
@@ -100,6 +108,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
           "So a single sentence is a valid prompt here. Two samurai fight on a rooftop in Hong Kong is enough to work with.",
           "Anything you do specify is preserved: style, dialogue, setting, an explicit shot list. The rewrite elaborates your idea rather than replacing it.",
           "The less you say, the more the rewrite decides for you. Spell out what you care about.",
+          LITERAL_NOTE,
         ],
       },
       PROMPT_STRUCTURE,
@@ -131,6 +140,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         items: [
           "A director model rewrites what you type into a full scene description — motion, camera and sound — before the video model reads it. A single sentence is enough to start.",
           "It is shown your image too, so it can build the action around what is actually in frame.",
+          LITERAL_NOTE,
         ],
       },
       PROMPT_STRUCTURE,
@@ -168,6 +178,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
           "Sound moves with the world. Change the weather, the room or the medium and the soundtrack follows — but the words spoken, the voices speaking them and the music stay put unless you say otherwise.",
           "It will not invent replacement dialogue just because someone is speaking. The clip's own audio supplies the words unless you ask for different ones.",
           "It is shown five frames sampled evenly across the clip, so it can write about what is actually there. Those frames are for the director only — the model itself works from the clip — and it refers to the source as <Video 1> and <Audio 1>.",
+          LITERAL_NOTE,
         ],
       },
       {
@@ -214,6 +225,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
           "So write the next beat, not the scene. “Then he opens the door” is a complete instruction — identity, wardrobe, lighting, camera and location all carry over from the last frame without being asked for.",
           "It will not replay the source's dialogue, and it only writes new lines when your continuation calls for speech.",
           "Everything it knows about the source is that one frame. If something important happened earlier in the clip and matters to what comes next, say so.",
+          LITERAL_NOTE,
         ],
       },
       {
@@ -237,7 +249,8 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         heading: "Two inputs that never mix",
         items: [
           "Describe the music says what the record sounds like. Lyrics are the words that get sung. They travel separately and neither becomes the other.",
-          "The description is always rewritten. A director expands it into the structured caption Music 3 was trained on — three fixed sections covering the metadata, the voice and the arrangement — so a line about the genre, the mood and the singer is enough to write.",
+          "The description is rewritten by default. A director expands it into the structured caption Music 3 was trained on — three fixed sections covering the metadata, the voice and the arrangement — so a line about the genre, the mood and the singer is enough to write.",
+          "Send my description as written turns that off, and what is in the box becomes the caption itself. Worth it only if you are writing those three sections yourself — the model reads a caption, not a wish.",
           "Lyrics you type are never rewritten, summarised or paraphrased. They reach the model exactly as typed. The switch below is the only thing that writes words for you, and it replaces the box rather than editing it.",
         ],
       },

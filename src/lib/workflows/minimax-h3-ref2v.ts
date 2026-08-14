@@ -1,10 +1,13 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import { hideDirectorOnly } from "./director";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
+  directorBypassFor,
   directorTarget,
   clipDurationParam,
   h3Patches,
   h3StepSampler,
+  literalPromptParam,
   promptParam,
   REMIX_DIRECTOR,
   samplingParams,
@@ -251,6 +254,8 @@ const graph: ComfyGraph = {
  */
 const director = directorTarget(ids, REMIX_DIRECTOR);
 
+const bypass = directorBypassFor(ids);
+
 const params: ParamDef[] = [
   {
     id: "reference_video",
@@ -276,6 +281,7 @@ const params: ParamDef[] = [
     "Say only what should change. Everything you leave out is held to the clip.",
     6,
   ),
+  literalPromptParam(),
 
   // No output controls at all on this one. Size and length come from the clip,
   // and the frame rate is fixed at the 24 the model works in.
@@ -294,7 +300,10 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
   estimatedSeconds: 480,
   hasAudio: true,
   graph,
-  params,
+  // A control that only ever wrote the director's instructions goes out of
+  // the form with it. See hideDirectorOnly.
+  params: hideDirectorOnly(params, bypass),
+  directorBypass: bypass,
   /**
    * No `turbo` here, though the model would now allow it — see minimax-h3-ref,
    * which runs the same `ref2va` UNET and does carry the switch. This graph

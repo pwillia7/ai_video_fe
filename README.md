@@ -755,8 +755,52 @@ Two consequences:
   the node pack needs [the small patch](#the-llm-key-and-a-one-line-patch-you-have-to-apply)
   that makes `"-"` fall through to `OPENAI_API_KEY`, because upstream sends the
   placeholder to OpenAI as if it were a real key. If the host cannot reach the
-  API the rewrite node fails and takes the whole job with it — there is no
-  bypass wired into these graphs.
+  API the rewrite node fails and takes the whole job with it, unless the switch
+  below has taken the node out of the graph.
+
+### Sending a prompt unrewritten
+
+**Send my prompt as written**, next to the prompt box on every workflow, queues
+a graph with no OpenAI node in it at all. The `PrimitiveStringMultiline` the
+user typed into is linked straight to whatever was reading the director's
+output, and what the model gets is the box, character for character.
+
+Not the same as an empty director. That node would still make the call, still
+cost the wait and still return something other than what was typed — the point
+is a graph that has nothing to reach the network with, needs no key, and cannot
+fail at the rewrite step. It is for someone who has written H3's format by hand,
+wants the same words twice, or is working out what the model does with a
+particular phrasing. Everything in this section is what it turns off, so a one
+line prompt sent this way is a one line prompt.
+
+`director.ts` does the unwiring, and works out what to delete rather than being
+told. Everything reading the director's output is repointed at the prompt node,
+and then anything no longer reachable from the graph's own output nodes goes:
+the `OAIAPI_ChatCompletion`, the `OAIAPI_Client` behind it, and whatever existed
+only to be shown to it — Reference to Video's `BatchImagesNode`, Remix's
+`VideoFrameSample` and `GetVideoComponents`. Image to Video's upload stays,
+because the sampler reads it too. The roots are read *before* the rewiring, or
+the batch node nothing reads any more would look like an output node and be
+kept. `check:workflows` runs the whole pass on each graph and fails on a link
+left pointing at a deleted node, or on a switch that would do nothing.
+
+It runs after `finalize`, which is the only ordering that works: `finalize`
+prunes what the run did not use and writes to nodes this then removes.
+
+The controls that only ever wrote the director's instructions leave the form
+with it — Reference to Video's four *What to keep* selects, Remix's measured
+source length. That is read off the wiring by `hideDirectorOnly` rather than
+listed: a param whose every target is the director's node has no other way to
+reach the model. Ones that write the graph *and* the director stay, which is
+most of them; the duration still sets the length.
+
+Music has the switch too, on its description, and there it is the caption that
+goes through verbatim — Music 3's own three-section format, which is worth
+reading `music3-director.ts` for before typing one. Only the caption director is
+skipped. Node 47 is an OpenAI node as well, but it is there because *Write the
+lyrics for me* or *Plan the sections* is on, and those are switches of their
+own; with the caption rewrite off it reads what the user typed, which is what
+the model is being given as its caption either way.
 
 ### Image to video
 

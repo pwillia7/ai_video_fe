@@ -1,5 +1,10 @@
 import type { ComfyGraph } from "@/lib/comfy";
-import { directorTarget } from "./minimax-common";
+import { hideDirectorOnly, type DirectorBypass } from "./director";
+import {
+  LITERAL_PROMPT,
+  directorTarget,
+  literalPromptParam,
+} from "./minimax-common";
 import {
   MUSIC_DIRECTOR,
   ceilingSeconds,
@@ -326,6 +331,21 @@ Mmm...
 (node to node)
 Ooh... goodnight`;
 
+/**
+ * The caption director is the one that can be skipped, and only that one.
+ *
+ * Node 47 is an OpenAI node too, but it is there because the user asked for
+ * words or for a section plan — switches of their own, which this does not
+ * touch. With the caption rewrite off, 47 reads what the user typed instead of
+ * the caption that was written from it, which is the same relationship it
+ * always had: its brief is whatever the model is being given as its caption.
+ */
+const bypass: DirectorBypass = {
+  param: LITERAL_PROMPT,
+  node: DIRECTOR_NODE,
+  prompt: { node: PROMPT_NODE },
+};
+
 const params: ParamDef[] = [
   {
     id: "prompt",
@@ -340,6 +360,14 @@ const params: ParamDef[] = [
     group: "Song",
     targets: [{ node: PROMPT_NODE, input: "value" }],
   },
+  literalPromptParam({
+    label: "Send my description as written",
+    // Names the format, because unlike the video graphs there is a written
+    // spec for it — and typing prose into a field the model reads as a caption
+    // is the failure this switch makes possible.
+    help: "Skips the rewrite: what is in the box becomes the caption itself, in Music 3's own three-section format. No OpenAI node runs for it.",
+    group: "Song",
+  }),
   {
     id: "write_lyrics",
     label: "Write the lyrics for me",
@@ -595,7 +623,11 @@ export const minimaxMusic3: WorkflowDef = {
   hasAudio: true,
   makes: "music",
   graph,
-  params,
+  // Nothing here writes only the caption director, so this takes nothing out
+  // today — it is here so a control added later cannot quietly outlive the
+  // node it speaks to. See hideDirectorOnly.
+  params: hideDirectorOnly(params, bypass),
+  directorBypass: bypass,
   /**
    * No turbo and no patches. The LoRA and the Spectrum node are both H3's —
    * they name that model — and SageAttention would splice onto this UNET but

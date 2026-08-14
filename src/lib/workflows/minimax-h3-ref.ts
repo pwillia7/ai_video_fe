@@ -1,9 +1,11 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { ParamError } from "@/lib/params";
 import type { StepModel } from "./step-sampler";
+import { hideDirectorOnly } from "./director";
 import type { ParamDef, ParamPin, ParamValue, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
+  directorBypassFor,
   directorTarget,
   durationParam,
   REFERENCE_DIRECTOR,
@@ -11,6 +13,7 @@ import {
   h3StepSampler,
   h3Turbo,
   leadingReferences,
+  literalPromptParam,
   promptParam,
   referenceFacets,
   referenceSlot,
@@ -365,6 +368,8 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   referenceTrack(AUDIO_PARAM),
 ]);
 
+const bypass = directorBypassFor(ids);
+
 const params: ParamDef[] = [
   // An upload and a facet select per slot, each slot revealed by the one before
   // it — so the form starts as one image and grows only as far as it is used.
@@ -408,6 +413,7 @@ const params: ParamDef[] = [
     "One line is enough. Name your references as <Picture 1>, <Picture 2> and so on, in upload order.",
     6,
   ),
+  literalPromptParam(),
 
   durationParam(ids, director),
   {
@@ -446,7 +452,10 @@ export const minimaxH3Reference: WorkflowDef = {
   estimatedSeconds: 300,
   hasAudio: true,
   graph,
-  params,
+  // A control that only ever wrote the director's instructions goes out of
+  // the form with it. See hideDirectorOnly.
+  params: hideDirectorOnly(params, bypass),
+  directorBypass: bypass,
   /**
    * This graph is where turbo started: the mode's first form in this app was a
    * ComfyUI export of *this* workflow with the LoRA spliced in, and it produced
