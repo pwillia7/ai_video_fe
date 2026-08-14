@@ -16,6 +16,13 @@ export interface TipSection {
 
 export interface WorkflowTips {
   sections: TipSection[];
+  /**
+   * Where this advice comes from, when it is not ComfyUI's H3 guide — which is
+   * what the modal credits by default and what every video workflow here is
+   * drawn from. The music workflow is a different model with a different
+   * source, and crediting the H3 tutorial for it would be a false citation.
+   */
+  source?: { href: string; label: string };
 }
 
 const PROMPT_STRUCTURE: TipSection = {
@@ -47,20 +54,20 @@ const REFERENCE_REWRITE: TipSection = {
   items: [
     "A director model rewrites what you type into a full scene description — shots, performance, camera and sound — before the video model reads it. A single sentence is enough to start.",
     "It is shown your reference images too, so it can build the scene around what is actually in them.",
-    "<Picture 1> and <Picture 2> tags survive the rewrite — it turns them into the labelled subject definitions the model expects, so keep using them.",
+    "<Picture 1>, <Picture 2> and the rest survive the rewrite — it turns them into the labelled subject definitions the model expects, so keep using them.",
   ],
 };
 
 const REFERENCE_IMAGES: TipSection = {
   heading: "Referring to your images",
   items: [
-    "Name each reference by tag, in the order you uploaded it: <Picture 1> for the first, <Picture 2> for the second.",
+    "Name each reference by tag, in the order you uploaded it: <Picture 1> for the first, <Picture 2> for the second, and so on.",
     "What to keep decides what an image is actually for. Everything holds the face, the build, the outfit and the way it is drawn. Identity only holds the person and lets your prompt dress them. Costume and gear only moves the outfit onto whoever the scene casts. Style only takes the look and leaves the subject behind.",
     "It is worth setting deliberately. The model is told which of those it is, and which of its four preservation markers the image takes — left to infer, that is the one part of the format it has no evidence for.",
     "Your prompt still governs the detail. The setting says whether the coat is preserved at all; the prompt says which coat, and wins outright if the two disagree.",
     "Proportions and drawing style are the two things that slip without being asked to. A stylised character drifts toward ordinary human build and a drawn one toward photographic, so both are named explicitly whenever an image is set to keep them.",
     "Reference handling: match is faster, max preserves identity better at up to a 2048px short edge.",
-    "The model accepts up to 9 reference images. This workflow wires two.",
+    "The model accepts up to 9 reference images. This workflow wires four, and offers each one only once the one before it has an image — so it opens as a single upload and grows as you use it.",
   ],
 };
 
@@ -202,6 +209,48 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         ],
       },
       PROMPT_STRUCTURE,
+    ],
+  },
+
+  "minimax-music3": {
+    source: {
+      href: "https://github.com/MiniMax-AI/MiniMax-Music3#prompt-enhancement",
+      label: "From MiniMax's Music 3 prompt guide ↗",
+    },
+    sections: [
+      {
+        heading: "Two inputs that never mix",
+        items: [
+          "Describe the music says what the record sounds like. Lyrics are the words that get sung. They travel separately and neither becomes the other.",
+          "Only the description is rewritten. A director expands it into the structured caption Music 3 was trained on — three fixed sections covering the metadata, the voice and the arrangement — so a line about the genre, the mood and the singer is enough to write.",
+          "Your lyrics are never rewritten, summarised or paraphrased. They reach the model exactly as typed.",
+        ],
+      },
+      {
+        heading: "Writing lyrics",
+        items: [
+          "Tag the sections in square brackets on their own lines: [Intro], [Verse], [Pre-Chorus], [Chorus], [Bridge], [Instrumental], [Solo], [Outro].",
+          "Those tags are the one part of the lyrics the director is shown — as a list of section names, never the words — so the arrangement it writes develops where your song actually changes.",
+          "A tag can carry an instruction of its own, like [Chorus - double time], and that reaches the arrangement for that section only.",
+          "Leave the box empty for an instrumental. The director is told so, and writes the caption around a lead instrument instead of a singer.",
+        ],
+      },
+      {
+        heading: "Length",
+        items: [
+          "Music 3 generates up to five minutes, and the slider goes to exactly that.",
+          "The director is told the running time and fits the song form to it. Under a minute is an intro, one idea and an ending — ask for a full verse-chorus-bridge shape at 45 seconds and something has to be cut.",
+          "Longer is slower, roughly in proportion. The estimate on the progress bar learns this machine's real pace after the first finished run.",
+        ],
+      },
+      {
+        heading: "The other controls",
+        items: [
+          "Steps behave as everywhere else: fewer for a quick idea, more for the take you keep.",
+          "Guidance and Top-k are under Advanced and are best left alone. Guidance is how literally the take follows the caption — pushed up, it gets more obedient and less musical. Top-k narrows what the model will reach for, so lower is safer and more repetitive.",
+          "Turbo, SageAttention and Spectrum are not offered here. Turbo's LoRA and the Spectrum node are built for H3, and this is a different model; SageAttention probably would splice on, but it has not been run against this graph.",
+        ],
+      },
     ],
   },
 };

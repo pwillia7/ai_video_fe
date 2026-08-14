@@ -693,12 +693,19 @@ export function directorTarget(
   ids: Pick<MinimaxNodeIds, "director">,
   director: string,
   appendices: DirectorAppendix[] = [],
+  /**
+   * What the director is told about how long the result runs. Defaults to the
+   * video wording, which is what every H3 graph wants; the music graph passes
+   * its own, because a track's length constrains a section timeline rather than
+   * a shot list and the video block would be describing the wrong thing.
+   */
+  length: DirectorAppendix = lengthBlock,
 ): ParamTarget {
   return {
     node: ids.director,
     input: "system_prompt",
     transform: (_value, values) =>
-      assembleDirector(director, values, appendices),
+      assembleDirector(director, values, appendices, length),
   };
 }
 
@@ -717,6 +724,7 @@ function assembleDirector(
   director: string,
   values: Record<string, ParamValue>,
   appendices: DirectorAppendix[],
+  length: DirectorAppendix,
 ): string {
   const blocks = [director];
 
@@ -725,8 +733,8 @@ function assembleDirector(
     if (block) blocks.push(block);
   }
 
-  const length = lengthBlock(values);
-  if (length) blocks.push(length);
+  const lengthText = length(values).trim();
+  if (lengthText) blocks.push(lengthText);
 
   return `${blocks.join("\n\n")}\n`;
 }

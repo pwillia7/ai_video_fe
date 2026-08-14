@@ -443,6 +443,20 @@ export function contentTypeFor(filename: string): string {
     case "jpg":
     case "jpeg":
       return "image/jpeg";
+    // The music workflow saves mp3; the rest are what SaveAudioAdvanced can be
+    // set to. Without these an audio result would be served as a download
+    // rather than played, since the fallback is application/octet-stream.
+    case "mp3":
+      return "audio/mpeg";
+    case "flac":
+      return "audio/flac";
+    case "wav":
+      return "audio/wav";
+    case "opus":
+    case "ogg":
+      return "audio/ogg";
+    case "m4a":
+      return "audio/mp4";
     default:
       return "application/octet-stream";
   }

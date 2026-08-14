@@ -265,7 +265,9 @@ function ConfirmBar({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const noun = `${count} ${count === 1 ? "video" : "videos"}`;
+  // "generations" rather than "videos": a selection can now hold music too,
+  // and the bar counts whatever is ticked without looking at what it is.
+  const noun = `${count} ${count === 1 ? "generation" : "generations"}`;
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <span className="min-w-0 flex-1 truncate text-[11px] text-fg-muted">

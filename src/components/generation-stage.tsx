@@ -115,7 +115,7 @@ function Empty() {
         />
       </svg>
       <div>
-        <p className="text-sm font-medium text-fg">No video yet</p>
+        <p className="text-sm font-medium text-fg">Nothing generated yet</p>
         <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-fg-subtle">
           Pick a workflow, write a prompt, and generate. You can queue more than
           one — they run in order.
@@ -261,6 +261,15 @@ function Closed({ job }: { job: Job }) {
 const REUSABLE = /\.(mp4|webm|mkv|mov|m4v)$/i;
 
 /**
+ * A result with no picture in it — the music workflow's output.
+ *
+ * Worth telling apart even though a <video> element will happily play an mp3:
+ * it would play it as a black rectangle sixty vh tall, and the transport
+ * controls would be the only part of it that meant anything.
+ */
+const AUDIO_ONLY = /\.(mp3|flac|wav|opus|ogg|m4a)$/i;
+
+/**
  * The label and icon for each hand-off. Keyed by action so the buttons are
  * rendered from whatever the registry offers rather than written out one by
  * one — registering a workflow for a new action is all it takes to get one.
@@ -344,23 +353,37 @@ function Result({
 
   return (
     <div className="flex flex-1 flex-col gap-3">
-      <div className="overflow-hidden rounded-xl border border-border-default bg-black">
-        {/*
-          Silent workflows autoplay on a loop, which is the nicer preview.
-          Audio workflows must not: autoplay is only allowed while muted, so
-          looping it muted would hide the soundtrack entirely.
-        */}
-        <video
-          key={src}
-          src={src}
-          controls
-          autoPlay={!job.hasAudio}
-          loop={!job.hasAudio}
-          muted={!job.hasAudio}
-          playsInline
-          className="block max-h-[60vh] w-full bg-black"
-        />
-      </div>
+      {AUDIO_ONLY.test(primary.filename) ? (
+        // A player and the filename, on the panel's own background rather than
+        // the black a video sits on — there is nothing to letterbox.
+        <div
+          className="flex flex-col gap-3 rounded-xl border border-border-default
+            bg-bg-subtle p-4"
+        >
+          <p className="truncate font-mono text-[12px] text-fg-muted">
+            {primary.filename}
+          </p>
+          <audio key={src} src={src} controls className="w-full" />
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border-default bg-black">
+          {/*
+            Silent workflows autoplay on a loop, which is the nicer preview.
+            Audio workflows must not: autoplay is only allowed while muted, so
+            looping it muted would hide the soundtrack entirely.
+          */}
+          <video
+            key={src}
+            src={src}
+            controls
+            autoPlay={!job.hasAudio}
+            loop={!job.hasAudio}
+            muted={!job.hasAudio}
+            playsInline
+            className="block max-h-[60vh] w-full bg-black"
+          />
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="success">

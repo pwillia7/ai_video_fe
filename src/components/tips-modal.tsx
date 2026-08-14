@@ -3,6 +3,12 @@
 import { Modal } from "@/components/ui/modal";
 import type { WorkflowTips } from "@/lib/workflows/tips";
 
+/** Where the video workflows' advice comes from, and the fallback credit. */
+const H3_GUIDE = {
+  href: "https://docs.comfy.org/tutorials/video/minimax/minimax-h3",
+  label: "From ComfyUI’s MiniMax H3 guide ↗",
+};
+
 export function TipsModal({
   open,
   onClose,
@@ -22,12 +28,12 @@ export function TipsModal({
       subtitle={title}
       footer={
         <a
-          href="https://docs.comfy.org/tutorials/video/minimax/minimax-h3"
+          href={tips.source?.href ?? H3_GUIDE.href}
           target="_blank"
           rel="noreferrer"
           className="text-[12px] text-fg-subtle transition-colors hover:text-accent"
         >
-          From ComfyUI&rsquo;s MiniMax H3 guide ↗
+          {tips.source?.label ?? H3_GUIDE.label}
         </a>
       }
     >
