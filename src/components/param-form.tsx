@@ -31,7 +31,16 @@ export function ParamForm({
   /** Server-side validation error keyed to a param id. */
   fieldError?: { field?: string; message: string } | null;
 }) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  /**
+   * Which groups have their advanced params showing, keyed by group name.
+   *
+   * Per group rather than one switch for the form, because the disclosure now
+   * sits inside the group it belongs to. It used to sit under the whole form,
+   * which read as a control that did nothing: the only advanced param in the
+   * app is in References, near the top of the reference workflow, so pressing a
+   * button at the bottom of the panel revealed a control off-screen above it.
+   */
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   // Preserve declaration order of both groups and params within them.
   //
@@ -50,13 +59,13 @@ export function ParamForm({
     return [...ordered.entries()];
   }, [params]);
 
-  const hasAdvanced = params.some((param) => param.advanced);
-
   return (
     <div className="flex flex-col gap-7">
       {groups.map(([group, groupParams]) => {
+        const open = openGroups[group] ?? false;
+        const advanced = groupParams.filter((param) => param.advanced);
         const visible = groupParams.filter(
-          (param) => showAdvanced || !param.advanced,
+          (param) => open || !param.advanced,
         );
         if (visible.length === 0) return null;
 
@@ -89,40 +98,67 @@ export function ParamForm({
                 }
               />
             ))}
+
+            {/* Nothing to disclose, no disclosure. Only one group in the app
+                has an advanced param, so on most workflows this never draws. */}
+            {advanced.length > 0 ? (
+              <Disclosure
+                open={open}
+                onToggle={() =>
+                  setOpenGroups((previous) => ({
+                    ...previous,
+                    [group]: !open,
+                  }))
+                }
+              >
+                {open ? "Hide advanced" : "Advanced"}
+              </Disclosure>
+            ) : null}
           </fieldset>
         );
       })}
-
-      {hasAdvanced ? (
-        <Button
-          variant="quiet"
-          size="xs"
-          className="self-start"
-          aria-expanded={showAdvanced}
-          onClick={() => setShowAdvanced((previous) => !previous)}
-          icon={
-            <svg
-              viewBox="0 0 16 16"
-              className={`size-3 shrink-0 transition-transform duration-200 ${
-                showAdvanced ? "rotate-90" : ""
-              }`}
-              aria-hidden="true"
-            >
-              <path
-                d="M6 4l4 4-4 4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </svg>
-          }
-        >
-          {showAdvanced ? "Hide advanced" : "Advanced"}
-        </Button>
-      ) : null}
     </div>
+  );
+}
+
+/** A quiet show/hide control with a chevron that turns. */
+export function Disclosure({
+  open,
+  onToggle,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button
+      variant="quiet"
+      size="xs"
+      className="self-start"
+      aria-expanded={open}
+      onClick={onToggle}
+      icon={
+        <svg
+          viewBox="0 0 16 16"
+          className={`size-3 shrink-0 transition-transform duration-200 ${
+            open ? "rotate-90" : ""
+          }`}
+          aria-hidden="true"
+        >
+          <path
+            d="M6 4l4 4-4 4"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </svg>
+      }
+    >
+      {children}
+    </Button>
   );
 }
 

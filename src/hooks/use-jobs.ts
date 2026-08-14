@@ -257,9 +257,22 @@ export function useJobs(): JobsController {
         }>(`/api/status?promptIds=${encodeURIComponent(activeIds)}`);
         if (cancelled) return;
         failures = 0;
-        setJobs((previous) =>
-          previous.map((job) => applyStatus(job, statuses[job.promptId])),
-        );
+        // The same array back when nothing moved, not a fresh one holding the
+        // same objects. `applyStatus` already returns the identical job when a
+        // poll says nothing new, so this is a cheap identity check — and it is
+        // what stops a tick that changed nothing from re-rendering the history
+        // and rewriting the whole of localStorage. Most ticks change nothing:
+        // a render sits in `running` for minutes. Without this the cost of
+        // keeping history is paid every 1.5 seconds rather than when something
+        // actually happens, which is what made its size worth rationing.
+        setJobs((previous) => {
+          const next = previous.map((job) =>
+            applyStatus(job, statuses[job.promptId]),
+          );
+          return next.some((job, index) => job !== previous[index])
+            ? next
+            : previous;
+        });
         timer = setTimeout(poll, POLL_INTERVAL_MS);
       } catch (cause) {
         if (cancelled) return;

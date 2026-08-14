@@ -1,10 +1,9 @@
 "use client";
 
-import { Toggle } from "@/components/ui/inputs";
 import type { ClientTurbo } from "@/lib/workflows/turbo";
 
 /**
- * Standard or Turbo for the workflow on screen, and how turbo is applied.
+ * Standard or Turbo for the workflow on screen.
  *
  * A segmented control rather than the on/off Toggle the params use, because
  * neither position is the absence of the other: both are a way to run this
@@ -12,23 +11,18 @@ import type { ClientTurbo } from "@/lib/workflows/turbo";
  * than inside the Sampling group because it moves the step range that group
  * shows, and a control cannot sensibly live inside what it reconfigures.
  *
- * Low VRAM is a plain toggle underneath, and only in turbo: off, there is no
- * LoRA node in the graph for it to say anything about. It is here rather than
- * in the form because it is not a param — it does not travel with the workflow's
- * settings, and it is remembered once for the whole app.
+ * That is also why it stayed out here when the other run modes folded away into
+ * ModelOptions: those change how the model is run without changing what any
+ * control means, and this one does not.
  */
 export function TurboSwitch({
   turbo,
   on,
   onChange,
-  lowVram,
-  onLowVramChange,
 }: {
   turbo: ClientTurbo;
   on: boolean;
   onChange: (on: boolean) => void;
-  lowVram: boolean;
-  onLowVramChange: (lowVram: boolean) => void;
 }) {
   return (
     <div className="mb-6 rounded-lg border border-border-default bg-bg-subtle p-3">
@@ -78,33 +72,6 @@ export function TurboSwitch({
       >
         {turbo.help}
       </p>
-
-      {turbo.lowVram && on ? (
-        <div className="mt-3 border-t border-border-default pt-3">
-          <div className="flex items-center gap-3">
-            <label
-              htmlFor="turbo-low-vram"
-              className="text-[12px] font-medium text-fg"
-            >
-              {turbo.lowVram.label}
-            </label>
-            <div className="ml-auto">
-              <Toggle
-                id="turbo-low-vram"
-                checked={lowVram}
-                onChange={onLowVramChange}
-                describedBy="turbo-low-vram-help"
-              />
-            </div>
-          </div>
-          <p
-            id="turbo-low-vram-help"
-            className="mt-2 text-[12px] leading-relaxed text-fg-muted"
-          >
-            {turbo.lowVram.help}
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 }

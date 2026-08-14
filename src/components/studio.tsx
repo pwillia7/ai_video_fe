@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { TipsModal } from "@/components/tips-modal";
 import { tipsFor } from "@/lib/workflows/tips";
 import { TokenGate } from "@/components/token-gate";
-import { PatchSwitches } from "@/components/patch-switches";
+import { ModelOptions } from "@/components/model-options";
 import { TurboSwitch } from "@/components/turbo-switch";
 import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/ui/panel";
@@ -673,15 +673,17 @@ function Workbench({
                     turbo={selected.turbo}
                     on={turboOn}
                     onChange={setTurbo}
-                    lowVram={lowVram}
-                    onLowVramChange={setLowVram}
                   />
                 ) : null}
 
-                <PatchSwitches
+                <ModelOptions
                   patches={selected.patches}
                   on={patchesOn}
-                  onChange={setPatch}
+                  onPatchChange={setPatch}
+                  turbo={selected.turbo}
+                  turboOn={turboOn}
+                  lowVram={lowVram}
+                  onLowVramChange={setLowVram}
                 />
 
                 {clipNotice &&

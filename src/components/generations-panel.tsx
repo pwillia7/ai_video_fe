@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dot } from "@/components/ui/panel";
 import { withToken } from "@/lib/client";
 import {
+  dayKey,
   formatDuration,
   formatWhen,
   groupByDay,
@@ -79,7 +80,17 @@ export function GenerationsPanel({
   );
   const [pending, setPending] = useState<Pending>(null);
 
-  const groups = useMemo(() => groupByDay(jobs, now), [jobs, now]);
+  // Keyed on the calendar day rather than on `now`, which ticks every second
+  // while anything is running. All `now` decides here is whether a heading says
+  // "Today", so regrouping the whole history a second at a time was buying one
+  // label change at midnight.
+  const today = dayKey(now);
+  const groups = useMemo(
+    // `now` is read through `today`, which is what the dependency list names.
+    () => groupByDay(jobs, now),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [jobs, today],
+  );
 
   if (jobs.length === 0) {
     return (

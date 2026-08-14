@@ -84,16 +84,31 @@ const STORAGE_KEY = "sorant-jobs";
  * to say it was not a storage limit at all; it was a guess that cost most users
  * their history at around 1% of what the browser would have held.
  *
- * 1MB is roughly a fifth of the ~5MB an origin usually gets, leaving the rest
- * for the saved params and whatever this app stores later. It buys around 900
- * ordinary generations, and degrades the right way: someone who writes
- * enormous prompts gets fewer entries rather than a broken write.
+ * 2M characters is about as far as this can honestly go, and the reason is the
+ * unit. An origin gets around 5MB, but browsers meter that in UTF-16 code
+ * units — two bytes a character — so the real ceiling is nearer 2.5M
+ * characters for everything this app stores, params included. A budget of
+ * "5MB" would therefore ask for roughly twice the quota and be refused, which
+ * is a worse failure than a smaller history: every write would fall down the
+ * ladder in `writeJobs` before it stuck.
  *
- * The ceiling is not really quota anyway — it is that this blob is stringified
- * on every poll tick while anything is running, and parsed on every load. At
- * this size that is about a millisecond each. Several megabytes would be felt.
+ * At that size it holds around 1800 ordinary generations, and degrades the
+ * right way — someone who writes enormous prompts keeps fewer of them rather
+ * than getting a broken write.
+ *
+ * Compute is no longer the argument against a big history, but it was: this
+ * blob used to be stringified on every poll tick, so its size was paid every
+ * 1.5 seconds for as long as a render ran. A tick that changes nothing now
+ * returns the same array and writes nothing at all — see the poll in
+ * use-jobs.ts — so the cost is paid when something actually happens. What is
+ * left is a parse on load, a few milliseconds at this size.
+ *
+ * Unlimited is not on the table whatever the compute: `localStorage` writes are
+ * synchronous and block the main thread, and past the quota they throw. A cap
+ * is what keeps the failure "the oldest entries went" instead of "history
+ * silently stopped saving".
  */
-const MAX_HISTORY_CHARS = 1_000_000;
+const MAX_HISTORY_CHARS = 2_000_000;
 /** A job still unresolved after this long is not coming back. */
 export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 

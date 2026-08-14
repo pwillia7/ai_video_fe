@@ -442,14 +442,15 @@ digits and 60 there is not a slower-but-better setting.
 at 8 already, the top of the LoRA's range, so turbo there would spend quality
 per step and save no time.
 
-Underneath the switch, in turbo only, is **Low VRAM** — the node pack's own
-memory-sparing way of applying the LoRA, passed straight through as the
-`low_vram` input on the node that gets spliced in. It is off by default and
-slower; turn it on if a turbo run dies out of memory on your card. Unlike
-everything in the settings form it is remembered once for the whole app rather
-than per workflow, because what it answers is a question about the GPU, not
-about the shot. It is not a param either, for the plainer reason that the node
-it writes to does not exist until the splice happens.
+**Low VRAM** is the node pack's own memory-sparing way of applying the LoRA,
+passed straight through as the `low_vram` input on the node that gets spliced
+in. It is off by default and slower; turn it on if a turbo run dies out of
+memory on your card. Unlike everything in the settings form it is remembered
+once for the whole app rather than per workflow, because what it answers is a
+question about the GPU, not about the shot. It is not a param either, for the
+plainer reason that the node it writes to does not exist until the splice
+happens. It lives under **Model** with the patches below, and only appears in
+turbo — off, there is no LoRA node for it to say anything about.
 
 **On reference to video, check a turbo take against a standard one before you
 trust it for a likeness.** The LoRA is distilled against `fl2va` and its author
@@ -479,6 +480,14 @@ turning all three off gets you back to a graph that needs none of these packs �
 which is the thing to try first if a fresh install fails on every workflow. Both
 are described in `src/lib/workflows/patches.ts` as a list rather than as named
 fields, since they differ only in which node they carry.
+
+They live behind a collapsed **Model** heading with Low VRAM, closed by default,
+because none of them is a per-shot decision — they answer questions about the
+machine and the install, and once answered they are in the way. The heading
+carries a summary of what is on, so shutting the section does not hide the fact
+that all of them ship enabled. Turbo stays outside it: it moves the step range
+the form below shows, and a control cannot sensibly hide from what it
+reconfigures.
 
 **Where the defaults live.** Each switch declares its own starting position —
 `defaultOn` on the turbo spec and on each patch — and the settings panel is the
@@ -912,14 +921,29 @@ media here would exhaust the few megabytes localStorage allows after a couple of
 clips. The trade is that an entry stops playing if ComfyUI's output directory is
 cleared.
 
-**The limit is 1MB of history, not a number of runs.** A run is not a fixed
-size — about 1KB for an ordinary prompt, about 17KB for one written to the
-8000-character maximum — so a flat count was really a storage limit that moved
-by a factor of twenty depending on how much you type. A budget buys around 900
-ordinary generations and degrades the right way: write enormous prompts and you
-keep fewer of them, rather than getting a broken write. Anything still queued or
-running is kept regardless of the budget, because its entry is the only record
+**The limit is 2 million characters of history, not a number of runs.** A run is
+not a fixed size — about 1KB for an ordinary prompt, about 17KB for one written
+to the 8000-character maximum — so a flat count was really a storage limit that
+moved by a factor of twenty depending on how much you type. The budget holds
+around 1800 ordinary generations and degrades the right way: write enormous
+prompts and you keep fewer of them, rather than getting a broken write. Anything
+still queued or running is kept regardless, because its entry is the only record
 of what to poll and what to cancel.
+
+Characters rather than bytes, because that is the unit that matters. An origin
+gets about 5MB, but browsers meter it in UTF-16 — two bytes a character — so the
+real ceiling is nearer 2.5M characters for everything this app stores. A budget
+written as "5MB" would ask for roughly twice the quota and simply be refused.
+Unlimited is not on the table either: `localStorage` writes are synchronous and
+throw past the quota, and a cap is what keeps the failure "the oldest entries
+went" rather than "history silently stopped saving".
+
+Compute is no longer an argument against a long history, though it used to be.
+This blob was stringified on every poll tick, so its size was paid every 1.5
+seconds for as long as a render ran. A tick that changes nothing now returns the
+same array and writes nothing, and the history regroups on the calendar day
+rather than on the second — so what is left is a parse on load, a few
+milliseconds at this size.
 
 The list is **grouped by the day a generation was started**, newest day open and
 the rest collapsed, so a long history reads as an index rather than a wall. Days
