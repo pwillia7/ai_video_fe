@@ -2,10 +2,10 @@ import type { ComfyGraph } from "@/lib/comfy";
 import { directorTarget } from "./minimax-common";
 import {
   MUSIC_DIRECTOR,
-  instrumentalPlan,
+  ceilingSeconds,
   lyricSections,
   lyricistPrompt,
-  musicLength,
+  musicConstraints,
 } from "./music3-director";
 import type { ParamDef, ParamTarget, WorkflowDef } from "./types";
 
@@ -28,7 +28,8 @@ import type { ParamDef, ParamTarget, WorkflowDef } from "./types";
  *   no rewrite, no expansion, no LLM anywhere near it, and the caption director
  *   is shown the section tags and nothing else.
  *
- * Two things can stand in for a typed lyric sheet, and they are not alike:
+ * Two things can stand in for a typed lyric sheet, and both are node 47 — the
+ * same second chat completion, told to do a different job:
  *
  * - "Write the lyrics for me" adds a second director rather than changing the
  *   first. Node 47 runs after 46 and *reads its caption as its user message*,
@@ -36,9 +37,10 @@ import type { ParamDef, ParamTarget, WorkflowDef } from "./types";
  *   writing into, and its output replaces the box as the input to 37:13. See
  *   `finalize`, and LYRICS_DIRECTOR for why the subject travels in the system
  *   prompt instead.
- * - An empty box gets a section plan instead, built in this app rather than by
- *   a model — see instrumentalPlan for why nothing generated writes into a
- *   field whose contents are sung.
+ * - An empty box with "Plan the sections" on gets a timed section list from
+ *   the same node, transcribed out of the caption's own arrangement, and
+ *   filtered on the way through node 48 because that field is performed. See
+ *   SECTION_PLANNER.
  *
  * The graph's ids come from a flattened subgraph, so most of them are "37:n"
  * with the nodes added around it numbered plainly.
@@ -46,6 +48,7 @@ import type { ParamDef, ParamTarget, WorkflowDef } from "./types";
 const PROMPT_NODE = "44";
 const DIRECTOR_NODE = "46";
 const LYRICIST_NODE = "47";
+const PLAN_GUARD_NODE = "48";
 const ENCODE_NODE = "37:13";
 const SAMPLER_NODE = "37:9";
 const SEED_NODE = "37:38";
@@ -118,6 +121,44 @@ const graph: ComfyGraph = {
       client: ["45", 0],
     },
     _meta: { title: "OpenAI API - Chat Completion (Lyrics)" },
+  },
+
+  // The guard on the section plan, and the reason an LLM is allowed to write a
+  // field whose contents are performed.
+  //
+  // It deletes every line that does not open with a bracket. A plan is nothing
+  // but bracketed tags, so what survives is the plan and what does not is the
+  // "Here is the plan:" that would otherwise be sung — a whole class of failure
+  // removed by a filter that cannot be wrong about which lines are which.
+  //
+  // Only ever on the plan path. The same filter on the lyricist's output would
+  // delete the lyrics, which are precisely the lines with no bracket on them,
+  // so `finalize` wires this in on one path and deletes it on the others.
+  //
+  // `RegexReplace` is a ComfyUI built-in (comfy_extras/nodes_string.py), so
+  // this needs no pack the graph did not already need. It is in the stored
+  // graph rather than spliced in by `finalize` so that `pnpm check:nodes` asks
+  // a real ComfyUI whether the class is there.
+  //
+  // Python's `re.sub` with MULTILINE: `^(?![ \t]*\[).*$` is a line that does
+  // not start with a bracket, and the trailing `\n?` takes the line break with
+  // it so a stripped line leaves no blank one behind.
+  //
+  // The lookahead spells out space and tab rather than saying `\s`, because
+  // `\s` matches a newline too — so on a blank line it would reach across the
+  // break, find the bracket opening the *next* line, and keep the blank one.
+  "48": {
+    class_type: "RegexReplace",
+    inputs: {
+      string: ["47", 0],
+      regex_pattern: "^(?![ \\t]*\\[).*$\\n?",
+      replace: "",
+      case_insensitive: true,
+      multiline: true,
+      dotall: false,
+      count: 0,
+    },
+    _meta: { title: "Regex Replace (Section Plan Guard)" },
   },
 
   "37:6": {
@@ -227,14 +268,16 @@ const graph: ComfyGraph = {
  * than part of its instructions. The duration and the lyrics are: one decides
  * how much song there is room for, the other what sections it has.
  *
- * `musicLength` displaces the video graphs' length block, which talks about
- * shot cuts and speakable dialogue.
+ * `musicConstraints` displaces the video graphs' length block, which talks
+ * about shot cuts and speakable dialogue. It lands last, which is where the
+ * user's own requirements belong: the director is told to rank them above
+ * everything it worked out for itself.
  */
 const director = directorTarget(
   { director: DIRECTOR_NODE },
   MUSIC_DIRECTOR,
   [lyricSections()],
-  musicLength,
+  musicConstraints,
 );
 
 /**
@@ -243,9 +286,9 @@ const director = directorTarget(
  * the subject box, the section-plan switch, and the duration.
  *
  * Its own builder rather than `directorTarget`, because node 47 has two jobs
- * and the run decides which: writing words when the lyricist is on, and
- * planning an instrumental's sections when nothing else is supplying any. See
- * lyricistPrompt.
+ * and the run decides which: writing words when the lyricist is on, and writing
+ * the timed section plan when nothing else is supplying the structural channel.
+ * See lyricistPrompt.
  *
  * Written on every run, including the ones where node 47 is deleted before the
  * graph is queued. Assembling an instruction for a node that is about to go
@@ -342,18 +385,14 @@ const params: ParamDef[] = [
       // same instrumental to the model as an empty one — which is what the
       // director is told it is.
       //
-      // An empty box is also where the section plan goes, since this is the
-      // input it stands in for. Built here rather than by an LLM: whatever
-      // lands in this field is performed, so it is the one place in the app
-      // where a stray sentence becomes a lyric. See instrumentalPlan.
+      // An empty box writes an empty string, and `finalize` may then replace
+      // that write with a link: to the lyricist, or to the section plan coming
+      // through the guard. Both of those are graph edits rather than values,
+      // which is why neither can happen here.
       {
         node: ENCODE_NODE,
         input: "lyrics",
-        transform: (value, values) => {
-          const typed = String(value).trim();
-          if (typed || values.plan_sections !== true) return typed;
-          return instrumentalPlan(Number(values.duration));
-        },
+        transform: (value) => String(value).trim(),
       },
       // Also shapes the caption, but only through its section tags — see
       // lyricSections. The words themselves reach the model and no one else.
@@ -365,49 +404,68 @@ const params: ParamDef[] = [
     label: "Plan the sections",
     type: "toggle",
     default: true,
-    help: "Writes a wordless section plan for the piece to play to. Off sends nothing, and the model decides where to stop.",
+    help: "Turns the caption's arrangement into a timed section list for the piece to play to. Off sends nothing, and the model decides where to stop.",
     group: "Song",
     // Only in the case it is about to fix: no typed lyrics, no lyricist. Either
     // of those is already supplying the structural channel this fills.
     hiddenBy: ["lyrics", "write_lyrics"],
-    // The plan itself is written by the lyrics param's own transform, which is
-    // where that field's value is decided. This tells the caption director that
-    // a plan exists so its arrangement can match the shape.
-    targets: [director],
+    // Both instructions, because the plan is written between them: the caption
+    // director is told its arrangement will be transcribed, and node 47 is told
+    // to do the transcribing. Wiring 47 into the graph at all is `finalize`'s
+    // job, as it is for the lyricist.
+    targets: [director, lyricist],
   },
 
   {
     id: "duration",
-    label: "Maximum length",
+    label: "Length",
     type: "slider",
     default: 60,
     min: 15,
     /**
-     * 360s, from the node's own limit rather than from the model card: the
-     * encode node caps `max_duration` at MAX_AUDIO_FRAMES / AUDIO_FRAMES_PER_
-     * SECOND, which is 9000 / 25 in comfy/ldm/minimax_music/ar.py. MiniMax's
-     * README says five minutes; ComfyUI will take six.
+     * 300s, which is MiniMax's own "up to five minutes" rather than the node's
+     * limit. The limit is 360 — the encode node caps `max_duration` at
+     * MAX_AUDIO_FRAMES / AUDIO_FRAMES_PER_SECOND, 9000 / 25 in
+     * comfy/ldm/minimax_music/ar.py — and stopping the target short of it is
+     * what leaves room for the ceiling to sit above the target at every setting
+     * this control can reach. See ceilingSeconds.
      */
-    max: 360,
+    max: 300,
     step: 5,
     unit: "s",
     /**
-     * A ceiling, and named like one. `max_duration` is a decode limit — the AR
-     * stage generates acoustic frames until it emits its own end token or hits
-     * that limit, whichever comes first — so a run is as long as the song the
-     * caption described, never longer than this. The latent is then sized from
-     * what the model actually produced (output 1 of the encode feeds node
-     * 37:15), which is why a short song is a short file rather than a long one
-     * padded with silence.
+     * A target, and the one number the user sets. Two different things are
+     * derived from it and they are not the same quantity:
      *
-     * Nothing in the prompt states the target length: `max_audio_frames` never
-     * reaches the text. So the only lever on how long a track really runs is
-     * how much song the caption and the lyrics describe, which is what the
-     * director is told — see musicLength.
+     * - `max_duration`, a decode limit: the AR stage generates acoustic frames
+     *   until it emits its own end token or hits that limit, whichever comes
+     *   first. So it is a cut-off, and a cut-off placed on the target is a cut
+     *   through the ending of every song that landed on it. `ceilingSeconds`
+     *   puts it above. The latent is sized from what the model actually
+     *   produced (output 1 of the encode feeds node 37:15), so an unreached
+     *   ceiling costs nothing and a short song is a short file rather than a
+     *   long one padded with silence.
+     * - The target itself, which reaches the model only as prose, because
+     *   nothing in this graph carries a target length as a number:
+     *   `max_audio_frames` never reaches the text and MiniMax's own API has no
+     *   duration field either. So the levers on how long a track really runs
+     *   are how much song the caption describes and how many sections the plan
+     *   names — see musicConstraints and SECTION_PLANNER — plus `top_k`, which
+     *   is the only one of the three that is mechanical.
      */
-    help: "A ceiling, not a target — the model ends the song when the song is over. Top-k under Sampling is what stops it ending early.",
+    help: "What the caption, the lyrics and the section plan are written to fill. The run is cut off a little past it. Top-k under Sampling is what stops the model ending early.",
     group: "Output",
-    targets: [{ node: ENCODE_NODE, input: "max_duration" }, director],
+    targets: [
+      {
+        node: ENCODE_NODE,
+        input: "max_duration",
+        transform: (value) => ceilingSeconds(Number(value)),
+      },
+      director,
+      // The planner needs it too, and for the arithmetic rather than for the
+      // prose: its durations have to add up to this number.
+      lyricist,
+    ],
   },
 
   {
@@ -546,23 +604,41 @@ export const minimaxMusic3: WorkflowDef = {
    */
 
   /**
-   * Whether the lyrics field comes from the form or from the lyricist.
+   * Where the lyrics field comes from, which is one of three places.
    *
    * A param cannot do this: `lyrics` on the encode node is either a string the
-   * form wrote — the typed sheet, or the section plan standing in for it — or a
-   * link to node 47, and swapping a value for a link is a change to the graph
-   * rather than to a value in it.
+   * form wrote or a link to another node, and swapping a value for a link is a
+   * change to the graph rather than to a value in it.
    *
-   * With the lyricist off, node 47 is deleted rather than left unused. ComfyUI
-   * executes every node an output depends on and nothing else would be reading
-   * this one, but a node with no consumer is a node someone will later wire up
-   * by accident, and it spends an API call per run either way.
+   * - The lyricist writes it, and its output goes straight in. Nothing filters
+   *   a lyric sheet: every line of it is meant to be sung.
+   * - The section planner writes it, and it goes through node 48 first, which
+   *   drops everything that is not a bracketed tag. Safe here and nowhere else
+   *   — see the node's own comment.
+   * - Otherwise the form wrote it, and both extra nodes go.
+   *
+   * Unused nodes are deleted rather than left in. ComfyUI executes only what an
+   * output depends on, so a stray one would cost nothing at run time, but a
+   * node with no consumer is a node someone wires up by accident later — and an
+   * OAIAPI_ChatCompletion that did get executed would spend an API call to
+   * produce nothing.
    */
   finalize(graph, values) {
     if (values.write_lyrics === true) {
       graph[ENCODE_NODE].inputs.lyrics = [LYRICIST_NODE, 0];
+      delete graph[PLAN_GUARD_NODE];
       return;
     }
+
+    // The one case the plan is for: no words from anywhere. `lyrics` has
+    // already been trimmed by its own transform, so this reads the same value
+    // the director was shown.
+    if (values.plan_sections === true && !String(values.lyrics ?? "").trim()) {
+      graph[ENCODE_NODE].inputs.lyrics = [PLAN_GUARD_NODE, 0];
+      return;
+    }
+
     delete graph[LYRICIST_NODE];
+    delete graph[PLAN_GUARD_NODE];
   },
 };

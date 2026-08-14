@@ -16,10 +16,28 @@ import type { ParamValue } from "./types";
  * captions: route a description to a genre family, read a few cards, then read
  * the two or three complete templates it picked. None of that is available to
  * one chat completion with no filesystem, so what is borrowed here is the part
- * that transfers — the output contract, the field names, and the rules about
- * what must not be invented or contradicted. The field names below are copied
- * from the skill's own template files, not paraphrased from its prose, because
- * they are what the model was trained to read.
+ * that transfers — the output contract, the field names, the constraint
+ * hierarchy, and the rules about what must not be invented or contradicted. The
+ * field names below are copied from the skill's own template files, not
+ * paraphrased from its prose, because they are what the model was trained to
+ * read.
+ *
+ * The hierarchy is the skill's own five rungs in its own order: user
+ * requirements, then section-local directives from bracketed tags, then caption
+ * implications, then reference characteristics, then conservative defaults.
+ * Only the fourth is reworded, because there are no reference templates on this
+ * side of it — a chat completion with no filesystem never opens one — and "what
+ * the style would conventionally do" is what that rung is actually standing in
+ * for here.
+ *
+ * What the skill has no answer for at all is length. It accepts a desired
+ * length as a constraint and then defines no mechanism for honouring one: its
+ * Arrangement is "a section-by-section timeline" with no times in it, and the
+ * generation API it feeds has no duration field either — only `max_new_tokens`,
+ * a cap of 9000 acoustic frames, which is the ceiling this app writes to
+ * `max_duration`. So everything below about section sizes is a local extension
+ * rather than the documented contract, and it is here because the documented
+ * contract is what comes back short.
  *
  * The lyrics are deliberately not in here. They go straight from the form to
  * the model, and the director is shown only the section tags — see
@@ -42,6 +60,16 @@ Write in English. Write plain text in exactly the layout below — no markdown, 
 WHAT TO DECIDE, AND WHAT NOT TO INVENT
 
 The user's own words come first. Anything they state — genre, tempo, key, vocal gender, an instrument they want, an instrument they do not want, a mood, a language, "instrumental" — is fixed, and nothing you add may contradict it or quietly reverse it.
+
+When two things you have been given disagree, settle it in this order:
+
+1. What the user asked for, including the constraints at the end of these instructions.
+2. A directive carried inside a section tag, which governs its own section and no other.
+3. What the description implies without saying.
+4. What the style would conventionally do.
+5. A conservative default.
+
+Nothing lower on that list may overturn anything above it. A convention of the genre is not a reason to quietly drop something the user asked for.
 
 Everything they leave unsaid is yours to decide, and you must decide it: the fields below take definite values, and a caption hedging between two tempos describes neither. Pick a BPM and a key that suit the style you are writing, commit to them, and keep every later field consistent with what you picked.
 
@@ -138,7 +166,9 @@ A texture is what to avoid: an evolving pad, a drifting atmosphere, a slowly fil
         values.plan_sections === true
           ? `
 
-The model is also given a bare section plan of its own — an intro, a run of instrumental sections and an outro, each with a length, adding up to the running time. Your arrangement is what fills those sections in, so lay it out with the same shape: an opening, a body that develops through several distinct stretches, and an ending. There is no vocal section in that plan, and there is none in your caption either.`
+Your arrangement is also being turned into a section plan for the model. A second pass reads the caption you are about to write, takes the sections out of your Arrangement, and hands the model that list with a duration against each one — so the plan is only as good as the walk you write, and a stretch of the piece you leave untimed is a stretch that pass has to invent a length for.
+
+So name every section, in order, and give each one a size. An opening, a body that develops through several distinct stretches, and an ending. No section of that plan is a vocal one, and none of your caption's is either.`
           : ""
       }`;
     }
@@ -186,19 +216,29 @@ function sectionTags(lyrics: string): string[] {
 }
 
 /**
- * How long the track may run, as the constraint on the timeline above.
+ * The user's own requirements, which today means how long the track should run.
+ *
+ * A constraints block rather than a length block, and it is the last thing the
+ * director reads, because the hierarchy above puts it at the top: this is the
+ * rung everything else defers to. Exclusions and creative direction belong here
+ * too the moment they get controls of their own — at present they are typed
+ * into the description, where they still outrank everything but arrive without
+ * being labelled as requirements.
  *
  * The video graphs' length block is about shot cuts and speakable dialogue and
  * would be nonsense here, which is why `directorTarget` takes this as an
  * argument.
  *
- * It is a ceiling and it is written as one, because that is what the control
- * sets. `max_duration` becomes the AR stage's decode limit: the model generates
- * acoustic frames until it emits its own end token or reaches that limit,
- * whichever lands first, and the latent is then sized from what it actually
- * produced. Nothing in the prompt states a target length — the frame budget
- * never reaches the text — so what decides how long a track really runs is how
- * much song this caption describes.
+ * A target, and written as one. The control sets a target and the ceiling is
+ * derived from it — see `ceilingSeconds` — because the two are not the same
+ * quantity and setting them equal punishes the run that went right: a song the
+ * caption lands exactly on the target loses its last bar to a cut-off placed
+ * exactly there. What the ceiling actually is: `max_duration` becomes the AR
+ * stage's decode limit, the model generates acoustic frames until it emits its
+ * own end token or reaches that limit, and the latent is then sized from what
+ * it produced. Nothing in the prompt states a target — the frame budget never
+ * reaches the text — so what decides how long a track really runs is how much
+ * song this caption describes.
  *
  * That makes this block a lever rather than a formality. Told "the length is
  * already decided", a director writes a compact caption and the model duly
@@ -214,7 +254,7 @@ function sectionTags(lyrics: string): string[] {
  * do carry is structure, so structure is what this asks for. The control that
  * acts on length mechanically is `top_k`; see its help in minimax-music3.ts.
  */
-export const musicLength: DirectorAppendix = (
+export const musicConstraints: DirectorAppendix = (
   values: Record<string, ParamValue>,
 ) => {
   const seconds = trackSeconds(values);
@@ -222,11 +262,13 @@ export const musicLength: DirectorAppendix = (
 
   const short = seconds < 60;
 
-  return `HOW LONG THE TRACK RUNS
+  return `CONSTRAINTS
 
-${spokenLength(seconds)}. Write the caption for a piece of exactly that length.
+What follows is what the user asked for, and it is the top rung of the order above. Nothing you infer from their description, and nothing the style would usually do, may overturn it.
 
-That number is a ceiling the run cannot exceed, and it is not a length the model will reach on its own. It plays the song your caption describes and then it stops, so the length is something you write rather than something the setting supplies. A caption carrying one idea and a fade comes back short however high the ceiling is.
+Target length: ${spokenLength(seconds)}. Write the caption for a piece of exactly that length.
+
+The run is cut off at ${clockLength(ceilingSeconds(seconds))}, which is a hard stop rather than a target — a song your caption makes longer than ${clockLength(seconds)} loses its ending mid-bar. The far commoner failure is the other one: nothing in this system tells the model to keep playing, so it plays the song your caption describes and stops, and a caption carrying one idea and a fade comes back short however far away the cut-off is.
 
 Do not state the running time as a fact anywhere in the caption. A line announcing that the piece lasts ${clockLength(seconds)} is not an instruction the model can follow — it describes captions rather than music, and it is not what a caption of this kind contains.
 
@@ -242,6 +284,31 @@ Either way it has to reach an ending rather than a place it could happen to stop
 
 If the user's own description names a length, this number governs. Do not restate theirs and do not average the two.`;
 };
+
+/**
+ * The decode ceiling that goes with a target length.
+ *
+ * `max_duration` is a cut-off, not a length: the AR stage generates until it
+ * emits an end token or hits this, and whatever it produced by then is the
+ * track. So a ceiling set to the target is a guillotine on the good outcome —
+ * the caption lands the song on 3:40 and the last bar is the one that does not
+ * fit. The headroom is what makes an ending possible.
+ *
+ * It costs nothing to be generous with. The latent is sized from what the model
+ * actually produced (node 37:15 reads output 1 of the encode), so an unreached
+ * ceiling is not silence on the end of the file, and the frames are never
+ * generated. What it does buy is the occasional track that runs over the target
+ * by up to this much, which is the right way round: a song that plays out is
+ * worth more than one clipped exactly on time.
+ *
+ * 360s is the node's own hard limit — MAX_AUDIO_FRAMES / AUDIO_FRAMES_PER_
+ * SECOND, 9000 / 25, in comfy/ldm/minimax_music/ar.py — and the clamp is what
+ * keeps the derived value inside it. The duration control stops at 300 so the
+ * headroom is real at every setting rather than quietly vanishing at the top.
+ */
+export function ceilingSeconds(target: number): number {
+  return Math.min(360, Math.round(target * 1.15));
+}
 
 /** Clock form, for the caption itself: "3:40" reads as a running time. */
 function clockLength(seconds: number): string {
@@ -320,63 +387,105 @@ Match the voice the brief describes and the world it puts the song in. Write in 
 Do not describe the music, name the instruments, or narrate the arrangement. That is what the brief is for. Do not write stage directions, verse numbers, or annotations of any kind outside the section tags and the round-bracket asides.`;
 
 /**
- * The section plan an instrumental is given in place of a lyric sheet.
+ * The other job node 47 does: the section plan an instrumental is given in
+ * place of a lyric sheet.
  *
- * Why it exists. The lyrics field is not only where words go — it is the
- * model's *structural* channel. `normalize_lyrics` in
+ * Why the field is worth filling at all. The lyrics field is not only where
+ * words go — it is the model's *structural* channel. `normalize_lyrics` in
  * comfy/ldm/minimax_music/prompt.py keeps every bracketed tag, lowercases it,
  * and puts it in the prompt after a `[start]` marker, and MiniMax's own caption
- * skill treats the tags as executable structural directives rather than as
- * text. An instrumental sends that channel empty, which is a fair part of why
- * it is the case that comes back shortest: the model gets a mood and no plan,
- * and a generator with no plan stops when it feels like it.
+ * skill treats bracketed tags as the one part of a lyric sheet that is
+ * executable. An instrumental sends that channel empty, which is a fair part of
+ * why it is the case that comes back shortest: the model gets a mood and no
+ * plan, and a generator with no plan stops when it feels like it.
  *
- * Why it is built here rather than written by the LLM, which is how it started.
- * Whatever goes into this field is *performed*. An LLM asked for tags and only
- * tags will mostly comply, and the rest of the time it writes "Here is the
- * plan:" — and that sentence is then sung, in a track that was supposed to have
- * no singing at all. There is nowhere to sanitise it either: the plan would
- * reach the encode node over a link inside ComfyUI, which this app never sees.
- * Generating it from the one number it actually depends on removes the whole
- * class of failure, costs an API call less, and is the same plan every time.
+ * Why an LLM writes it, having been arithmetic in this file until now. The plan
+ * and the caption describe the same piece, and written by different authors
+ * they agree only in shape — a computed plan is a row of identical blocks, and
+ * the caption gets told to bend its arrangement to fit them. Written here the
+ * dependency runs the right way: node 47's user message is node 46's output, so
+ * the sections are the ones the caption actually described, at the lengths it
+ * gave them, and a 40-second solo is a 40-second solo in both places.
  *
- * What is lost is per-section instrument naming, which the caption carries
- * anyway. What is kept is the part the length problem needed: a fixed count of
- * sections, each with a duration, adding up to the running time.
+ * What that costs is exactly why it was arithmetic before. Whatever lands in
+ * this field is *performed*; this app never sees node 47's output, since it
+ * reaches the encode node over a link inside ComfyUI; and an LLM asked for tags
+ * and only tags will mostly comply and occasionally write "Here is the plan:",
+ * which is then sung, in a track that was supposed to have no singing in it.
+ * That failure is no longer unguarded — node 48 is a RegexReplace that drops
+ * every line not opening with a bracket, which is only safe on this path
+ * because a plan is nothing but brackets. The prompt below is written to make
+ * the guard redundant; the guard is there because "mostly" is not a rate worth
+ * shipping. See `finalize` in minimax-music3.ts for the wiring.
  *
  * Only tags that cannot be read as a sung section. [Verse] and [Chorus] would
  * invite exactly the voice the caption has just refused.
  */
-export function instrumentalPlan(seconds: number): string {
-  // Below about half a minute there is no room for an opening and an ending
-  // around anything: three sections would be six-second fragments, and the
-  // floors that stop them being fragments would push the plan past the ceiling
-  // it exists to add up to.
-  if (seconds < 36) return `[Instrumental - ${Math.max(1, Math.round(seconds))} seconds]`;
+export const SECTION_PLANNER = `You are laying out the section plan for an instrumental piece of music.
 
-  // Around half a minute a section, which is what a listener hears as one, with
-  // the opening and closing sections shorter than the body.
+You are given the production brief for a piece that is about to be generated. Its Arrangement already walks the piece from its first bar to its last. Write that walk out as a bare list of timed sections.
+
+Your entire output is that list. It goes straight into the model's structural channel — the field a lyric sheet would occupy — and everything in that field is performed. A heading, an explanation, a note about the arithmetic or a closing remark is not commentary: it is something the piece will try to play, in a track that has no voice to play it with. The first character you write is "[" and the last is "]".
+
+THE FORM
+
+One section per line, and every line exactly this shape:
+
+[Name - 24 seconds]
+
+Name is one of: Intro, Instrumental, Theme, Solo, Breakdown, Build, Interlude, Reprise, Outro.
+
+Nothing else on a line. No instrument, no description, no bar count, no running total, no blank lines between sections — the brief carries all of that, and this list carries only the shape.
+
+Use only those names. [Verse] and [Chorus] are instructions to sing, and this piece has no singer; a plan naming one is how an instrumental comes back with a voice on it.
+
+WHERE THE SECTIONS COME FROM
+
+Take them from the brief's Arrangement, in its order. Where it gives a section a size — in bars, in repeats, in seconds — convert that to seconds against the BPM it names, and use it. Where it leaves one unsized, give it a length that suits what it describes: a stated theme runs longer than the transition into it, a solo longer than the fill that ends it.
+
+Keep every section between 8 and 60 seconds. Shorter than that is a gesture rather than a section; longer is a stretch of music with nothing happening in it.
+
+THE ARITHMETIC
+
+The durations have to add up to the target length below. Not close to it — to it exactly.
+
+So write the list, add the numbers up, and if the total is not the target, lengthen or shorten one section in the middle until it is. Do that before you answer, and let the corrected list be the whole of your answer.`;
+
+/**
+ * What the planner is aiming at: the same target the caption director was
+ * given, spent on the one question the plan has to answer.
+ *
+ * The section count is the old computed plan's arithmetic, kept because it was
+ * the part worth keeping — about half a minute a section is what a listener
+ * hears as one, and below about 36 seconds there is no room for an opening and
+ * an ending around anything. It is offered as a density rather than imposed as
+ * a count, since the caption's own arrangement is the better authority on how
+ * many sections this particular piece has.
+ */
+export const plannerLength: DirectorAppendix = (
+  values: Record<string, ParamValue>,
+) => {
+  const seconds = trackSeconds(values);
+  if (!seconds) return "";
+
+  if (seconds < 36) {
+    return `THE TARGET LENGTH
+
+The piece runs ${spokenLength(seconds)}, which is too short to be built out of parts.
+
+Write one line, and one only: a single section of ${Math.round(seconds)} seconds, named for whatever the brief's arrangement is mostly doing.`;
+  }
+
   const count = Math.max(3, Math.round(seconds / 30));
-  const edge = Math.max(6, Math.round(seconds * 0.09));
-  const body = Math.max(1, count - 2);
-  const middle = Math.max(8, Math.round((seconds - edge * 2) / body));
 
-  // The last body section absorbs the rounding, so the plan adds up to the
-  // running time rather than to something a few seconds beside it.
-  const tail = Math.max(8, seconds - (edge * 2 + middle * (body - 1)));
+  return `THE TARGET LENGTH
 
-  const lines = [
-    `[Intro - ${edge} seconds]`,
-    ...Array.from(
-      { length: body },
-      (_unused, index) =>
-        `[Instrumental - ${index === body - 1 ? tail : middle} seconds]`,
-    ),
-    `[Outro - ${edge} seconds]`,
-  ];
+The piece runs ${spokenLength(seconds)}. Your durations add up to exactly ${Math.round(seconds)}.
 
-  return lines.join("\n");
-}
+At this length that is usually around ${count} sections. Fewer and longer is fine if the brief describes a piece that develops slowly; more and shorter is fine if it describes one that moves. Fewer than three is not a plan.
+
+The first section is the opening and the last is the ending, and both are shorter than the ones between them.`;
+};
 
 /**
  * What the song is about, from the control that only appears while the lyric
@@ -436,7 +545,7 @@ export const lyricsLength: DirectorAppendix = (
 
   return `HOW MUCH THERE IS ROOM FOR
 
-The track runs up to about ${spokenLength(seconds)} and cannot run past it.
+The track is being written to run about ${spokenLength(seconds)}, and is cut off shortly past that.
 
 That is somewhere around ${low} to ${high} sung lines in total, across every section — count them. Intros, instrumental passages and the breath between phrases take up the rest.
 
@@ -446,16 +555,31 @@ If the form in the brief will not fit in that many lines, keep the form and writ
 };
 
 /**
- * The whole system prompt for node 47.
+ * The whole system prompt for node 47, which is two prompts depending on what
+ * the run asked that node for.
+ *
+ * One node and two jobs, because both of them are the same request — read the
+ * caption node's output, write the field that gets performed — and they are
+ * never both wanted on one run: the lyricist writes words for a sung track, the
+ * planner writes sections for an instrumental. A second OAIAPI_ChatCompletion
+ * would be a second API client, a second node to delete, and the same prompt
+ * assembly twice.
  *
  * Assembled here rather than through `directorTarget` because this node is only
  * in the graph on some runs, and what it is told depends on values the shared
  * builder has no reason to know about. It mirrors `assembleDirector` in
  * minimax-common.ts — director, then appendices, then the length last, since
  * the length is the hardest constraint of the lot.
+ *
+ * Written on every run, including the ones where node 47 is deleted before the
+ * graph is queued, so the planner branch is also what an unused node carries.
+ * See the `lyricist` target in minimax-music3.ts.
  */
 export function lyricistPrompt(values: Record<string, ParamValue>): string {
-  const blocks = [LYRICS_DIRECTOR, lyricsBrief()(values), lyricsLength(values)];
+  const blocks =
+    values.write_lyrics === true
+      ? [LYRICS_DIRECTOR, lyricsBrief()(values), lyricsLength(values)]
+      : [SECTION_PLANNER, plannerLength(values)];
 
   return `${blocks
     .map((block) => block.trim())

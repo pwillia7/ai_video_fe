@@ -912,8 +912,8 @@ for the model, and the only thing added to it is what the two directors write.
 | Write the lyrics for me | — | Adds the lyricist at node 47 |
 | What the song is about | the lyricist's system prompt | Only while that switch is on |
 | Lyrics | `37:13.lyrics` | Verbatim. Empty means instrumental |
-| Plan the sections | `37:13.lyrics` | Only while the box is empty and the lyricist off |
-| Maximum length | `37:13.max_duration` | A ceiling, not a target |
+| Plan the sections | node 47, filtered through node 48 | Only while the box is empty and the lyricist off |
+| Length | `37:13.max_duration`, plus every director | A target; the cut-off is derived from it |
 | Seed | `37:38.seed` | Feeds the AR stage and the sampler both |
 | Steps | `37:9.steps` | The diffusion stage only |
 | Caption guidance | `37:13.cfg_scale` | Holds structure, and the ending |
@@ -944,13 +944,26 @@ is one chat completion with no filesystem. So the output contract, the
 precedence rules and the refusal to invent unstated facts came across; the
 retrieval did not.
 
+The precedence rules are the skill's own five rungs, in its order: user
+requirements, then section-local directives from bracketed tags, then caption
+implications, then reference characteristics, then conservative defaults. Only
+the fourth is reworded here, since there are no reference templates on this side
+of it. What the skill has no answer for is length — it accepts a desired length
+as a constraint and then defines no mechanism for honouring one, its Arrangement
+being "a section-by-section timeline" with no times in it. Everything below
+about section sizes is a local extension for exactly that reason.
+
 **Lyrics have three possible sources.**
 
 | Source | When | Wiring |
 | --- | --- | --- |
 | What you typed | The box has words | Straight to `37:13.lyrics` |
 | A second director | *Write the lyrics for me* | Node 47's output, linked in by `finalize` |
-| A section plan | The box is empty | Built in this app, written in as a value |
+| A section plan | The box is empty, *Plan the sections* on | Node 47's output through node 48, linked in by `finalize` |
+
+Node 47 does both of the last two — one node class, one client, two system
+prompts, and never both jobs on one run — so `lyricistPrompt` decides which
+instruction it gets and `finalize` decides what its output feeds.
 
 The lyricist at node 47 is the same node class as the caption director on the
 same client, so it needs nothing new installed, and **its user message is node
@@ -968,36 +981,64 @@ the usual way a track meant to be instrumental comes back sung. `Vocal Details`
 is written as a refusal with its four lines given verbatim, and a voice is
 banned from every other field by name.
 
-**The section plan is built here rather than by a model, deliberately.** The
-lyrics field is Music 3's structural channel — `normalize_lyrics` keeps every
-bracketed tag, lowercases it and puts it in the prompt after `[start]`, and
-ComfyUI's own template note says the tags "are the only executable structural
-instructions; the lyric text itself only conveys mood". An instrumental sends
-that channel empty, which is a fair part of why it is the case that comes back
-shortest. `instrumentalPlan` fills it with `[Intro - 20 seconds]`, a run of
-`[Instrumental - 36 seconds]` and `[Outro - 20 seconds]`, summing to the running
-time exactly at every setting the slider offers. It started as an LLM writing
-those tags; it is not one any more, because an LLM asked for tags and only tags
-writes "Here is the plan:" often enough, and that sentence would be sung. There
-is nowhere to sanitise it either — the plan would reach the encode node over a
-link inside ComfyUI that this app never sees. *Plan the sections* turns it off,
-and appears only when neither the box nor the lyricist is supplying anything.
+**The section plan is transcribed from the caption, and filtered on the way
+out.** The lyrics field is Music 3's structural channel — `normalize_lyrics`
+keeps every bracketed tag, lowercases it and puts it in the prompt after
+`[start]`, and ComfyUI's own template note says the tags "are the only
+executable structural instructions; the lyric text itself only conveys mood". An
+instrumental sends that channel empty, which is a fair part of why it is the
+case that comes back shortest. `SECTION_PLANNER` fills it with a list like
+`[Intro - 12 seconds]`, `[Theme - 40 seconds]`, `[Solo - 35 seconds]`,
+`[Outro - 15 seconds]`, summing to the target.
 
-#### Length is a ceiling, and the sampler decides the rest
+Writing it at node 47 is what makes the plan and the caption the same piece of
+music: node 47 reads node 46's output, so the sections in the plan are the ones
+the caption described, at the lengths it gave them. The app used to compute this
+list from the duration alone, which was exact and generic — a row of identical
+blocks, with the caption asked to bend its arrangement to fit them.
 
-`max_duration` is a **decode limit**, not a target. ComfyUI's node hands it to
-the autoregressive stage, which generates acoustic frames until it emits its own
-end token or reaches that limit, whichever lands first — and the latent is then
-sized from what was actually produced, which is why a short song is a short file
-rather than a long one padded with silence. Nothing in the prompt states a
-target: the frame budget never reaches the text.
+The reason it was computed is still true and is now handled at node 48. Whatever
+lands in the lyrics field is performed; this app never sees node 47's output,
+which reaches the encode node over a link inside ComfyUI; and an LLM asked for
+tags and only tags writes "Here is the plan:" often enough that the sentence
+would eventually be sung, in the one kind of track that is meant to have no
+singing at all. Node 48 is a `RegexReplace` — a ComfyUI built-in, so no new pack
+— that deletes every line not opening with a bracket. That is safe here and
+nowhere else: a plan is nothing but tags, whereas in a lyric sheet the
+unbracketed lines are the song. `finalize` therefore wires the filter into the
+plan path only.
 
-The ceiling is **six minutes**, from the node's own limit of 9000 frames at 25 a
-second. MiniMax's model card says five.
+*Plan the sections* turns the whole thing off, and appears only when neither the
+box nor the lyricist is supplying anything.
+
+#### Length is a target, and the sampler decides the rest
+
+The slider is the **target**: what the caption, the lyric sheet and the section
+plan are each written to fill. Nothing carries it to the model as a number —
+`max_audio_frames` never reaches the text, and MiniMax's own generation API has
+no duration field either, only `max_new_tokens` — so a target exists in this
+system exclusively as structure someone was told to write.
+
+`max_duration` is a different quantity: a **decode limit**. ComfyUI's node hands
+it to the autoregressive stage, which generates acoustic frames until it emits
+its own end token or reaches that limit, whichever lands first — and the latent
+is then sized from what was actually produced, which is why a short song is a
+short file rather than a long one padded with silence.
+
+The two used to be one control, which punished the run that went right: a
+caption landing the song exactly on the target lost its last bar to a cut-off
+placed exactly there. `ceilingSeconds` now derives the limit from the target
+with about 15% headroom. Unreached headroom costs nothing — those frames are
+never generated — and what it buys is the occasional take that runs slightly
+long, which is the better failure.
+
+The slider stops at **five minutes**, MiniMax's own claim for the model. The
+node would take six (9000 frames at 25 a second), and that gap is what the
+headroom lives in.
 
 That leaves two levers, and they are not the ones you would guess:
 
-- **Structure, in the caption.** The director is told the running time and asked
+- **Structure, in the caption.** The director is told the target and asked
   to spend it as a section list — sections in order, each sized in bars, repeats
   or seconds, that takes that long to play. It is explicitly told *not* to state
   the duration as a fact anywhere, because MiniMax's own caption templates carry
