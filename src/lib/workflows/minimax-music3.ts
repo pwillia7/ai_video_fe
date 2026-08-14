@@ -440,7 +440,17 @@ const params: ParamDef[] = [
     min: 1,
     max: 5,
     step: 0.1,
-    help: "How closely the take follows the caption. Higher is more literal and less musical.",
+    /**
+     * Classifier-free guidance on the AR stage's logits: `_guided_c0` builds
+     * `unconditioned + (conditioned - unconditioned) * cfg_scale`. Raising it
+     * pushes every token the caption argues against further down, the
+     * end-of-song token included — so it holds a length for the same reason it
+     * holds a genre, by taking the caption more literally.
+     *
+     * It does not change which tokens are candidates. That is `top_k`'s doing,
+     * and the mask is built from the conditioned logits either way.
+     */
+    help: "How literally the take follows the caption — genre, arrangement and where the song ends. Too high and the music stiffens.",
     group: "Sampling",
     advanced: true,
     // Two inputs, one control. The export carries 1.7 in both places, and they
@@ -457,9 +467,28 @@ const params: ParamDef[] = [
     type: "number",
     default: 50,
     min: 1,
+    // The node itself allows the whole codebook, 16384. Anything past a few
+    // hundred is the same wide-open sampling with a longer number in the box.
     max: 200,
     step: 1,
-    help: "How wide the model's choice is at each step. Lower is safer and more repetitive.",
+    /**
+     * The one control that acts on length mechanically rather than by
+     * persuasion, which is why the help says so.
+     *
+     * The AR stage's end-of-song token is an ordinary candidate in the same
+     * distribution as the audio codes — `_sample_c0` in
+     * comfy/ldm/minimax_music/ar.py takes the top `top_k` of the conditioned
+     * logits, softmaxes them, and draws one. So the song ends the moment that
+     * token happens to be drawn, and it can only be drawn on a frame where it
+     * ranks inside the top `top_k`. Narrow the field and a mildly-likely stop
+     * is excluded outright rather than left as a small chance.
+     *
+     * A small chance is the whole problem. At 25 frames a second a four-minute
+     * track is 6000 draws, so even a 0.03% chance per frame ends it early more
+     * often than not, and two runs of the same prompt come back very different
+     * lengths.
+     */
+    help: "Narrows what the model may pick each frame. Lower holds the length better — the end-of-song token has to rank inside it to be chosen — at the cost of variety.",
     group: "Sampling",
     advanced: true,
     targets: [{ node: ENCODE_NODE, input: "top_k" }],
