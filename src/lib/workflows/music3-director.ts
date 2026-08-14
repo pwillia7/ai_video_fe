@@ -60,7 +60,7 @@ OUTPUT FORMAT
 Return exactly these three headings, each on its own line, with these field labels beneath them, and nothing else in the output:
 
 Global Metadata
-Basic Attributes: bpm is 96. key is F, and scale is major. Alternative R&B / Neo-Soul.
+Basic Attributes: bpm is 96. key is F, and scale is major. Alternative R&B / Neo-Soul. Total duration is about 3:40.
 Global Emotional Progression: How the feeling of the record moves from its opening to its end, in two or three sentences.
 Application Scenarios & Imagery: Where this music belongs — a place, a time of day, a scene it would score.
 Sonics & Production Profile: The mix and the space: soundstage width, frequency balance, dynamics, and how processed or how live it sounds.
@@ -76,7 +76,9 @@ Secondary: What supports it, where each one enters and drops out.
 Groove & Foundation Progression: The rhythm section and low end, and how the pulse develops across the song.
 Embellishments, Textures & Spatial FX: Fills, transitions, pads, atmospheres, and the spatial treatment that places them.
 
-Follow "Basic Attributes" with a real BPM number, a real key and scale, and the genre written as Genre / Subgenre — that first line is the model's strongest signal about what it is making.
+Follow "Basic Attributes" with a real BPM number, a real key and scale, the genre written as Genre / Subgenre, and the running time you are given below — that first line is the model's strongest signal about what it is making.
+
+The Arrangement section is where the running time is actually spent. Walk the song from its first bar to its last, name every section in order, and say roughly how long each one lasts — in seconds, in bars, or in both. A section list that adds up to the running time is what makes a piece of that length; prose about the mood is not.
 
 Aim for 250 to 450 words across the whole caption. Be specific rather than long: a caption of concrete musical decisions beats one of production vocabulary.`;
 
@@ -119,7 +121,11 @@ No lyrics were supplied, so nothing is sung. Under Vocal Details, say that the p
 
 Do not describe a singer, a vocal timbre, backing vocals or vocal effects, and do not write a caption that implies a vocal is coming.
 
-An instrumental has no lyric sheet to carry its length, which leaves the arrangement carrying it alone. Give it a section-by-section development that gets all the way to the running time below — an entrance, a build, a change, a return, an ending — and say what is different about each. A caption that describes a texture rather than a journey produces a piece that can stop anywhere, and one that stops anywhere usually stops early.`;
+An instrumental has no lyric sheet to carry its length, which leaves the arrangement carrying it alone. This is the case that comes back shortest, and the timed section list is the whole of the remedy: write it out in full, with a duration against every section, adding up to the running time below.
+
+Reach that total the way instrumental music actually reaches it — by playing, not by lingering. A stated theme and a restated one. A second theme in a different register. A solo of a named instrument over the changes, with a length of its own. A breakdown that strips back to the rhythm section and rebuilds. A key change, a half-time section, a drop, a reprise of the opening theme with more behind it. Then an ending that plays out.
+
+A texture is what to avoid: an evolving pad, a drifting atmosphere, a slowly filtering loop. That describes a piece with no reason to be any particular length, and a piece with no reason to be any particular length stops early.`;
     }
 
     const tags = sectionTags(lyrics);
@@ -192,20 +198,35 @@ export const musicLength: DirectorAppendix = (
 
   const short = seconds < 60;
 
-  return `HOW LONG THE TRACK CAN RUN
+  return `HOW LONG THE TRACK RUNS
 
-Up to about ${spokenLength(seconds)}. That is a ceiling the run cannot exceed — it is not a length the model will reach on its own.
+${spokenLength(seconds)}. Write the caption for a piece of exactly that length.
 
-It sings the song you describe and then it stops. A caption carrying one idea and a fade produces a short piece however high the ceiling is, so the length is yours to write rather than something the setting will supply.
+That number is a ceiling the run cannot exceed, and it is not a length the model will reach on its own. It plays the song your caption describes and then it stops, so the length is something you write rather than something the setting supplies. A caption carrying one idea and a fade comes back short however high the ceiling is.
+
+Say it twice, in the two places it can be acted on:
+
+Once in Basic Attributes, as "Total duration is about ${clockLength(seconds)}."
+
+Then in the Arrangement, as a section list that adds up to it. Name each section in order with roughly how long it lasts — "a 16-second intro", "a 40-second first verse", "an 8-bar breakdown" — and make the total land on ${clockLength(seconds)}. Do the arithmetic against the BPM you chose: at 120 BPM a four-bar phrase is 8 seconds, at 90 it is about 10.7.
 
 ${
   short
-    ? `At this length there is room for an intro, one idea and an ending, and no more. Do not lay out a full verse-chorus-bridge form — it would be cut off partway rather than played faster.`
-    : `So write a song that fills it: enough sections, and enough development inside each, that running ${spokenLength(seconds)} is simply what this arrangement does. Say what changes between one section and the next, because a section that repeats unchanged is where a model decides the song is over.`
+    ? `At this length that list is short: an intro, one idea and an ending. Do not lay out a full verse-chorus-bridge form — it would be cut off partway rather than played faster.`
+    : `Getting to ${clockLength(seconds)} takes more sections than a caption usually names, and repeats are how songs are actually long: a second verse, a double chorus, a solo over the changes, a breakdown, a reprise, an outro that plays out rather than fading at once. Say what is different each time something returns — a section that comes back unchanged is where a model decides the song is over.`
 }
 
-Either way it has to reach an ending rather than a place it could happen to stop.`;
+Either way it has to reach an ending rather than a place it could happen to stop.
+
+If the user's own description names a length, this number governs. Do not restate theirs and do not average the two.`;
 };
+
+/** Clock form, for the caption itself: "3:40" reads as a running time. */
+function clockLength(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
 
 /** The duration control's value, or 0 when it says nothing usable. */
 function trackSeconds(values: Record<string, ParamValue>): number {

@@ -248,10 +248,11 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       {
         heading: "Length is a ceiling, not a dial",
         items: [
-          "The slider sets the longest the track may run. The model sings the song it was given and then stops, so a take often comes back shorter — that is the model deciding the song is over, not a setting being ignored.",
-          "What actually decides the length is how much song the caption and the lyrics describe. Both directors are told the ceiling and asked to write enough music to fill it: sections that develop, and words that last.",
-          "So the way to get a longer track is a fuller description — more sections, more change between them, more lyrics — rather than only a higher slider.",
-          "Instrumentals drift short most easily, because there is no lyric sheet carrying the time. Asking for a piece that goes somewhere — a build, a change, a return — does more than asking for a longer one.",
+          "The slider sets the longest the track may run. The model plays the song it was given and then stops, so a take can come back shorter — that is the model deciding the song is over, not a setting being ignored.",
+          "What actually decides the length is how much song the caption describes. The director is told the running time and asked to spend it: it writes the duration into the caption's opening line, then lays out the arrangement as a section list with a length against each section that adds up to it.",
+          "You do not need to type the length into the description yourself. The slider is passed through and governs — a length written in your own words is deliberately not repeated, so the two cannot disagree.",
+          "Instrumentals come back shortest, because there is no lyric sheet carrying the time. They now get a section list too, and are steered toward the devices that make instrumental music long — a restated theme, a solo with a length of its own, a breakdown, a reprise — and away from an evolving texture, which has no reason to run any particular length.",
+          "If a take still lands short, the fix is a fuller description rather than a higher slider: name more of what should happen, and how much of it there should be.",
           "The ceiling is six minutes, which is ComfyUI's own limit for the node: 9000 acoustic frames at 25 a second. MiniMax's model card says five.",
           "Longer is slower, roughly in proportion. The estimate on the progress bar learns this machine's real pace after the first finished run.",
         ],
