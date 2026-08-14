@@ -65,15 +65,20 @@ interface ParamBase {
    */
   revealedBy?: string;
   /**
-   * The other way round: the control is left out while the named param *does*
+   * The other way round: the control is left out while a named param *does*
    * have a value. For a control something else has taken over — the music
    * workflow's lyrics box, once the lyricist is switched on.
+   *
+   * Several ids means any one of them hides it, which is how a control that
+   * belongs to one particular case is expressed: the instrumental section plan
+   * is hidden by both the lyrics box and the lyricist switch, so it appears
+   * only when neither is supplying words.
    *
    * Presentation only, on the same terms as `revealedBy`. The value is kept and
    * comes back when the switch goes off; what stops it reaching ComfyUI is the
    * workflow's `finalize`.
    */
-  hiddenBy?: string;
+  hiddenBy?: string | string[];
   /**
    * A line shown under the control only while the value matches — for a
    * consequence of a particular setting that would be noise at every other one.
@@ -371,7 +376,15 @@ export function paramVisible(
     value !== undefined && value !== "" && value !== false;
 
   if (param.revealedBy && !isSet(values[param.revealedBy])) return false;
-  if (param.hiddenBy && isSet(values[param.hiddenBy])) return false;
+
+  const hiddenBy =
+    param.hiddenBy === undefined
+      ? []
+      : typeof param.hiddenBy === "string"
+        ? [param.hiddenBy]
+        : param.hiddenBy;
+  if (hiddenBy.some((id) => isSet(values[id]))) return false;
+
   return true;
 }
 

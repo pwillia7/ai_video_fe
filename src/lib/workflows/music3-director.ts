@@ -125,7 +125,13 @@ An instrumental has no lyric sheet to carry its length, which leaves the arrange
 
 Reach that total the way instrumental music actually reaches it — by playing, not by lingering. A stated theme and a restated one. A second theme in a different register. A solo of a named instrument over the changes, with a length of its own. A breakdown that strips back to the rhythm section and rebuilds. A key change, a half-time section, a drop, a reprise of the opening theme with more behind it. Then an ending that plays out.
 
-A texture is what to avoid: an evolving pad, a drifting atmosphere, a slowly filtering loop. That describes a piece with no reason to be any particular length, and a piece with no reason to be any particular length stops early.`;
+A texture is what to avoid: an evolving pad, a drifting atmosphere, a slowly filtering loop. That describes a piece with no reason to be any particular length, and a piece with no reason to be any particular length stops early.${
+        values.plan_sections === true
+          ? `
+
+Your section list is then turned into the model's own section plan, tag by tag, by a second pass that reads this caption. So name the sections plainly and in order, and give each one a length — that list is being read as instructions, not as description.`
+          : ""
+      }`;
     }
 
     const tags = sectionTags(lyrics);
@@ -298,6 +304,56 @@ Match the voice the brief describes and the world it puts the song in. Write in 
 Do not describe the music, name the instruments, or narrate the arrangement. That is what the brief is for. Do not write stage directions, verse numbers, or annotations of any kind outside the section tags and the round-bracket asides.`;
 
 /**
+ * The third thing node 47 can be: a section plan for an instrumental, written
+ * as bracketed tags and no words at all.
+ *
+ * Why this exists. The lyrics field is not only where words go — it is the
+ * model's *structural* channel. `normalize_lyrics` in
+ * comfy/ldm/minimax_music/prompt.py keeps every bracketed tag, lowercases it,
+ * and puts it in the prompt after a `[start]` marker, and MiniMax's own caption
+ * skill treats the tags as executable structural directives rather than as
+ * text. An instrumental sends that channel empty, which is why it is the case
+ * that comes back shortest: the model is given a mood and no plan, and a
+ * generator with no plan stops when it feels like it.
+ *
+ * A tag-only sheet gives it the plan without giving it anything to sing. That
+ * is the mechanism this rests on, and it is a reasoned bet rather than a
+ * measured result — the switch in the form is there so it can be turned off and
+ * compared against a bare empty sheet.
+ *
+ * Only tags that do not imply a voice. [Verse] and [Chorus] would invite
+ * wordless singing where the caption has just promised there is no singer.
+ */
+export const INSTRUMENTAL_PLAN_DIRECTOR = `You are laying out the section plan for an instrumental piece.
+
+You are given the production brief for a piece of music that is about to be generated — its genre, tempo, instrumentation and section-by-section arrangement. You write the plan the generator plays to.
+
+Your entire output is that plan. It goes straight into the model's lyrics field, so anything that is not a section tag is read as words to be performed.
+
+THE FORM
+
+One section per line. Nothing but bracketed tags — no words, no lyrics, no prose, no blank commentary, no explanation before or after.
+
+Use only these tags: [Intro], [Instrumental], [Solo], [Bridge], [Outro]. There is no singer in this piece, and the tags that name sung sections would invite one.
+
+Each tag carries a short directive of its own, inside the brackets, after a dash: how long that section runs, and what happens in it.
+
+[Intro - 16 seconds, solo piano states the main theme]
+[Instrumental - 40 seconds, full band enters, theme restated with strings]
+[Solo - 32 seconds, tenor saxophone over the changes]
+[Instrumental - 24 seconds, breakdown to bass and drums]
+[Instrumental - 40 seconds, theme returns with the horn section behind it]
+[Outro - 20 seconds, instruments drop away to the piano and a final chord]
+
+FOLLOW THE BRIEF
+
+The brief's own arrangement is the plan. Take its sections, in its order, with the lengths it gives them, and write them out as tags. Do not invent a different structure, and do not merge its sections into fewer, longer ones.
+
+Where the brief names an instrument for a section, name the same one. Where it says what changes at a transition, put that in the tag.
+
+Every section is a thing that happens, not an atmosphere that persists. "theme restated a fourth higher" is a section; "ethereal soundscape continues" is not.`;
+
+/**
  * What the song is about, from the control that only appears while the lyric
  * writer is switched on.
  *
@@ -363,3 +419,53 @@ Write to that count rather than under it. The song ends when the words run out, 
 
 If the form in the brief will not fit in that many lines, keep the form and write fewer lines per section rather than dropping a section.`;
 };
+
+/**
+ * How many sections the plan needs, and what they add up to.
+ *
+ * The instrumental counterpart to the line budget above, and the same failure
+ * it guards against: a plan of three sections describes a piece that is over in
+ * a minute whatever the ceiling says.
+ */
+const instrumentalPlanLength: DirectorAppendix = (values) => {
+  const seconds = trackSeconds(values);
+  if (!seconds) return "";
+
+  // Around half a minute a section is what the tags above are sized for, kept
+  // to a range because a solo and an intro are not the same length. The floor
+  // of two stops a very short piece being planned as a single held section.
+  const sections = Math.max(2, Math.round(seconds / 30));
+  const low = Math.max(2, sections - 1);
+  const high = sections + 2;
+
+  return `HOW LONG THE PIECE RUNS
+
+${spokenLength(seconds)}, and it cannot run past that.
+
+The lengths inside your tags have to add up to it. Count them before you finish: that sum is the plan's whole purpose, and a plan that adds up to half the running time describes a piece that ends halfway through.
+
+At this length that is roughly ${low} to ${high} sections. Keep each one to something a listener would hear as a section — twenty to forty-five seconds is the usual size — rather than reaching the total with three enormous ones.
+
+The last tag is an ending. A piece that runs out rather than finishing is the failure this plan exists to prevent.`;
+};
+
+/**
+ * The whole system prompt for node 47, whichever of its two jobs it is doing.
+ *
+ * One builder rather than two targets, because the node is one node: which
+ * instruction it gets depends on the run, and every control that shapes either
+ * job writes this same target. It mirrors `assembleDirector` in
+ * minimax-common.ts — director, then appendices, then the length last, since
+ * the length is the hardest constraint in both jobs.
+ */
+export function lyricistPrompt(values: Record<string, ParamValue>): string {
+  const blocks =
+    values.write_lyrics === true
+      ? [LYRICS_DIRECTOR, lyricsBrief()(values), lyricsLength(values)]
+      : [INSTRUMENTAL_PLAN_DIRECTOR, instrumentalPlanLength(values)];
+
+  return `${blocks
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .join("\n\n")}\n`;
+}
