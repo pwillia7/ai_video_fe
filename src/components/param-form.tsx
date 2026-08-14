@@ -63,10 +63,12 @@ export function ParamForm({
     <div className="flex flex-col gap-7">
       {groups.map(([group, groupParams]) => {
         const open = openGroups[group] ?? false;
-        const advanced = groupParams.filter((param) => param.advanced);
-        const visible = groupParams.filter(
-          (param) => open || !param.advanced,
-        );
+        // A control still waiting on another one is not advanced — it is not
+        // available yet — so it is filtered out before the disclosure counts
+        // what it has to reveal.
+        const shown = groupParams.filter((param) => revealed(param, values));
+        const advanced = shown.filter((param) => param.advanced);
+        const visible = shown.filter((param) => open || !param.advanced);
         if (visible.length === 0) return null;
 
         return (
@@ -119,6 +121,21 @@ export function ParamForm({
       })}
     </div>
   );
+}
+
+/**
+ * Whether a control that waits on another one is available yet — see
+ * `revealedBy`. Empty is the only thing that holds it back, so a slider sitting
+ * at 0 or a switch that is off would still reveal what follows them; today only
+ * the reference uploads use it, and for an upload empty is exactly the question.
+ */
+function revealed(
+  param: ClientParam,
+  values: Record<string, ParamValue>,
+): boolean {
+  if (!param.revealedBy) return true;
+  const gate = values[param.revealedBy];
+  return gate !== undefined && gate !== "" && gate !== false;
 }
 
 /** A quiet show/hide control with a chevron that turns. */

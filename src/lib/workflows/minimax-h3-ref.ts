@@ -8,15 +8,16 @@ import {
   h3Patches,
   h3StepSampler,
   h3Turbo,
+  leadingReferences,
   promptParam,
   referenceFacets,
-  referenceKeepParam,
+  referenceSlot,
   samplingParams,
   type MinimaxNodeIds,
 } from "./minimax-common";
 
 /**
- * MiniMax H3 reference-to-video: one or two reference images steer the subject,
+ * MiniMax H3 reference-to-video: up to four reference images steer the subject,
  * and the prompt says what they do.
  *
  * Notes on this export:
@@ -28,9 +29,10 @@ import {
  * - The rewrite stage is given the references as well, batched by node 146, so
  *   it can describe what it actually sees rather than guessing. That is the one
  *   structural difference from the text-to-video graph's rewrite stage.
- * - `ref_images.ref_image_0` / `ref_image_1` are ComfyUI's variadic input
- *   form. A single-reference run must *remove* `ref_image_1` and its LoadImage
- *   rather than leave them blank — see `finalize` below.
+ * - `ref_images.ref_image_0` … `ref_image_3` are ComfyUI's variadic input
+ *   form, as are `images.image0` … on the batch. A run with fewer references
+ *   must *remove* the unused inputs and their LoadImage nodes rather than leave
+ *   them blank — see `finalize` below.
  * - A different UNET from the other two: `ref2va` rather than `fl2va`.
  */
 const ids: MinimaxNodeIds = {
@@ -42,16 +44,23 @@ const ids: MinimaxNodeIds = {
 };
 
 /**
- * The optional second reference. Node 139 now feeds two consumers — the video
- * node and the batch that shows the references to the rewrite stage — so
- * dropping it means clearing a link in both places. Named here because
- * `finalize` has to keep up with anything new that reads from 139.
+ * One LoadImage per reference slot, in the order the form offers them. The
+ * first is required; the rest are optional and each is dropped from the graph
+ * when unused — see `finalize`.
+ *
+ * Four rather than two because the node's `ref_images` is variadic and takes as
+ * many as it is given: the archived remix graph under archive/ ran five. Four
+ * is where the form stops rather than where H3 does, so adding a fifth is a
+ * LoadImage node and one more id in this list. Every slot feeds two consumers,
+ * the video node and the batch that shows the references to the rewrite stage,
+ * so dropping one means clearing a link in both places.
  */
-const SECOND_REF_NODE = "139";
-const SECOND_REF_INPUT = "ref_images.ref_image_1";
+const REF_NODES = ["137", "139", "165", "166"];
 const REFERENCE_NODE = "136";
 const BATCH_NODE = "146";
-const SECOND_BATCH_INPUT = "images.image1";
+/** How each slot names its input on those two nodes. Slot 1 is index 0. */
+const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
+const batchInput = (index: number) => `images.image${index - 1}`;
 
 const graph: ComfyGraph = {
   "92": {
@@ -182,6 +191,8 @@ const graph: ComfyGraph = {
       audio_vae: ["120", 0],
       "ref_images.ref_image_0": ["137", 0],
       "ref_images.ref_image_1": ["139", 0],
+      "ref_images.ref_image_2": ["165", 0],
+      "ref_images.ref_image_3": ["166", 0],
     },
     _meta: { title: "MiniMax H3 Reference to Video" },
   },
@@ -231,49 +242,51 @@ const graph: ComfyGraph = {
   },
   "146": {
     class_type: "BatchImagesNode",
-    // Variadic, like ref_images above: image1 is removed outright when there
-    // is no second reference rather than left pointing at a deleted node.
+    // Variadic, like ref_images above: an unused slot's input is removed
+    // outright rather than left pointing at a deleted node.
     inputs: {
       "images.image0": ["137", 0],
       "images.image1": ["139", 0],
+      "images.image2": ["165", 0],
+      "images.image3": ["166", 0],
     },
     _meta: { title: "Batch Images" },
+  },
+
+  // The third and fourth reference loaders. Not in the ComfyUI export — the
+  // graph this came from wired two — but a LoadImage carries no state of its
+  // own beyond the filename a param writes, so there is nothing here to keep in
+  // step with an export.
+  "165": {
+    class_type: "LoadImage",
+    inputs: { image: "" },
+    _meta: { title: "Load Image" },
+  },
+  "166": {
+    class_type: "LoadImage",
+    inputs: { image: "" },
+    _meta: { title: "Load Image" },
   },
 };
 
 /**
  * Everything that shapes the director's instructions writes this one target,
- * built once here so the duration and both facet selects cannot disagree about
+ * built once here so the duration and every facet select cannot disagree about
  * what it is. See `directorTarget` for why they all write the whole thing.
  *
- * The appendix is told there are two slots because that is what this graph
- * wires; it reads the submitted values to find out how many actually have an
- * image in them.
+ * The appendix is told how many slots this graph wires; it reads the submitted
+ * values to find out how many actually have an image in them.
  */
-const director = directorTarget(ids, REFERENCE_DIRECTOR, [referenceFacets(2)]);
+const director = directorTarget(ids, REFERENCE_DIRECTOR, [
+  referenceFacets(REF_NODES.length),
+]);
 
 const params: ParamDef[] = [
-  {
-    id: "reference_image_1",
-    label: "Reference image",
-    type: "image",
-    default: "",
-    required: true,
-    help: "The subject the video is built around.",
-    group: "References",
-    targets: [{ node: "137", input: "image" }],
-  },
-  referenceKeepParam(director, 1),
-  {
-    id: "reference_image_2",
-    label: "Second reference",
-    type: "image",
-    default: "",
-    help: "Optional. Refer to it as <Picture 2>.",
-    group: "References",
-    targets: [{ node: SECOND_REF_NODE, input: "image" }],
-  },
-  referenceKeepParam(director, 2),
+  // An upload and a facet select per slot, each slot revealed by the one before
+  // it — so the form starts as one image and grows only as far as it is used.
+  ...REF_NODES.flatMap((node, position) =>
+    referenceSlot({ index: position + 1, node, director }),
+  ),
   {
     id: "ref_image_size",
     label: "Reference handling",
@@ -290,7 +303,7 @@ const params: ParamDef[] = [
   promptParam(
     ids,
     "<Picture 1> is a superhero, mid-fight, in the ruins of a city.",
-    "One line is enough. Name your references as <Picture 1> and <Picture 2>, in upload order.",
+    "One line is enough. Name your references as <Picture 1>, <Picture 2> and so on, in upload order.",
     6,
   ),
 
@@ -350,19 +363,27 @@ export const minimaxH3Reference: WorkflowDef = {
   stepSampler: h3StepSampler(),
 
   /**
-   * With no second reference, the variadic inputs and the loader must be
-   * removed outright. Leaving them pointing at a LoadImage with an empty
-   * filename would fail validation, and leaving it blank is not the same as
-   * omitting it — the model would be told to expect a second subject.
+   * Every reference slot past the ones actually filled has its variadic inputs
+   * and its loader removed outright. Leaving them pointing at a LoadImage with
+   * an empty filename would fail validation, and leaving one blank is not the
+   * same as omitting it — the model would be told to expect a subject that was
+   * never supplied.
    *
    * Both consumers have to be cleared before the loader goes. Dropping the
    * node while the batch still linked to it would queue a graph referencing a
    * node that no longer exists, which ComfyUI rejects outright.
+   *
+   * `leadingReferences` rather than "every slot with a value": the kept slots
+   * have to be the first N with no hole in the middle, because the variadic
+   * names left behind are what tells H3 how many pictures it has and in which
+   * order — and it is the same count the director was given.
    */
   finalize(graph, values) {
-    if (values.reference_image_2) return;
-    delete graph[REFERENCE_NODE].inputs[SECOND_REF_INPUT];
-    delete graph[BATCH_NODE].inputs[SECOND_BATCH_INPUT];
-    delete graph[SECOND_REF_NODE];
+    const filled = leadingReferences(values, REF_NODES.length);
+    for (let index = filled + 1; index <= REF_NODES.length; index += 1) {
+      delete graph[REFERENCE_NODE].inputs[refInput(index)];
+      delete graph[BATCH_NODE].inputs[batchInput(index)];
+      delete graph[REF_NODES[index - 1]];
+    }
   },
 };

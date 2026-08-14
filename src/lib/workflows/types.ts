@@ -54,6 +54,17 @@ interface ParamBase {
   /** Hidden behind the "Advanced" disclosure. */
   advanced?: boolean;
   /**
+   * Id of a param this one waits on: the control is left out of the form
+   * entirely until that param has a value. For the chain of optional reference
+   * slots, where offering all of them at once would be a wall of empty upload
+   * boxes for a workflow most runs use one image on.
+   *
+   * Presentation only. A hidden control still submits its stored value, and the
+   * graph still has the input it targets — what a hidden slot must not do is
+   * reach ComfyUI, which is the job of the workflow's `finalize`, not of this.
+   */
+  revealedBy?: string;
+  /**
    * A line shown under the control only while the value matches — for a
    * consequence of a particular setting that would be noise at every other one.
    *

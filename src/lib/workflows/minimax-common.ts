@@ -1,7 +1,13 @@
 import type { PatchDef } from "./patches";
 import type { StepSampler } from "./step-sampler";
 import type { TurboSpec } from "./turbo";
-import type { ParamDef, ParamTarget, ParamValue, SelectParam } from "./types";
+import type {
+  ImageParam,
+  ParamDef,
+  ParamTarget,
+  ParamValue,
+  SelectParam,
+} from "./types";
 
 /**
  * Shared pieces of the MiniMax H3 graphs.
@@ -490,11 +496,15 @@ function keepMode(value: ParamValue | undefined): (typeof KEEP_MODES)[KeepMode] 
 export function referenceKeepParam(
   director: ParamTarget,
   index: number,
-  { advanced = false }: { advanced?: boolean } = {},
+  {
+    advanced = false,
+    revealedBy,
+  }: { advanced?: boolean; revealedBy?: string } = {},
 ): SelectParam {
   return {
     id: keepParamId(index),
-    label: index === 1 ? "What to keep" : "What to keep from the second",
+    label:
+      index === 1 ? "What to keep" : `What to keep from the ${ordinal(index)}`,
     type: "select",
     default: DEFAULT_KEEP,
     options: Object.entries(KEEP_MODES).map(([value, mode]) => ({
@@ -504,6 +514,7 @@ export function referenceKeepParam(
     help: "What this image pins. Everything else is the scene's to decide.",
     group: "References",
     advanced,
+    revealedBy,
     targets: [director],
   };
 }
@@ -511,6 +522,86 @@ export function referenceKeepParam(
 /** Both halves of a reference slot, named by the convention below. */
 const keepParamId = (index: number) => `reference_${index}_keep`;
 const imageParamId = (index: number) => `reference_image_${index}`;
+
+/**
+ * How a slot is named in prose. Only ever indexes slots the graph actually
+ * wires, so it runs out where the graphs do rather than at some general limit.
+ */
+const ORDINALS = ["first", "second", "third", "fourth", "fifth"] as const;
+const ordinal = (index: number) => ORDINALS[index - 1] ?? `${index}th`;
+
+/**
+ * One reference slot: the upload and the facet select that describes it.
+ *
+ * Both halves are built here so a graph adding a slot cannot end up with an
+ * image control and no matching instruction to the director — which would show
+ * the picture to the model with nothing said about what to do with it.
+ *
+ * Every slot past the first is optional and reveals the next one: `revealedBy`
+ * keeps an empty slot's controls out of the form entirely until the slot before
+ * it has an image, so the panel grows with what has actually been uploaded.
+ * That, and `leadingReferences` below, are the same rule seen from the two
+ * ends — the form only offers contiguous slots, and the server only honours
+ * them.
+ */
+export function referenceSlot({
+  index,
+  node,
+  director,
+}: {
+  index: number;
+  /** The LoadImage this slot's upload fills. */
+  node: string;
+  director: ParamTarget;
+}): ParamDef[] {
+  const image: ImageParam = {
+    id: imageParamId(index),
+    label: index === 1 ? "Reference image" : `${titleOrdinal(index)} reference`,
+    type: "image",
+    default: "",
+    required: index === 1,
+    help:
+      index === 1
+        ? "The subject the video is built around."
+        : `Optional. Refer to it as <Picture ${index}>.`,
+    group: "References",
+    revealedBy: index === 1 ? undefined : imageParamId(index - 1),
+    targets: [{ node, input: "image" }],
+  };
+
+  return [
+    image,
+    // Hidden until its own image is there: a facet dropdown for a picture
+    // nobody has uploaded describes nothing.
+    referenceKeepParam(director, index, {
+      revealedBy: index === 1 ? undefined : imageParamId(index),
+    }),
+  ];
+}
+
+const titleOrdinal = (index: number) => {
+  const word = ordinal(index);
+  return `${word[0].toUpperCase()}${word.slice(1)}`;
+};
+
+/**
+ * How many reference slots are filled, counting from the first and stopping at
+ * the first empty one.
+ *
+ * "Counting from the first" is the whole point. The form only reveals a slot
+ * once the one before it has an image, so filled slots are contiguous — but a
+ * value cleared afterwards, or a stale submission, could leave a gap. Anything
+ * past a gap is treated as absent by both the director instructions and the
+ * graph, so the two cannot disagree about which pictures the model is getting.
+ */
+export function leadingReferences(
+  values: Record<string, ParamValue>,
+  count: number,
+): number {
+  let filled = 0;
+  while (filled < count && values[imageParamId(filled + 1)]) filled += 1;
+  return filled;
+}
 
 /**
  * Turns those choices into the director's marching orders.
@@ -521,14 +612,15 @@ const imageParamId = (index: number) => `reference_image_${index}`;
  *
  * A slot with no image contributes nothing — the graph's `finalize` deletes the
  * loader in that case, and describing a picture the model was never given is
- * how a phantom second subject gets into the scene.
+ * how a phantom second subject gets into the scene. Both sides read the count
+ * off `leadingReferences`, so what is described here is exactly what is wired.
  */
 export function referenceFacets(count: number): DirectorAppendix {
   return (values) => {
     const lines: string[] = [];
+    const filled = leadingReferences(values, count);
 
-    for (let index = 1; index <= count; index += 1) {
-      if (!values[imageParamId(index)]) continue;
+    for (let index = 1; index <= filled; index += 1) {
       const mode = keepMode(values[keepParamId(index)]);
       lines.push(
         `<Picture ${index}>: keep ${mode.facets}. Its marker in retention_analysis is ${mode.marker}. ${mode.note}`,
@@ -1022,14 +1114,14 @@ ${H3_GRAMMAR}${baseEnvelope(
 )}`;
 
 /**
- * Reference to video. The graph wires one or two uploads into
- * `ref_images.ref_image_*` on MiniMaxH3ReferenceToVideo, which is H3's
+ * Reference to video. The graph wires however many uploads the user supplied
+ * into `ref_images.ref_image_*` on MiniMaxH3ReferenceToVideo, which is H3's
  * full-reference mode — a different and much larger output format than the
  * base modes, with the preservation of each reference stated as its own
  * section rather than left implicit in the prose.
  *
  * The app's own vocabulary points the other way: the prompt field's help text
- * tells users to name their uploads <Picture 1> and <Picture 2>, and the
+ * tells users to name their uploads <Picture 1>, <Picture 2> and so on, and the
  * default prompt does exactly that. So the director has to accept picture
  * labels from the user and convert them into the subject definitions the
  * format actually wants, rather than expecting users to know the distinction.
@@ -1042,7 +1134,7 @@ THE REFERENCES
 
 You are shown the reference image or images the video is built around, and you are told what the user wants done with them.
 
-The user names them <Picture 1> and <Picture 2>, in upload order, and the images you are shown are in that same order. Keep those numbers attached to the same images throughout.
+The user names them <Picture 1>, <Picture 2>, <Picture 3> and so on, in upload order, and the images you are shown are in that same order. Keep those numbers attached to the same images throughout. There may be one image or several — work from the ones you were actually given, however many that is.
 
 A reference supplies content, not a frame. Unless the user says an image is the first frame, the last frame or a composition to match, it is there to define who someone is, what something looks like, or what style to work in — and the video is a new scene containing them, not a video of that photograph.
 
@@ -1071,7 +1163,7 @@ The facet words come first and the observed detail follows them. Both halves are
 
 This is the usual case here. Do not give an image its own standalone <Picture N> line merely because the user referred to it that way. A standalone <Picture N> entry is only for an image acting as a concrete frame — a first frame, a last frame, a keyframe, or a composition anchor — and only when the user has asked for that.
 
-When one subject draws on both images, say what each supplies. When one image supplies two subjects, define both.
+When one subject draws on more than one image, say what each supplies. When one image supplies two subjects, define both.
 
 summary
 
