@@ -345,16 +345,34 @@ const params: ParamDef[] = [
 
   {
     id: "duration",
-    label: "Length",
+    label: "Maximum length",
     type: "slider",
     default: 60,
     min: 15,
-    // Music 3 generates up to five minutes. Past that it is not a setting
-    // this app is declining to offer, it is outside the model.
-    max: 300,
+    /**
+     * 360s, from the node's own limit rather than from the model card: the
+     * encode node caps `max_duration` at MAX_AUDIO_FRAMES / AUDIO_FRAMES_PER_
+     * SECOND, which is 9000 / 25 in comfy/ldm/minimax_music/ar.py. MiniMax's
+     * README says five minutes; ComfyUI will take six.
+     */
+    max: 360,
     step: 5,
     unit: "s",
-    help: "The model's own ceiling is five minutes. Longer takes longer.",
+    /**
+     * A ceiling, and named like one. `max_duration` is a decode limit — the AR
+     * stage generates acoustic frames until it emits its own end token or hits
+     * that limit, whichever comes first — so a run is as long as the song the
+     * caption described, never longer than this. The latent is then sized from
+     * what the model actually produced (output 1 of the encode feeds node
+     * 37:15), which is why a short song is a short file rather than a long one
+     * padded with silence.
+     *
+     * Nothing in the prompt states the target length: `max_audio_frames` never
+     * reaches the text. So the only lever on how long a track really runs is
+     * how much song the caption and the lyrics describe, which is what the
+     * director is told — see musicLength.
+     */
+    help: "A ceiling, not a target — the model ends the song when the song is over.",
     group: "Output",
     targets: [{ node: ENCODE_NODE, input: "max_duration" }, director],
   },

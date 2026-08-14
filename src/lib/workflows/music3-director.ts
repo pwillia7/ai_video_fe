@@ -117,7 +117,9 @@ The piece is sung. Fill in Vocal Details for a real performance, and let the voi
 
 No lyrics were supplied, so nothing is sung. Under Vocal Details, say that the piece is instrumental and name the instrument carrying the lead melody in place of a voice — that section still has to be filled in, because the model reads it either way.
 
-Do not describe a singer, a vocal timbre, backing vocals or vocal effects, and do not write a caption that implies a vocal is coming.`;
+Do not describe a singer, a vocal timbre, backing vocals or vocal effects, and do not write a caption that implies a vocal is coming.
+
+An instrumental has no lyric sheet to carry its length, which leaves the arrangement carrying it alone. Give it a section-by-section development that gets all the way to the running time below — an entrance, a build, a change, a return, an ending — and say what is different about each. A caption that describes a texture rather than a journey produces a piece that can stop anywhere, and one that stops anywhere usually stops early.`;
     }
 
     const tags = sectionTags(lyrics);
@@ -163,13 +165,24 @@ function sectionTags(lyrics: string): string[] {
 }
 
 /**
- * How long the track runs, as the constraint on the timeline above.
+ * How long the track may run, as the constraint on the timeline above.
  *
  * The video graphs' length block is about shot cuts and speakable dialogue and
  * would be nonsense here, which is why `directorTarget` takes this as an
- * argument. What a running time decides for a song is how many sections there
- * is room for — the failure it prevents is a caption planning verse, chorus,
- * bridge and final chorus into forty seconds.
+ * argument.
+ *
+ * It is a ceiling and it is written as one, because that is what the control
+ * sets. `max_duration` becomes the AR stage's decode limit: the model generates
+ * acoustic frames until it emits its own end token or reaches that limit,
+ * whichever lands first, and the latent is then sized from what it actually
+ * produced. Nothing in the prompt states a target length — the frame budget
+ * never reaches the text — so what decides how long a track really runs is how
+ * much song this caption describes.
+ *
+ * That makes this block the lever, not a formality. Told "the length is already
+ * decided", a director writes a compact caption and the model duly stops early,
+ * which is the shorter-than-expected track. Told to write a song that fills the
+ * time, it lays out sections that take that long to play.
  */
 export const musicLength: DirectorAppendix = (
   values: Record<string, ParamValue>,
@@ -177,11 +190,21 @@ export const musicLength: DirectorAppendix = (
   const seconds = trackSeconds(values);
   if (!seconds) return "";
 
-  return `HOW LONG THE TRACK IS
+  const short = seconds < 60;
 
-This one runs about ${spokenLength(seconds)}. That is already decided and the caption cannot change it.
+  return `HOW LONG THE TRACK CAN RUN
 
-Fit the arrangement inside it. Every section you describe has to have room to be heard — under a minute is an intro, one idea and an ending, not a full song form — and the piece must reach an ending rather than being cut off mid-phrase.`;
+Up to about ${spokenLength(seconds)}. That is a ceiling the run cannot exceed — it is not a length the model will reach on its own.
+
+It sings the song you describe and then it stops. A caption carrying one idea and a fade produces a short piece however high the ceiling is, so the length is yours to write rather than something the setting will supply.
+
+${
+  short
+    ? `At this length there is room for an intro, one idea and an ending, and no more. Do not lay out a full verse-chorus-bridge form — it would be cut off partway rather than played faster.`
+    : `So write a song that fills it: enough sections, and enough development inside each, that running ${spokenLength(seconds)} is simply what this arrangement does. Say what changes between one section and the next, because a section that repeats unchanged is where a model decides the song is over.`
+}
+
+Either way it has to reach an ending rather than a place it could happen to stop.`;
 };
 
 /** The duration control's value, or 0 when it says nothing usable. */
@@ -290,9 +313,10 @@ Where they have named details — a person, a place, a line they want in it — 
  * How much lyric there is room for.
  *
  * The same running time the caption director is given, spent on the other
- * question: not how many sections fit, but how many words. A lyric sheet
- * written for three minutes and sung in forty seconds is the failure here, and
- * it is a quiet one — the model does not run over, it crams or truncates.
+ * question: not how many sections fit, but how many words. It fails in both
+ * directions and quietly in both. Too many lines and the model does not run
+ * over, it crams or truncates; too few and the song is simply over early,
+ * because the words running out is one of the things that ends it.
  */
 export const lyricsLength: DirectorAppendix = (
   values: Record<string, ParamValue>,
@@ -310,9 +334,11 @@ export const lyricsLength: DirectorAppendix = (
 
   return `HOW MUCH THERE IS ROOM FOR
 
-The track runs about ${spokenLength(seconds)}, and that is fixed. Everything you write has to be sung inside it.
+The track runs up to about ${spokenLength(seconds)} and cannot run past it.
 
 That is somewhere around ${low} to ${high} sung lines in total, across every section — count them. Intros, instrumental passages and the breath between phrases take up the rest.
+
+Write to that count rather than under it. The song ends when the words run out, so a thin lyric sheet gives back a short track, and lines left over are lines that get cut.
 
 If the form in the brief will not fit in that many lines, keep the form and write fewer lines per section rather than dropping a section.`;
 };

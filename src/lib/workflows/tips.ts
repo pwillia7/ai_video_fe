@@ -233,7 +233,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
           "It is handed the finished caption as its brief, so it already knows the genre, the tempo, the singer and the section-by-section arrangement. You do not need to describe the music again.",
           "What the song is about is the only thing it cannot get from the music. A subject, a situation, a person, a line you want in it — as much or as little as you like. Left empty, it takes its subject from the mood and imagery in the caption.",
           "With the switch on, the song's structure is decided by the caption rather than by a lyric sheet: the music director lays out the sections and the lyricist writes into them.",
-          "It writes to the running time — roughly how many lines fit, counted against the seconds — so a short track gets a short lyric rather than one crammed in.",
+          "It writes to the running time — roughly how many lines fit, counted against the seconds — so a short track gets a short lyric rather than one crammed in, and a long one gets enough words to last.",
         ],
       },
       {
@@ -246,10 +246,13 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         ],
       },
       {
-        heading: "Length",
+        heading: "Length is a ceiling, not a dial",
         items: [
-          "Music 3 generates up to five minutes, and the slider goes to exactly that.",
-          "The director is told the running time and fits the song form to it. Under a minute is an intro, one idea and an ending — ask for a full verse-chorus-bridge shape at 45 seconds and something has to be cut.",
+          "The slider sets the longest the track may run. The model sings the song it was given and then stops, so a take often comes back shorter — that is the model deciding the song is over, not a setting being ignored.",
+          "What actually decides the length is how much song the caption and the lyrics describe. Both directors are told the ceiling and asked to write enough music to fill it: sections that develop, and words that last.",
+          "So the way to get a longer track is a fuller description — more sections, more change between them, more lyrics — rather than only a higher slider.",
+          "Instrumentals drift short most easily, because there is no lyric sheet carrying the time. Asking for a piece that goes somewhere — a build, a change, a return — does more than asking for a longer one.",
+          "The ceiling is six minutes, which is ComfyUI's own limit for the node: 9000 acoustic frames at 25 a second. MiniMax's model card says five.",
           "Longer is slower, roughly in proportion. The estimate on the progress bar learns this machine's real pace after the first finished run.",
         ],
       },
