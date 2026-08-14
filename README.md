@@ -10,9 +10,7 @@ right](https://i.imgur.com/cUqFq7x.png)
 Five MiniMax H3 video workflows — text to video, image to video, reference to
 video, **Remix** (rebuild a clip you already made) and **Extend** (carry one on
 past where it stopped) — plus **Music**, which runs MiniMax Music 3 and comes
-back with a song rather than a clip — and **Create video**, which sends a
-finished track back into reference to video as a reference audio. Each has a
-hand-picked set of controls
+back with a song rather than a clip. Each has a hand-picked set of controls
 rather than the whole graph. Of the video ones, all but Remix can be run in
 **Turbo**, a switch that applies a distilled LoRA and samples in a handful of
 steps instead of a dozen or more; all five carry **SageAttention** and
@@ -22,7 +20,9 @@ start on** — they are how these graphs are meant to be run here, so the switch
 are there to take one back out. That does mean a first video run needs every
 node pack below; Music needs none of them. Generations queue, run in the
 background, and stay in a per-device history you can replay, download or feed
-straight back in.
+straight back in — a finished clip with **Remix** or **Extend**, a finished
+song with **Create video**, which loads it into reference to video as a
+reference track alongside whatever pictures you attach.
 
 It is a front end and nothing else: no model weights, no inference, no
 database. Everything expensive happens on your ComfyUI machine.
@@ -888,9 +888,18 @@ The wiring on the graph side is one `LoadAudio` (155) feeding
 node the pictures use, so it obeys the same rule: unused means *removed*, along
 with its loader, rather than left blank.
 
-The pictures are untouched by it. A run can have four references and a track,
-or a track and nothing else, or the pictures alone as before — which is why the
-first image slot is no longer `required`. "At least one of two controls" is not
+Note which workflow that is: `minimax-h3-ref` is **Reference to Video**, the
+one with the image slots. `minimax-h3-ref2v` is **Remix**, which takes a clip
+and has never had image references — its `MiniMaxH3ReferenceToVideo` gets
+`ref_videos.*` and `ref_audios.*` from the source and no `ref_images.*` at all.
+Neither of those facts changed here.
+
+The pictures are untouched by it. Reference to Video still offers its **four
+reference image slots**, each with its own preservation-facet select, each
+revealed by the one before it, all wired to `ref_images.ref_image_0…3` exactly
+as before. A run can have four pictures and a track, or a track and nothing
+else, or the pictures alone as it always could — which is why the first image
+slot is no longer `required`. "At least one of two controls" is not
 something `required` can say, so the check moved to `finalize`, where both
 answers are visible, and throws the same `ParamError` a rejected value does. A
 run with no pictures at all also drops `BatchImagesNode` and the director's
