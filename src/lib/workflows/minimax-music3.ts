@@ -2,6 +2,7 @@ import type { ComfyGraph } from "@/lib/comfy";
 import { directorTarget } from "./minimax-common";
 import {
   MUSIC_DIRECTOR,
+  instrumentalPlan,
   lyricSections,
   lyricistPrompt,
   musicLength,
@@ -22,17 +23,22 @@ import type { ParamDef, ParamTarget, WorkflowDef } from "./types";
  *   director at 46 rather than from the form. Music 3 reads a structured
  *   caption with fixed field names, which is not something anyone should have
  *   to type — see music3-director.ts.
- * - `lyrics` on the same node is what gets sung. By default it goes there from
- *   the form untouched: no rewrite, no expansion, no LLM anywhere near it, and
- *   the caption director is shown the section tags and nothing else.
+ * - `lyrics` on the same node is what gets *performed*, which is the thing to
+ *   keep in mind about it. By default it goes there from the form untouched:
+ *   no rewrite, no expansion, no LLM anywhere near it, and the caption director
+ *   is shown the section tags and nothing else.
  *
- * The "Write the lyrics for me" switch is the exception, and it adds a second
- * director rather than changing the first. Node 47 runs after 46 and *reads its
- * caption as its user message*, so the lyricist knows the genre, the singer and
- * the section-by-section arrangement it is writing into. Its output replaces
- * the lyrics box as the input to 37:13. See `finalize`, which is where the
- * switch actually does its work, and LYRICS_DIRECTOR for why the subject the
- * user types travels in the system prompt instead.
+ * Two things can stand in for a typed lyric sheet, and they are not alike:
+ *
+ * - "Write the lyrics for me" adds a second director rather than changing the
+ *   first. Node 47 runs after 46 and *reads its caption as its user message*,
+ *   so the lyricist knows the genre, the singer and the arrangement it is
+ *   writing into, and its output replaces the box as the input to 37:13. See
+ *   `finalize`, and LYRICS_DIRECTOR for why the subject travels in the system
+ *   prompt instead.
+ * - An empty box gets a section plan instead, built in this app rather than by
+ *   a model — see instrumentalPlan for why nothing generated writes into a
+ *   field whose contents are sung.
  *
  * The graph's ids come from a flattened subgraph, so most of them are "37:n"
  * with the nodes added around it numbered plainly.
@@ -98,10 +104,8 @@ const graph: ComfyGraph = {
   // and the reason what it writes comes back in the right genre for the right
   // singer without anything being described twice.
   //
-  // It has two jobs, and its system prompt says which: the words when the
-  // lyricist is switched on, and a wordless section plan when an instrumental
-  // would otherwise send this channel empty. Deleted outright on a run where
-  // the user typed their own lyrics; see `finalize`.
+  // Only ever writes words, and only when the lyricist is switched on.
+  // Deleted outright on every other run; see `finalize`.
   "47": {
     class_type: "OAIAPI_ChatCompletion",
     inputs: {
@@ -337,10 +341,19 @@ const params: ParamDef[] = [
       // Trimmed on the way in, so that a box holding only whitespace is the
       // same instrumental to the model as an empty one — which is what the
       // director is told it is.
+      //
+      // An empty box is also where the section plan goes, since this is the
+      // input it stands in for. Built here rather than by an LLM: whatever
+      // lands in this field is performed, so it is the one place in the app
+      // where a stray sentence becomes a lyric. See instrumentalPlan.
       {
         node: ENCODE_NODE,
         input: "lyrics",
-        transform: (value) => String(value).trim(),
+        transform: (value, values) => {
+          const typed = String(value).trim();
+          if (typed || values.plan_sections !== true) return typed;
+          return instrumentalPlan(Number(values.duration));
+        },
       },
       // Also shapes the caption, but only through its section tags — see
       // lyricSections. The words themselves reach the model and no one else.
@@ -357,7 +370,10 @@ const params: ParamDef[] = [
     // Only in the case it is about to fix: no typed lyrics, no lyricist. Either
     // of those is already supplying the structural channel this fills.
     hiddenBy: ["lyrics", "write_lyrics"],
-    targets: [director, lyricist],
+    // The plan itself is written by the lyrics param's own transform, which is
+    // where that field's value is decided. This tells the caption director that
+    // a plan exists so its arrangement can match the shape.
+    targets: [director],
   },
 
   {
@@ -469,25 +485,20 @@ export const minimaxMusic3: WorkflowDef = {
    */
 
   /**
-   * Which of the three lyric sources is actually wired up.
+   * Whether the lyrics field comes from the form or from the lyricist.
    *
    * A param cannot do this: `lyrics` on the encode node is either a string the
-   * form wrote or a link to node 47, and swapping a value for a link is a
-   * change to the graph rather than to a value in it.
+   * form wrote — the typed sheet, or the section plan standing in for it — or a
+   * link to node 47, and swapping a value for a link is a change to the graph
+   * rather than to a value in it.
    *
-   * Node 47 is wired for two different runs — writing the words, and planning
-   * an instrumental's sections — and deleted for the third, where the user
-   * typed their own lyrics. Leaving it in place unused would still run it:
-   * ComfyUI executes every node an output depends on, nothing else would be
-   * reading this one, but a node with no consumer is a node someone will later
-   * wire up by accident, and it spends an API call per run either way.
+   * With the lyricist off, node 47 is deleted rather than left unused. ComfyUI
+   * executes every node an output depends on and nothing else would be reading
+   * this one, but a node with no consumer is a node someone will later wire up
+   * by accident, and it spends an API call per run either way.
    */
   finalize(graph, values) {
-    const typed = String(values.lyrics ?? "").trim();
-    const usesLyricist =
-      values.write_lyrics === true || (!typed && values.plan_sections === true);
-
-    if (usesLyricist) {
+    if (values.write_lyrics === true) {
       graph[ENCODE_NODE].inputs.lyrics = [LYRICIST_NODE, 0];
       return;
     }
