@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dot } from "@/components/ui/panel";
 import { withToken } from "@/lib/client";
@@ -80,6 +80,51 @@ export function GenerationsPanel({
     {},
   );
   const [pending, setPending] = useState<Pending>(null);
+
+  /**
+   * One player for the whole list, rather than one per row.
+   *
+   * Two things fall out of that and both are wanted. Only one track can play at
+   * a time, because there is only one element to play it — starting a second
+   * row replaces the source of the first. And it sits outside the day sections,
+   * so collapsing the day a playing track is in does not unmount the thing
+   * playing it.
+   */
+  const player = useRef<HTMLAudioElement | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+
+  const toggleTrack = useCallback(
+    (job: Job) => {
+      const element = player.current;
+      const file = job.outputs[0];
+      if (!element || !file) return;
+
+      if (playingId === job.promptId) {
+        element.pause();
+        setPlayingId(null);
+        return;
+      }
+
+      element.src = withToken(file.url);
+      setPlayingId(job.promptId);
+      // Rejects when a second row replaces this source mid-load, and when the
+      // file is no longer in ComfyUI's output directory — the same way a
+      // deleted generation stops playing in the stage. Either way the button
+      // goes back to offering a play, which is the honest report of what
+      // happened.
+      void element.play().catch(() => setPlayingId(null));
+    },
+    [playingId],
+  );
+
+  // A track whose row has just been forgotten has no pause button left to
+  // press, so it is stopped here rather than left playing out of nowhere.
+  useEffect(() => {
+    if (playingId === null) return;
+    if (jobs.some((job) => job.promptId === playingId)) return;
+    player.current?.pause();
+    setPlayingId(null);
+  }, [jobs, playingId]);
 
   // Keyed on the calendar day rather than on `now`, which ticks every second
   // while anything is running. All `now` decides here is whether a heading says
@@ -222,9 +267,11 @@ export function GenerationsPanel({
                         job={job}
                         now={now}
                         selected={job.promptId === selectedId}
+                        playing={job.promptId === playingId}
                         onSelect={onSelect}
                         onCancel={onCancel}
                         onRemove={onRemove}
+                        onToggleTrack={toggleTrack}
                       />
                     </li>
                   ))}
@@ -245,6 +292,16 @@ export function GenerationsPanel({
           Clear {finishedCount} finished
         </Button>
       ) : null}
+
+      {/* No `controls`, so it draws nothing: the row's own button is the
+          transport. The stage is where a track gets a scrubber — this is here
+          so playing one does not mean scrolling back up to it. */}
+      <audio
+        ref={player}
+        onEnded={() => setPlayingId(null)}
+        onError={() => setPlayingId(null)}
+        aria-hidden="true"
+      />
     </div>
   );
 }
@@ -296,18 +353,33 @@ function Row({
   job,
   now,
   selected,
+  playing,
   onSelect,
   onCancel,
   onRemove,
+  onToggleTrack,
 }: {
   job: Job;
   now: number;
   selected: boolean;
+  /** Whether the panel's player is on this row's track right now. */
+  playing: boolean;
   onSelect: (promptId: string) => void;
   onCancel: (promptId: string) => void;
   onRemove: (promptId: string) => void;
+  onToggleTrack: (job: Job) => void;
 }) {
   const active = isActive(job);
+  /**
+   * A track can be played from the row it is on, without selecting it.
+   *
+   * Selecting is what the rest of the row does, and it puts the generation in
+   * the stage — which on a long history is a scroll away, so hearing a track
+   * you made an hour ago meant going up to the top and then finding your place
+   * again. Only audio gets this: a video needs the picture, which is the
+   * stage's job.
+   */
+  const playable = !active && isAudioOnly(job);
   const elapsed = active
     ? now - job.submittedAt
     : job.completedAt !== undefined
@@ -374,6 +446,44 @@ function Row({
           </span>
         </span>
       </button>
+
+      {/* Always visible, unlike the remove button beside it, which appears on
+          hover: this is something to reach for rather than a tidy-up, and a
+          touch device has no hover to reveal it with. */}
+      {playable ? (
+        <button
+          type="button"
+          onClick={() => onToggleTrack(job)}
+          title={playing ? "Pause" : "Play this track"}
+          aria-label={playing ? "Pause" : "Play this track"}
+          aria-pressed={playing}
+          className={`grid size-7 shrink-0 place-items-center rounded-md
+            transition-colors hover:bg-surface hover:text-fg
+            ${playing ? "text-accent" : "text-fg-muted"}`}
+        >
+          {playing ? (
+            <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden="true">
+              <path
+                d="M6 3.5v9M10 3.5v9"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                fill="none"
+              />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden="true">
+              <path
+                d="M5.5 3.6v8.8l7-4.4-7-4.4Z"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinejoin="round"
+                fill="currentColor"
+              />
+            </svg>
+          )}
+        </button>
+      ) : null}
 
       {active ? (
         <button

@@ -987,7 +987,15 @@ tests the extension, so history entries still answer correctly after a workflow
 has been renamed or removed. An audio result gets an `<audio>` player instead of
 a 60vh black rectangle, a small note glyph in the history list, and
 `contentTypeFor` learned the audio MIME types so an mp3 is played rather than
-downloaded. The Generate button reads "Generate music" from the workflow's
+downloaded.
+
+An audio entry also gets a **play button on its own row**, because the stage is
+where the scrubber is and the stage is at the top of the column — hearing
+something made an hour ago otherwise meant scrolling up and then finding your
+place again. One `<audio>` element serves the whole list rather than one per
+row, which is what makes only one track playable at a time and what keeps a
+playing track alive when the day it is in is collapsed. It stops itself if the
+row is forgotten, since there would be no pause button left to press. The Generate button reads "Generate music" from the workflow's
 `makes` field, and a finished mp3 raises a notification that says so.
 
 ### Music
