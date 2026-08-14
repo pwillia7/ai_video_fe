@@ -432,9 +432,28 @@ const params: ParamDef[] = [
     group: "Sampling",
     targets: [{ node: SAMPLER_NODE, input: "steps" }],
   },
+  /**
+   * The two guidance scales, which used to be one control.
+   *
+   * They carry the same number in the export and in ComfyUI's own shipped
+   * template — 1.7 in both places — and that coincidence was the whole argument
+   * for coupling them. It does not survive reading what they do. This model
+   * generates in two stages: an autoregressive stage that writes the song as
+   * acoustic tokens, and a diffusion stage that renders those tokens into
+   * audio. `cfg_scale` guides the first, `cfg` guides the second, and they are
+   * no more the same quantity than a screenplay is a camera.
+   *
+   * The coupling was also actively harmful given what the first one is for.
+   * Raising guidance to hold a length is advice about the AR stage; carrying
+   * the diffusion sampler up to 2.5 along with it changes how the audio is
+   * rendered, for no reason anyone asked for.
+   *
+   * ComfyUI exposes neither in its template — both live inside a subgraph — so
+   * there is no house default to disagree with beyond the 1.7 both start at.
+   */
   {
     id: "guidance",
-    label: "Guidance",
+    label: "Caption guidance",
     type: "slider",
     default: 1.7,
     min: 1,
@@ -450,15 +469,30 @@ const params: ParamDef[] = [
      * It does not change which tokens are candidates. That is `top_k`'s doing,
      * and the mask is built from the conditioned logits either way.
      */
-    help: "How literally the take follows the caption — genre, arrangement and where the song ends. Too high and the music stiffens. 2.0–2.5 holds a length better than the default.",
+    help: "How literally the song follows the caption — its genre, its sections, and where it ends. 2.0–2.5 holds a length better than the default; past 3 the music stiffens.",
     group: "Sampling",
-    // Two inputs, one control. The export carries 1.7 in both places, and they
-    // are the same quantity read at two stages — letting the form move one
-    // without the other would be offering a setting that means nothing.
-    targets: [
-      { node: SAMPLER_NODE, input: "cfg" },
-      { node: ENCODE_NODE, input: "cfg_scale" },
-    ],
+    targets: [{ node: ENCODE_NODE, input: "cfg_scale" }],
+  },
+  {
+    id: "sampler_cfg",
+    label: "Sampler CFG",
+    type: "slider",
+    default: 1.7,
+    min: 1,
+    max: 5,
+    step: 0.1,
+    /**
+     * The diffusion stage's own guidance, on a graph whose negative is a
+     * ConditioningZeroOut of the positive — so what it weighs is the
+     * conditioning against nothing at all, and moving it changes how hard the
+     * renderer commits to the tokens rather than what those tokens are.
+     *
+     * Nothing about structure or length passes through here: by this point the
+     * song is written and the sampler is turning it into sound.
+     */
+    help: "How hard the audio stage commits to what the song already is. Changes the sound, not the structure — 1.7 is the value the model ships with.",
+    group: "Sampling",
+    targets: [{ node: SAMPLER_NODE, input: "cfg" }],
   },
   {
     id: "top_k",

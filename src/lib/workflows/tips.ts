@@ -269,9 +269,10 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         heading: "The other controls",
         items: [
           "Steps behave as everywhere else: fewer for a quick idea, more for the take you keep.",
-          "Guidance and Top-k are worth reaching for rather than leaving alone, because between them they decide how consistent a run is — see the length section above.",
-          "Guidance is how literally the take follows the caption. At 1.7 it interprets; pushed to 2.0–2.5 it obeys, which holds both the style and the ending. Past about 3 the music stiffens and starts sounding like a description being executed.",
+          "Caption guidance and Top-k are worth reaching for rather than leaving alone, because between them they decide how consistent a run is — see the length section above.",
+          "Caption guidance is how literally the song follows the caption. At 1.7 it interprets; pushed to 2.0–2.5 it obeys, which holds both the style and the ending. Past about 3 the music stiffens and starts sounding like a description being executed.",
           "Top-k is how many candidates the model may choose between each frame. 50 is the model's own default and the most varied; lower narrows it, which makes takes more consistent in length and more repetitive in content.",
+          "Sampler CFG is a different thing and is the one to leave alone. The model generates in two stages — one writes the song as tokens, the other renders those tokens into audio — and this guides the second. It changes how the take sounds, never how long it is or what happens in it. Both stages ship at 1.7, which is the only reason they look like the same setting.",
           "Turbo, SageAttention and Spectrum are not offered here. Turbo's LoRA and the Spectrum node are built for H3, and this is a different model; SageAttention probably would splice on, but it has not been run against this graph.",
         ],
       },
