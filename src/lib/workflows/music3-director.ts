@@ -60,7 +60,7 @@ OUTPUT FORMAT
 Return exactly these three headings, each on its own line, with these field labels beneath them, and nothing else in the output:
 
 Global Metadata
-Basic Attributes: bpm is 96. key is F, and scale is major. Alternative R&B / Neo-Soul. Total duration is about 3:40.
+Basic Attributes: bpm is 96. key is F, and scale is major. Alternative R&B / Neo-Soul.
 Global Emotional Progression: How the feeling of the record moves from its opening to its end, in two or three sentences.
 Application Scenarios & Imagery: Where this music belongs — a place, a time of day, a scene it would score.
 Sonics & Production Profile: The mix and the space: soundstage width, frequency balance, dynamics, and how processed or how live it sounds.
@@ -76,9 +76,9 @@ Secondary: What supports it, where each one enters and drops out.
 Groove & Foundation Progression: The rhythm section and low end, and how the pulse develops across the song.
 Embellishments, Textures & Spatial FX: Fills, transitions, pads, atmospheres, and the spatial treatment that places them.
 
-Follow "Basic Attributes" with a real BPM number, a real key and scale, the genre written as Genre / Subgenre, and the running time you are given below — that first line is the model's strongest signal about what it is making.
+Follow "Basic Attributes" with a real BPM number, a real key and scale, and the genre written as Genre / Subgenre — that first line is the model's strongest signal about what it is making. Nothing else belongs on it.
 
-The Arrangement section is where the running time is actually spent. Walk the song from its first bar to its last, name every section in order, and say roughly how long each one lasts — in seconds, in bars, or in both. A section list that adds up to the running time is what makes a piece of that length; prose about the mood is not.
+The Arrangement section is where the length of the piece is actually decided. Walk the song from its first bar to its last, name every section in order, and give each one a size — in bars, or in how many times a phrase comes round, or in seconds. A song is long because it has more sections and they take longer to play, and that is the only form in which this caption can say so.
 
 Aim for 250 to 450 words across the whole caption. Be specific rather than long: a caption of concrete musical decisions beats one of production vocabulary.`;
 
@@ -200,10 +200,19 @@ function sectionTags(lyrics: string): string[] {
  * never reaches the text — so what decides how long a track really runs is how
  * much song this caption describes.
  *
- * That makes this block the lever, not a formality. Told "the length is already
- * decided", a director writes a compact caption and the model duly stops early,
- * which is the shorter-than-expected track. Told to write a song that fills the
- * time, it lays out sections that take that long to play.
+ * That makes this block a lever rather than a formality. Told "the length is
+ * already decided", a director writes a compact caption and the model duly
+ * stops early, which is the shorter-than-expected track. Told to write a song
+ * that fills the time, it lays out sections that take that long to play.
+ *
+ * A lever, though, not the lever, and the block says as little about the number
+ * as it can get away with for that reason. MiniMax's own caption templates
+ * carry BPM, key, genre and a section-by-section arrangement, and never a
+ * running time — so a caption announcing that the piece lasts 3:40 is text of a
+ * kind the model has not been trained to act on, and it was in there for a
+ * while on the strength of sounding like it ought to work. What the templates
+ * do carry is structure, so structure is what this asks for. The control that
+ * acts on length mechanically is `top_k`; see its help in minimax-music3.ts.
  */
 export const musicLength: DirectorAppendix = (
   values: Record<string, ParamValue>,
@@ -219,11 +228,9 @@ ${spokenLength(seconds)}. Write the caption for a piece of exactly that length.
 
 That number is a ceiling the run cannot exceed, and it is not a length the model will reach on its own. It plays the song your caption describes and then it stops, so the length is something you write rather than something the setting supplies. A caption carrying one idea and a fade comes back short however high the ceiling is.
 
-Say it twice, in the two places it can be acted on:
+Do not state the running time as a fact anywhere in the caption. A line announcing that the piece lasts ${clockLength(seconds)} is not an instruction the model can follow — it describes captions rather than music, and it is not what a caption of this kind contains.
 
-Once in Basic Attributes, as "Total duration is about ${clockLength(seconds)}."
-
-Then in the Arrangement, as a section list that adds up to it. Name each section in order with roughly how long it lasts — "a 16-second intro", "a 40-second first verse", "an 8-bar breakdown" — and make the total land on ${clockLength(seconds)}. Do the arithmetic against the BPM you chose: at 120 BPM a four-bar phrase is 8 seconds, at 90 it is about 10.7.
+Write it as structure instead, in the Arrangement: a list of sections in order, each with a size, that takes ${clockLength(seconds)} to play. Sizes belong in the units music is measured in — "an eight-bar intro", "the chorus comes round three times", "a 40-second solo". Do the arithmetic against the BPM you chose: at 120 BPM a four-bar phrase is 8 seconds, at 90 it is about 10.7.
 
 ${
   short

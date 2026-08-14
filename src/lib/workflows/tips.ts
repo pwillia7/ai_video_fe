@@ -250,7 +250,8 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         heading: "Length is a ceiling, not a dial",
         items: [
           "The slider sets the longest the track may run. The model plays the song it was given and then stops, so a take can come back shorter — that is the model deciding the song is over, not a setting being ignored.",
-          "What actually decides the length is how much song the caption describes. The director is told the running time and asked to spend it: it writes the duration into the caption's opening line, then lays out the arrangement as a section list with a length against each section that adds up to it.",
+          "What the caption can do about it is describe more song. The director is told the running time and asked to spend it structurally — a list of sections in order, each with a size in bars or repeats or seconds, that takes that long to play.",
+          "What it deliberately does not do is announce the duration. MiniMax's own caption templates carry BPM, key, genre and an arrangement, and never a running time, so a line saying the piece lasts 3:40 is text the model was not trained to act on. Writing the length into your own description has the same problem — the slider is the place for it.",
           "You do not need to type the length into the description yourself. The slider is passed through and governs — a length written in your own words is deliberately not repeated, so the two cannot disagree.",
           "Instrumentals come back shortest, because the lyrics field — which is the model's structural channel, not only its words — is empty. Plan the sections fills it instead, with a wordless plan of bracketed tags: [Intro - 20 seconds], a run of [Instrumental - 36 seconds], [Outro - 20 seconds], adding up to exactly the length you asked for.",
           "That plan is built by the app rather than written by a model, deliberately. Whatever lands in the lyrics field is performed, so a single stray sentence from an LLM would be sung — in the one kind of track that is supposed to have no singing at all.",
@@ -268,7 +269,9 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         heading: "The other controls",
         items: [
           "Steps behave as everywhere else: fewer for a quick idea, more for the take you keep.",
-          "Guidance and Top-k are under Advanced and are best left alone. Guidance is how literally the take follows the caption — pushed up, it gets more obedient and less musical. Top-k narrows what the model will reach for, so lower is safer and more repetitive.",
+          "Guidance and Top-k are worth reaching for rather than leaving alone, because between them they decide how consistent a run is — see the length section above.",
+          "Guidance is how literally the take follows the caption. At 1.7 it interprets; pushed to 2.0–2.5 it obeys, which holds both the style and the ending. Past about 3 the music stiffens and starts sounding like a description being executed.",
+          "Top-k is how many candidates the model may choose between each frame. 50 is the model's own default and the most varied; lower narrows it, which makes takes more consistent in length and more repetitive in content.",
           "Turbo, SageAttention and Spectrum are not offered here. Turbo's LoRA and the Spectrum node are built for H3, and this is a different model; SageAttention probably would splice on, but it has not been run against this graph.",
         ],
       },

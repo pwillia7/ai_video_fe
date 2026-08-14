@@ -405,7 +405,7 @@ const params: ParamDef[] = [
      * how much song the caption and the lyrics describe, which is what the
      * director is told — see musicLength.
      */
-    help: "A ceiling, not a target — the model ends the song when the song is over.",
+    help: "A ceiling, not a target — the model ends the song when the song is over. Top-k under Sampling is what stops it ending early.",
     group: "Output",
     targets: [{ node: ENCODE_NODE, input: "max_duration" }, director],
   },
@@ -450,9 +450,8 @@ const params: ParamDef[] = [
      * It does not change which tokens are candidates. That is `top_k`'s doing,
      * and the mask is built from the conditioned logits either way.
      */
-    help: "How literally the take follows the caption — genre, arrangement and where the song ends. Too high and the music stiffens.",
+    help: "How literally the take follows the caption — genre, arrangement and where the song ends. Too high and the music stiffens. 2.0–2.5 holds a length better than the default.",
     group: "Sampling",
-    advanced: true,
     // Two inputs, one control. The export carries 1.7 in both places, and they
     // are the same quantity read at two stages — letting the form move one
     // without the other would be offering a setting that means nothing.
@@ -488,9 +487,8 @@ const params: ParamDef[] = [
      * often than not, and two runs of the same prompt come back very different
      * lengths.
      */
-    help: "Narrows what the model may pick each frame. Lower holds the length better — the end-of-song token has to rank inside it to be chosen — at the cost of variety.",
+    help: "Narrows what the model may pick each frame. Lower holds the length better — the end-of-song token has to rank inside it to be chosen — at the cost of variety. Try 20, then 12; below 10 the music flattens.",
     group: "Sampling",
-    advanced: true,
     targets: [{ node: ENCODE_NODE, input: "top_k" }],
   },
 ];
