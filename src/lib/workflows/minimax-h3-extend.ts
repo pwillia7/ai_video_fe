@@ -345,5 +345,5 @@ export const minimaxH3Extend: WorkflowDef = {
    * carrying it across would ask the director to continue the clip by doing
    * again what it just did.
    */
-  clipTarget: { action: "extend", videoParam: "source_video" },
+  clipTarget: { action: "extend", accepts: "video", sourceParam: "source_video" },
 };

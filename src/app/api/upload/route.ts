@@ -12,11 +12,11 @@ export const maxDuration = 120;
  * an opaque platform error. The client downscales above this threshold.
  */
 const MAX_BYTES = 4 * 1024 * 1024;
-const ACCEPTED = /^(image|video)\//;
+const ACCEPTED = /^(image|video|audio)\//;
 
 /**
  * Relays a browser file upload into ComfyUI's input directory and returns the
- * reference a LoadImage or LoadVideo node needs.
+ * reference a LoadImage, LoadVideo or LoadAudio node needs.
  *
  * Goes through us rather than straight to ComfyUI for the same reasons as
  * everything else: mixed content blocks an HTTPS page from posting to a plain
@@ -25,9 +25,10 @@ const ACCEPTED = /^(image|video)\//;
  * Video arrives here only when the user picks a clip by hand. Resolution and
  * duration are checked in the browser before the upload starts, because both
  * need a decoder to read and the browser already has one — see
- * video-upload.tsx. Remix and Extend do not come through this route at all;
- * they copy a clip already sitting on the ComfyUI box (see /api/remix), which
- * is how they sidestep the size cap below.
+ * video-upload.tsx. The hand-off buttons do not come through this route at all;
+ * they copy a file already sitting on the ComfyUI box (see /api/remix), which
+ * is how they sidestep the size cap below — and a generated track is regularly
+ * past it, so for audio that route is the usual way in rather than a shortcut.
  */
 export async function POST(request: Request) {
   const denied = unauthorized(request);
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
     }
     if (file.type && !ACCEPTED.test(file.type)) {
       throw new ParamError(
-        `${file.type || "That file"} is not an image or a video.`,
+        `${file.type || "That file"} is not an image, a video or a track.`,
         "image",
       );
     }

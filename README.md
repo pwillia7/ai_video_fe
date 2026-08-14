@@ -10,7 +10,9 @@ right](https://i.imgur.com/cUqFq7x.png)
 Five MiniMax H3 video workflows — text to video, image to video, reference to
 video, **Remix** (rebuild a clip you already made) and **Extend** (carry one on
 past where it stopped) — plus **Music**, which runs MiniMax Music 3 and comes
-back with a song rather than a clip. Each has a hand-picked set of controls
+back with a song rather than a clip — and **Create video**, which sends a
+finished track back into reference to video as a reference audio. Each has a
+hand-picked set of controls
 rather than the whole graph. Of the video ones, all but Remix can be run in
 **Turbo**, a switch that applies a distilled LoRA and samples in a handful of
 steps instead of a dozen or more; all five carry **SageAttention** and
@@ -876,14 +878,62 @@ Two consequences worth knowing before changing anything:
   did. That is why `carry` lives on each workflow's `clipTarget` rather than
   being one list in the UI.
 
-Both buttons are registry-driven: a workflow declares
-`clipTarget: { action, videoParam, carry? }`, and `studio.tsx` finds the
-destination for each action rather than naming a workflow id. Registering a
+### Create video, from a finished track
+
+The third hand-off, and the only one that is not about a clip.
+`minimax-h3-ref` declares it, so pressing **Create video** on a finished song
+selects Reference to Video and loads the track into its `Reference track` slot.
+The wiring on the graph side is one `LoadAudio` (155) feeding
+`ref_audios.ref_audio_0` on the reference node — a variadic input on the same
+node the pictures use, so it obeys the same rule: unused means *removed*, along
+with its loader, rather than left blank.
+
+The pictures are untouched by it. A run can have four references and a track,
+or a track and nothing else, or the pictures alone as before — which is why the
+first image slot is no longer `required`. "At least one of two controls" is not
+something `required` can say, so the check moved to `finalize`, where both
+answers are visible, and throws the same `ParamError` a rejected value does. A
+run with no pictures at all also drops `BatchImagesNode` and the director's
+`images` input: an empty batch is not an empty list of images, it is a node that
+cannot produce the IMAGE its consumer asked for.
+
+Three things are deliberately *not* true of it:
+
+- **It does not set the length.** The video is as long as the Duration control
+  says, capped at 20 seconds. A four-minute song is a reference for those
+  seconds.
+- **It is not the output soundtrack.** H3 generates its own audio; the track
+  conditions it. `referenceTrack` in `minimax-common.ts` tells the director so,
+  because left alone it writes a `non_diegetic_music` section inventing a score
+  — which then asks the model for a second piece of music over the one it was
+  handed. The director never hears the track: the rewrite stage is shown images
+  and nothing else.
+- **Nothing is carried across.** The music workflow shares two param ids with
+  this one and means something different by both: its `prompt` describes a
+  record rather than a scene, and its `duration` counts minutes where this one
+  counts seconds. A carried value is written into the destination's form
+  *unclamped*, so that second one would arrive out of range and be rejected at
+  submit.
+
+Uploading a track by hand works too, and is capped at 4 MB like any other
+upload — which a few minutes of mp3 will exceed. The button has no such limit,
+because it is the same server-side copy Remix and Extend make.
+
+### How the hand-offs are wired
+
+All three buttons are registry-driven: a workflow declares
+`clipTarget: { action, accepts, sourceParam, carry? }`, and `studio.tsx` finds
+the destination for each action rather than naming a workflow id. Registering a
 different graph behind Extend moves the button with it, and a build with no
-workflow declaring an action simply does not render that button. In the
-history, whatever a hand-off produces is threaded under the generation it came
-from (`derivedFrom` on the job, `lineageOrder` in `jobs.ts`) — the same
-indentation serves remixes and extensions.
+workflow declaring an action simply does not render that button.
+
+`accepts` is what keeps a track out of a `LoadVideo` node: the result view
+offers the video actions on a file `REUSABLE_VIDEO` matches and the audio ones
+on a file `isAudioOnly` matches, so the question is asked of the file that came
+back rather than of the workflow that made it. In the history, whatever a
+hand-off produces is threaded under the generation it came from (`derivedFrom`
+on the job, `lineageOrder` in `jobs.ts`) — the same indentation serves remixes,
+extensions and videos built from a track.
 
 ### Audio
 

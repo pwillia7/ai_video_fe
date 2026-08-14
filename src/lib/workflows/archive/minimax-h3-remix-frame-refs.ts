@@ -339,7 +339,8 @@ export const minimaxH3RemixFrameRefs: WorkflowDef = {
   params,
   clipTarget: {
     action: "remix",
-    videoParam: "reference_video",
+    accepts: "video",
+    sourceParam: "reference_video",
     carry: ["prompt"],
   },
 };

@@ -4,7 +4,7 @@ import { Badge, Dot } from "@/components/ui/panel";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { withToken } from "@/lib/client";
 import { formatDuration, isAudioOnly, type Job } from "@/lib/jobs";
-import type { ClipAction } from "@/lib/workflows/types";
+import type { ClipAction, ClipHandoff } from "@/lib/workflows/types";
 
 /**
  * The canvas: whichever generation is being viewed. Progress while it runs,
@@ -32,7 +32,7 @@ export function GenerationStage({
    * Which hand-offs a registered workflow actually offers, in the order they
    * should appear. Empty when none does, which is what removes the buttons.
    */
-  clipActions?: readonly ClipAction[];
+  clipActions?: readonly ClipHandoff[];
   onClipAction?: (job: Job, action: ClipAction) => void;
   /** Opens the record of what this generation was run with. */
   onShowSettings?: () => void;
@@ -257,8 +257,14 @@ function Closed({ job }: { job: Job }) {
   );
 }
 
-/** What can be fed back into another workflow as a clip; a still cannot. */
-const REUSABLE = /\.(mp4|webm|mkv|mov|m4v)$/i;
+/**
+ * What can be fed back into another workflow as a clip; a still cannot.
+ *
+ * There is no audio twin of this: `isAudioOnly` already answers that question
+ * off the same filename, and two lists of extensions that had to agree would
+ * eventually stop agreeing.
+ */
+const REUSABLE_VIDEO = /\.(mp4|webm|mkv|mov|m4v)$/i;
 
 
 /**
@@ -316,6 +322,32 @@ const CLIP_BUTTONS: Record<
       </svg>
     ),
   },
+  illustrate: {
+    label: "Create video",
+    title: "Build a video around this track",
+    icon: (
+      // A note, and the frame it is being carried into.
+      <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+        <path
+          d="M5.5 10V3.5l4-.75V9"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx="4.25" cy="10.5" r="1.75" stroke="currentColor" strokeWidth="1.4" />
+        <rect
+          x="8.5"
+          y="8.5"
+          width="6"
+          height="5"
+          rx="1.2"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+      </svg>
+    ),
+  },
 };
 
 function Result({
@@ -328,7 +360,7 @@ function Result({
 }: {
   job: Job;
   onReuseSeed?: (seed: number) => void;
-  clipActions?: readonly ClipAction[];
+  clipActions?: readonly ClipHandoff[];
   onClipAction?: (job: Job, action: ClipAction) => void;
   onShowSettings?: () => void;
   busyAction?: ClipAction | null;
@@ -336,8 +368,23 @@ function Result({
   const [primary, ...rest] = job.outputs;
   const seed = job.resolved?.seed;
   const src = withToken(primary.url);
-  const offered =
-    onClipAction && REUSABLE.test(primary.filename) ? (clipActions ?? []) : [];
+  /**
+   * Which hand-offs this particular result can go to.
+   *
+   * The kind decides *which* buttons appear, not merely whether any do: a
+   * finished video is something to remix or extend, a finished track is
+   * something to build a video around, and offering either set on the other
+   * would send a file to a loader that cannot read it. Asked of the file rather
+   * than of the workflow, on the same grounds as `isAudioOnly` — the file is
+   * what has to be readable at the other end.
+   */
+  const offered = onClipAction
+    ? (clipActions ?? []).filter(({ accepts }) =>
+        accepts === "audio"
+          ? isAudioOnly(job)
+          : REUSABLE_VIDEO.test(primary.filename),
+      )
+    : [];
   const took =
     job.completedAt !== undefined
       ? formatDuration(job.completedAt - job.submittedAt)
@@ -395,7 +442,7 @@ function Result({
               Reuse seed
             </Button>
           ) : null}
-          {offered.map((action) => {
+          {offered.map(({ action }) => {
             const button = CLIP_BUTTONS[action];
             return (
               <Button

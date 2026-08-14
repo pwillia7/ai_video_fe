@@ -1,4 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import { ParamError } from "@/lib/params";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
@@ -12,6 +13,7 @@ import {
   promptParam,
   referenceFacets,
   referenceSlot,
+  referenceTrack,
   samplingParams,
   type MinimaxNodeIds,
 } from "./minimax-common";
@@ -34,6 +36,11 @@ import {
  *   must *remove* the unused inputs and their LoadImage nodes rather than leave
  *   them blank — see `finalize` below.
  * - A different UNET from the other two: `ref2va` rather than `fl2va`.
+ * - `ref_audios.ref_audio_0` takes a track, from node 155. Same variadic form
+ *   as the images and the same rule: unused means removed, not blank. It is
+ *   what the Create video button on a finished track fills in — see
+ *   `clipTarget` — and the reason this graph, alone among the H3 ones, has a
+ *   LoadAudio in it.
  */
 const ids: MinimaxNodeIds = {
   prompt: { node: "138", input: "value" },
@@ -58,6 +65,9 @@ const ids: MinimaxNodeIds = {
 const REF_NODES = ["137", "139", "165", "166"];
 const REFERENCE_NODE = "136";
 const BATCH_NODE = "146";
+const AUDIO_NODE = "155";
+const AUDIO_INPUT = "ref_audios.ref_audio_0";
+const AUDIO_PARAM = "reference_audio";
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
 const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
 const batchInput = (index: number) => `images.image${index - 1}`;
@@ -193,6 +203,9 @@ const graph: ComfyGraph = {
       "ref_images.ref_image_1": ["139", 0],
       "ref_images.ref_image_2": ["165", 0],
       "ref_images.ref_image_3": ["166", 0],
+      // The one reference that is not a picture. Removed with its loader on
+      // every run that has no track — see `finalize`.
+      "ref_audios.ref_audio_0": ["155", 0],
     },
     _meta: { title: "MiniMax H3 Reference to Video" },
   },
@@ -267,6 +280,18 @@ const graph: ComfyGraph = {
     inputs: { image: "" },
     _meta: { title: "Load Image" },
   },
+
+  // The reference track. Not in the ComfyUI export either, and carries no
+  // state beyond the filename a param writes.
+  //
+  // LoadAudio reads ComfyUI's input directory, which is why a generated track
+  // has to be copied there before this can see it — /api/remix does that, the
+  // same copy Remix and Extend make for a clip.
+  "155": {
+    class_type: "LoadAudio",
+    inputs: { audio: "" },
+    _meta: { title: "Load Audio" },
+  },
 };
 
 /**
@@ -279,14 +304,33 @@ const graph: ComfyGraph = {
  */
 const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   referenceFacets(REF_NODES.length),
+  referenceTrack(AUDIO_PARAM),
 ]);
 
 const params: ParamDef[] = [
   // An upload and a facet select per slot, each slot revealed by the one before
   // it — so the form starts as one image and grows only as far as it is used.
   ...REF_NODES.flatMap((node, position) =>
-    referenceSlot({ index: position + 1, node, director }),
+    // The first picture is not required here, unlike everywhere else this
+    // helper is used: a track is a reference too, and a run with one and no
+    // pictures is a real thing to want. What replaces the check is in
+    // `finalize`, which can see both controls at once.
+    referenceSlot({ index: position + 1, node, director, firstRequired: false }),
   ),
+  {
+    id: AUDIO_PARAM,
+    label: "Reference track",
+    type: "audio",
+    default: "",
+    help: "Optional. The video is still the length of the Duration control — a long track is a reference, not a running time.",
+    group: "References",
+    targets: [
+      { node: AUDIO_NODE, input: "audio" },
+      // Also the director's, which is told to stop inventing a score once a
+      // real one has been handed to the model. See referenceTrack.
+      director,
+    ],
+  },
   {
     id: "ref_image_size",
     label: "Reference handling",
@@ -363,6 +407,25 @@ export const minimaxH3Reference: WorkflowDef = {
   stepSampler: h3StepSampler(),
 
   /**
+   * Where a finished track goes when you press Create video on it.
+   *
+   * The one hand-off that is not about a clip, which is why `accepts` exists:
+   * the button belongs on an audio result and nowhere else, and offering Remix
+   * on a track would send an mp3 to a LoadVideo node.
+   *
+   * Nothing is carried across. The music workflow's `prompt` is a description
+   * of a record rather than of a scene, and its `duration` counts minutes while
+   * this graph's counts seconds — a carried value is not clamped to the
+   * destination's range, so that one would arrive out of bounds and be rejected
+   * at submit. See ClipTarget.
+   */
+  clipTarget: {
+    action: "illustrate",
+    accepts: "audio",
+    sourceParam: AUDIO_PARAM,
+  },
+
+  /**
    * Every reference slot past the ones actually filled has its variadic inputs
    * and its loader removed outright. Leaving them pointing at a LoadImage with
    * an empty filename would fail validation, and leaving one blank is not the
@@ -384,6 +447,47 @@ export const minimaxH3Reference: WorkflowDef = {
       delete graph[REFERENCE_NODE].inputs[refInput(index)];
       delete graph[BATCH_NODE].inputs[batchInput(index)];
       delete graph[REF_NODES[index - 1]];
+    }
+
+    // With no pictures at all there is nothing to batch, and a BatchImagesNode
+    // with no inputs is not an empty batch — it is a node that cannot produce
+    // the IMAGE its consumer is asking for. So the batch goes and the director
+    // loses its `images` input, which is optional on this node class: the music
+    // graph's director runs without one.
+    //
+    // Only reachable because a track can stand in for the first picture. Every
+    // other run keeps at least slot 1.
+    if (filled === 0) {
+      delete graph[ids.director].inputs.images;
+      delete graph[BATCH_NODE];
+    }
+
+    // The track goes the same way as an unused picture, and for the same
+    // reason: a LoadAudio with an empty filename fails validation, and a
+    // variadic input left in place tells H3 to expect a reference that was
+    // never supplied.
+    const track = String(values[AUDIO_PARAM] ?? "").trim();
+    if (!track) {
+      delete graph[REFERENCE_NODE].inputs[AUDIO_INPUT];
+      delete graph[AUDIO_NODE];
+    }
+
+    /**
+     * The check that `required` cannot make, because it is about two controls
+     * rather than one. Everything downstream of the reference node — the
+     * subject definitions, the retention analysis, the sampler itself — is
+     * built around something to hold on to, and a run with neither a picture
+     * nor a track is a text-to-video run made on the wrong graph.
+     *
+     * Here rather than in a param because this is the first place both answers
+     * are known, and it throws the same ParamError the coercion would, so it
+     * reaches the form the same way any other rejected value does.
+     */
+    if (filled === 0 && !track) {
+      throw new ParamError(
+        "Add a reference image or a reference track — this workflow needs at least one to build from.",
+        "reference_image_1",
+      );
     }
   },
 };

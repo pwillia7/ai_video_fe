@@ -166,6 +166,23 @@ export interface VideoParam extends ParamBase {
 }
 
 /**
+ * A track in ComfyUI's input directory, which is where a LoadAudio node looks.
+ * Same shape of value as an image or a video — the filename, never the bytes.
+ *
+ * It reaches the graph the same two ways a video does: an upload, or the
+ * hand-off from a finished generation, which asks the server to copy a track
+ * out of ComfyUI's output directory into its input one. The second is the one
+ * that matters here, because a generated track is usually past the size limit
+ * a browser upload has to stay inside.
+ */
+export interface AudioParam extends ParamBase {
+  type: "audio";
+  default: "";
+  /** Block submission until something is chosen. */
+  required?: boolean;
+}
+
+/**
  * A number the UI observes rather than the user setting it — today, only the
  * running time of the clip a `video` param has loaded.
  *
@@ -192,6 +209,7 @@ export type ParamDef =
   | SeedParam
   | ImageParam
   | VideoParam
+  | AudioParam
   | MeasuredParam;
 
 export type ParamValue = string | number | boolean;
@@ -200,12 +218,12 @@ export type ParamValue = string | number | boolean;
  * The ways a finished generation can be sent onward into another workflow.
  * One button on the result for each, in this order.
  */
-export const CLIP_ACTIONS = ["remix", "extend"] as const;
+export const CLIP_ACTIONS = ["remix", "extend", "illustrate"] as const;
 export type ClipAction = (typeof CLIP_ACTIONS)[number];
 
 /**
- * Marks a workflow as where one of those buttons sends the clip, and names the
- * video param it is written into.
+ * Marks a workflow as where one of those buttons sends the finished file, and
+ * names the param it is written into.
  *
  * Declared here rather than hardcoded in the UI so the buttons follow the
  * registry: swap the workflow behind Remix for another one and the button goes
@@ -214,7 +232,15 @@ export type ClipAction = (typeof CLIP_ACTIONS)[number];
  */
 export interface ClipTarget {
   action: ClipAction;
-  videoParam: string;
+  /**
+   * Which kind of result this hand-off is offered on. A video result offers the
+   * video actions, a finished track offers the audio ones, and the stage checks
+   * the file that actually came back rather than the workflow that made it —
+   * the same rule `isAudioOnly` follows in the history list.
+   */
+  accepts: "video" | "audio";
+  /** The param the copied file's reference is written into. */
+  sourceParam: string;
   /**
    * Param ids copied across from the generation the clip came from, where the
    * source workflow happens to declare the same id — so the new run starts out
@@ -224,9 +250,22 @@ export interface ClipTarget {
    * the destination does with it: Remix wants the prompt that made the source,
    * Extend very much does not. Nothing carries the seed; reusing it would pin
    * the new take to the old one's noise.
+   *
+   * Mind the ranges when adding one. A carried value is written straight into
+   * the destination's form without being clamped to that control's own limits,
+   * so an id the two workflows share for genuinely different quantities — the
+   * music graph's `duration` counts minutes, every video graph's counts a
+   * handful of seconds — would arrive out of range and be rejected at submit.
    */
   carry?: string[];
 }
+
+/**
+ * A hand-off as the result view needs to know it: which button, and what kind
+ * of file it belongs on. The param it writes and what travels with it are the
+ * studio's business, not the stage's.
+ */
+export type ClipHandoff = Pick<ClipTarget, "action" | "accepts">;
 
 export interface WorkflowDef {
   id: string;

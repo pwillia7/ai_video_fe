@@ -548,21 +548,33 @@ export function referenceSlot({
   index,
   node,
   director,
+  firstRequired = true,
 }: {
   index: number;
   /** The LoadImage this slot's upload fills. */
   node: string;
   director: ParamTarget;
+  /**
+   * Whether a run has to have a picture in the first slot.
+   *
+   * True wherever a picture is the only reference the graph can take. A graph
+   * that also accepts a reference track passes false and does its own checking,
+   * because "at least one of two different controls" is a rule about the pair
+   * and this flag can only speak for one of them.
+   */
+  firstRequired?: boolean;
 }): ParamDef[] {
   const image: ImageParam = {
     id: imageParamId(index),
     label: index === 1 ? "Reference image" : `${titleOrdinal(index)} reference`,
     type: "image",
     default: "",
-    required: index === 1,
+    required: index === 1 && firstRequired,
     help:
       index === 1
-        ? "The subject the video is built around."
+        ? firstRequired
+          ? "The subject the video is built around."
+          : "The subject the video is built around. Optional if a track is attached."
         : `Optional. Refer to it as <Picture ${index}>.`,
     group: "References",
     revealedBy: index === 1 ? undefined : imageParamId(index - 1),
@@ -601,6 +613,36 @@ export function leadingReferences(
   let filled = 0;
   while (filled < count && values[imageParamId(filled + 1)]) filled += 1;
   return filled;
+}
+
+/**
+ * What to say when a track has been attached as a reference.
+ *
+ * The director cannot hear it — the rewrite stage is shown images and nothing
+ * else — so this block is not a description of the music, and must not pretend
+ * to be one. What it does is stop the two halves of the output contradicting
+ * each other: the director writes `non_diegetic_music` and `overall_soundscape`
+ * on every run, and left to itself it invents a score, which is then the score
+ * the model is asked for on top of the one it was handed.
+ *
+ * Keyed off the param id rather than passed a boolean, on the same terms as
+ * every other appendix here: it reads the submission, so a graph adding the
+ * control gets the instruction with it.
+ */
+export function referenceTrack(paramId: string): DirectorAppendix {
+  return (values) => {
+    if (!String(values[paramId] ?? "").trim()) return "";
+
+    return `A TRACK HAS BEEN ATTACHED
+
+The user has supplied a piece of music as a reference, and the model is given it directly. You have not heard it and you are not being asked to describe it.
+
+So write non_diegetic_music as deference rather than as a specification: say that the score is the supplied reference track and that it plays throughout, and name no genre, tempo, key or instrument you have not been told. Inventing one asks the model for a second piece of music over the one it already has.
+
+overall_soundscape is still yours to write, and it is the diegetic sound — what is audible in the scene itself. Keep it to that, and keep it sparse enough to sit under a track rather than compete with one.
+
+The picture is where your attention belongs. Nothing about the attached track changes what is on screen unless the user's own text says it does — but if they have asked for movement on the beat, a performance, or anything else timed to the music, write that into the action.`;
+  };
 }
 
 /**

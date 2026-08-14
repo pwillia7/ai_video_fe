@@ -8,13 +8,13 @@ export const maxDuration = 300;
 
 /**
  * Copies a finished generation into ComfyUI's input directory so it can be fed
- * back in as a source clip. Serves both hand-offs — Remix and Extend differ in
- * what they do with the clip, not in how it gets there.
+ * back in as a source. Serves every hand-off — Remix, Extend and Create video
+ * differ in what they do with the file, not in how it gets there.
  *
- * The two directories are separate: a LoadVideo node only sees what is in
- * `input`, and everything a workflow produces lands in `output`. So a clip has
- * to be copied across before it can be reused, and nothing in ComfyUI's HTTP
- * API does that in one call.
+ * The two directories are separate: a LoadVideo or LoadAudio node only sees
+ * what is in `input`, and everything a workflow produces lands in `output`. So
+ * a file has to be copied across before it can be reused, and nothing in
+ * ComfyUI's HTTP API does that in one call.
  *
  * The copy runs server-side rather than by handing the browser a download and
  * taking an upload back: a generated clip is comfortably past the 4.5 MB
@@ -33,11 +33,13 @@ const SOURCE_TYPES = new Set(["output", "temp", "input"]);
 const MAX_BYTES = 256 * 1024 * 1024;
 
 /**
- * Checked again here rather than trusted from the caller. The stage keeps a
- * matching list to decide whether to offer the buttons at all (`REUSABLE` in
- * generation-stage.tsx), but that one is an affordance, not a guard.
+ * Checked again here rather than trusted from the caller. The stage decides
+ * which buttons to offer from the same two questions (`REUSABLE_VIDEO` and
+ * `isAudioOnly` in generation-stage.tsx), but those are affordances, not
+ * guards. Here the two kinds are one list, because what this route does with
+ * either is the same copy.
  */
-const VIDEO_EXTENSIONS = /\.(mp4|webm|mkv|mov|m4v)$/i;
+const REUSABLE_EXTENSIONS = /\.(mp4|webm|mkv|mov|m4v|mp3|flac|wav|m4a|ogg|opus)$/i;
 
 export async function POST(request: Request) {
   const denied = unauthorized(request);
@@ -64,14 +66,14 @@ export async function POST(request: Request) {
     if (!SOURCE_TYPES.has(type)) {
       throw new ParamError("Invalid type.", "type");
     }
-    if (!VIDEO_EXTENSIONS.test(filename)) {
+    if (!REUSABLE_EXTENSIONS.test(filename)) {
       throw new ParamError(
-        "Only a video can be used as a reference clip.",
+        "Only a video or a track can be used as a reference — a still cannot.",
         "filename",
       );
     }
 
-    // Already where LoadVideo looks — a clip that was itself uploaded, or one
+    // Already where the loaders look — a file that was itself uploaded, or one
     // remixed twice. Copying it onto itself would be pointless work.
     if (type === "input") {
       return Response.json({
@@ -90,7 +92,7 @@ export async function POST(request: Request) {
     if (declared > MAX_BYTES) {
       await upstream.body?.cancel();
       throw new ParamError(
-        `That video is ${(declared / 1024 / 1024).toFixed(0)} MB, which is too large to reuse as a reference.`,
+        `That file is ${(declared / 1024 / 1024).toFixed(0)} MB, which is too large to reuse as a reference.`,
         "filename",
       );
     }
@@ -98,13 +100,13 @@ export async function POST(request: Request) {
     const blob = await upstream.blob();
     if (blob.size === 0) {
       throw new ParamError(
-        "That video is no longer on the ComfyUI server.",
+        "That file is no longer on the ComfyUI server.",
         "filename",
       );
     }
     if (blob.size > MAX_BYTES) {
       throw new ParamError(
-        `That video is ${(blob.size / 1024 / 1024).toFixed(0)} MB, which is too large to reuse as a reference.`,
+        `That file is ${(blob.size / 1024 / 1024).toFixed(0)} MB, which is too large to reuse as a reference.`,
         "filename",
       );
     }

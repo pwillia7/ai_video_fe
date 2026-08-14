@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AudioUpload } from "@/components/ui/audio-upload";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { ImageUpload } from "@/components/ui/image-upload";
@@ -386,6 +387,25 @@ function Control({
         </Field>
       );
     }
+
+    case "audio":
+      return (
+        <Field
+          id={id}
+          label={param.label}
+          help={param.help}
+          note={note}
+          error={error}
+        >
+          <AudioUpload
+            id={id}
+            value={String(value ?? "")}
+            onChange={(next) => onChange(param.id, next)}
+            disabled={disabled}
+            describedBy={describedBy}
+          />
+        </Field>
+      );
 
     // Filled in by whichever control measures it — see `measures` on the video
     // param. Nothing to draw.

@@ -18,6 +18,13 @@ export class ParamError extends Error {
 
 const MAX_SEED = 0xffffffffffff; // ComfyUI's usual upper bound for seed inputs.
 
+/** What a required file control is missing, for the error it throws. */
+const MISSING_NOUN = {
+  image: "an image",
+  video: "a video",
+  audio: "a track",
+} as const;
+
 /**
  * True when a filename or subfolder could climb out of the directory it is
  * meant to name. ComfyUI does its own checking, but our route handlers are the
@@ -97,16 +104,17 @@ function coerce(
       throw new ParamError(`${param.label} must be true or false.`, param.id);
     }
 
-    // LoadImage and LoadVideo both take a filename in ComfyUI's input
-    // directory rather than the file itself, so the two carry the same shape
+    // LoadImage, LoadVideo and LoadAudio all take a filename in ComfyUI's input
+    // directory rather than the file itself, so the three carry the same shape
     // of value and the same escape risk.
     case "image":
-    case "video": {
+    case "video":
+    case "audio": {
       const value = typeof raw === "string" ? raw.trim() : "";
       if (!value) {
         if (param.required) {
           throw new ParamError(
-            `${param.label} is required — add ${param.type === "image" ? "an image" : "a video"} first.`,
+            `${param.label} is required — add ${MISSING_NOUN[param.type]} first.`,
             param.id,
           );
         }

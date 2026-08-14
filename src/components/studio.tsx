@@ -54,12 +54,18 @@ interface ConfigPayload {
 }
 
 /**
- * What the note above the form says once a clip has been loaded into it. The
- * two hand-offs leave the form in genuinely different states — Remix arrives
- * with the source's prompt in place, Extend arrives wanting a new one — so the
- * note has to say which of those happened.
+ * What the note above the form says once a file has been loaded into it. The
+ * hand-offs leave the form in genuinely different states — Remix arrives with
+ * the source's prompt in place, Extend arrives wanting a new one, Create video
+ * arrives with a reference that is not the picture — so the note has to say
+ * which of them happened.
  */
 const CLIP_NOTICE: Record<ClipAction, { verb: string; detail: string }> = {
+  illustrate: {
+    verb: "Scoring",
+    detail:
+      "The track is loaded as a reference below. Add a picture if you want one, say what should be on screen, then generate — the video is the length of its own control, not the track's.",
+  },
   remix: {
     verb: "Remixing",
     detail:
@@ -322,7 +328,7 @@ function Workbench({
    */
   const onParamChange = useCallback(
     (id: string, value: ParamValue) => {
-      if (selected?.clipTarget?.videoParam === id) {
+      if (selected?.clipTarget?.sourceParam === id) {
         setClipSource(null);
         setClipNotice(null);
       }
@@ -353,8 +359,14 @@ function Workbench({
     return byAction;
   }, [workflows]);
 
+  // Paired with what each destination reads, so the result view can offer a
+  // track's hand-offs on a track and a clip's on a clip.
   const offeredActions = useMemo(
-    () => CLIP_ACTIONS.filter((action) => clipWorkflows.has(action)),
+    () =>
+      CLIP_ACTIONS.flatMap((action) => {
+        const target = clipWorkflows.get(action)?.clipTarget;
+        return target ? [{ action, accepts: target.accepts }] : [];
+      }),
     [clipWorkflows],
   );
 
@@ -380,12 +392,13 @@ function Workbench({
   const settingsRef = useRef<HTMLElement>(null);
 
   /**
-   * Send a finished generation into the workflow that takes it as a clip —
-   * Remix to rebuild it, Extend to carry on from it.
+   * Send a finished generation into the workflow that takes it as a source —
+   * Remix to rebuild a clip, Extend to carry on from one, Create video to build
+   * a video around a track.
    *
-   * The video itself is copied server-side (see /api/remix, which serves both):
-   * ComfyUI keeps outputs and loader inputs in separate directories, so a clip
-   * has to move between them before a LoadVideo node can see it.
+   * The file itself is copied server-side (see /api/remix, which serves all
+   * three): ComfyUI keeps outputs and loader inputs in separate directories, so
+   * it has to move between them before a LoadVideo or LoadAudio node can see it.
    *
    * Nothing is submitted. This only fills the form in — the point is to open
    * the next generation ready to edit.
@@ -394,7 +407,7 @@ function Workbench({
     async (job: Job, action: ClipAction) => {
       const target = clipWorkflows.get(action);
       if (!target?.clipTarget || sending) return;
-      const { videoParam, carry } = target.clipTarget;
+      const { sourceParam, carry } = target.clipTarget;
 
       const output = job.outputs[0];
       if (!output) return;
@@ -412,7 +425,7 @@ function Workbench({
         });
 
         setValuesByWorkflow((previous) => {
-          const next = { ...previous[target.id], [videoParam]: ref };
+          const next = { ...previous[target.id], [sourceParam]: ref };
 
           // Carry across whatever this destination asked for, so the new run
           // starts out matching the generation it came from rather than
