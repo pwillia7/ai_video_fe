@@ -71,8 +71,29 @@ export interface Job {
 }
 
 const STORAGE_KEY = "sorant-jobs";
-/** Enough to be useful as history without crowding storage. */
-const MAX_JOBS = 50;
+
+/**
+ * How much of `localStorage` the history may take, in characters of JSON.
+ *
+ * A budget rather than a count of runs, because a run is not a fixed size and
+ * the count was answering the wrong question. What is stored per generation is
+ * its references and the settings it was made with — no media, see above — and
+ * that comes to roughly 0.8–1.3KB for an ordinary prompt and about 17KB for one
+ * written to the 8000-character limit. A flat cap of fifty was therefore
+ * somewhere between 40KB and 800KB depending on how much people type, which is
+ * to say it was not a storage limit at all; it was a guess that cost most users
+ * their history at around 1% of what the browser would have held.
+ *
+ * 1MB is roughly a fifth of the ~5MB an origin usually gets, leaving the rest
+ * for the saved params and whatever this app stores later. It buys around 900
+ * ordinary generations, and degrades the right way: someone who writes
+ * enormous prompts gets fewer entries rather than a broken write.
+ *
+ * The ceiling is not really quota anyway — it is that this blob is stringified
+ * on every poll tick while anything is running, and parsed on every load. At
+ * this size that is about a millisecond each. Several megabytes would be felt.
+ */
+const MAX_HISTORY_CHARS = 1_000_000;
 /** A job still unresolved after this long is not coming back. */
 export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
@@ -101,12 +122,62 @@ export function readJobs(): Job[] {
   }
 }
 
+/**
+ * The newest entries that fit in the budget, plus anything still running.
+ *
+ * A job in flight is not history: its entry is the only record of what to poll
+ * and what to cancel, so losing it to a size limit would strand a render nobody
+ * can reach. Those are kept whatever they cost — there are only ever a handful,
+ * and they become evictable the moment they finish.
+ *
+ * The rest fill what is left, newest first, stopping at the first that does not
+ * fit rather than skipping it to pack in smaller older ones. That keeps the
+ * contract one sentence long — history is the most recent runs that fit — which
+ * is worth more than the entries a knapsack would recover, given an entry would
+ * have to be sixty times the usual size for the two to differ.
+ */
+export function trimToBudget(jobs: Job[], budget = MAX_HISTORY_CHARS): Job[] {
+  const ordered = sortJobs(jobs);
+  const keep = new Set<string>();
+  // The array's own brackets, and a comma per entry after the first.
+  let used = 2;
+
+  const sizeOf = (job: Job) => JSON.stringify(job).length + 1;
+
+  for (const job of ordered) {
+    if (!isActive(job)) continue;
+    keep.add(job.promptId);
+    used += sizeOf(job);
+  }
+
+  for (const job of ordered) {
+    if (keep.has(job.promptId)) continue;
+    const size = sizeOf(job);
+    if (used + size > budget) break;
+    keep.add(job.promptId);
+    used += size;
+  }
+
+  return ordered.filter((job) => keep.has(job.promptId));
+}
+
 export function writeJobs(jobs: Job[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(jobs.slice(0, MAX_JOBS)));
-  } catch {
-    // Quota exceeded or storage disabled. History is a convenience, so drop it
-    // rather than letting a storage failure break generation.
+  // Halving rather than giving up on the first refusal: the budget above is
+  // this app's own share, but the quota is the origin's, so a write can be
+  // refused while we are well inside our own limit. Shedding history is a
+  // better answer than silently keeping none of it.
+  for (const budget of [MAX_HISTORY_CHARS, MAX_HISTORY_CHARS / 4, 50_000]) {
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(trimToBudget(jobs, budget)),
+      );
+      return;
+    } catch {
+      // Try again with less. Storage being disabled outright fails every pass,
+      // and falls out of the loop having done nothing — history is a
+      // convenience, and it must not break generation.
+    }
   }
 }
 

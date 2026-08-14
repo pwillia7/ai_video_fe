@@ -905,12 +905,21 @@ which Vercel functions cannot proxy. So the remaining-time readout is the
 median render time of that workflow's last few runs on this device, measured
 from when rendering *started* rather than when the job was queued.
 
-**History is kept per device** in `localStorage` — the last 50 runs, with their
-prompt, settings and result. Only the *reference* is stored, never the video:
-the file stays on the ComfyUI box and streams through `/api/media` on demand.
-Storing media here would exhaust the few megabytes localStorage allows after a
-couple of clips. The trade is that an entry stops playing if ComfyUI's output
-directory is cleared.
+**History is kept per device** in `localStorage`, with each run's prompt,
+settings and result. Only the *reference* is stored, never the video: the file
+stays on the ComfyUI box and streams through `/api/media` on demand. Storing
+media here would exhaust the few megabytes localStorage allows after a couple of
+clips. The trade is that an entry stops playing if ComfyUI's output directory is
+cleared.
+
+**The limit is 1MB of history, not a number of runs.** A run is not a fixed
+size — about 1KB for an ordinary prompt, about 17KB for one written to the
+8000-character maximum — so a flat count was really a storage limit that moved
+by a factor of twenty depending on how much you type. A budget buys around 900
+ordinary generations and degrades the right way: write enormous prompts and you
+keep fewer of them, rather than getting a broken write. Anything still queued or
+running is kept regardless of the budget, because its entry is the only record
+of what to poll and what to cancel.
 
 The list is **grouped by the day a generation was started**, newest day open and
 the rest collapsed, so a long history reads as an index rather than a wall. Days
