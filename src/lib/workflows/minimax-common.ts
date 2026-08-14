@@ -836,6 +836,12 @@ A cut has to introduce new information — a different subject, space, state, vi
 
 Prefer a single shot unless the idea genuinely needs more.
 
+A timestamp is not only for cuts. Beats inside a shot take the same form, written into the sentence where they happen:
+
+[Shot 1] Live-action, cinematic, a woman steps onto the spinning log, arms out. At 00:03.500, she crosses to the rotating platforms, timing each step to their rotation. At 00:08.000, the platform under her begins to sink and she jumps clear.
+
+On a single continuous take that is how the pacing gets specified, and it is the reason not to reach for a cut to do it: never add [Shot 2] merely to give a moment a time. Those beat times obey the same rules as cut times — strictly increasing, and inside the video's length.
+
 CAMERA MOTION
 
 A camera move has three parts: the motion, its amplitude, and its speed. Write it as natural English inside the sentence, never as labels stacked on the end.
@@ -860,6 +866,8 @@ The young woman with a quiet, breathy voice (S1) says: <d>[English] I get off at
 The two children (S1,S2) shout together, <d>[English] Wait for us!</d>
 
 Preserve the user's words inside <d> verbatim. Never translate or rewrite them.
+
+The language tag and the text have to agree. A line tagged [Japanese] is written in Japanese, in Japanese script — not romanised, not transliterated, and not in English with a Japanese label on it. The same holds for every language: write it as it is written.
 
 Punctuation inside <d> is standardised to the marks that carry the sentence — , . ? ! — and a complete statement, question or exclamation ends with one before the closing tag. Repeated tildes, ellipsis runs, emoji, bullets and decorative marks come out. They are not speakable, and what is in there is going to be spoken.
 
