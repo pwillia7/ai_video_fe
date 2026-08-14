@@ -31,6 +31,7 @@ import {
   hydrateAll,
   hydratePatches,
   hydrateTurbo,
+  mergeWithDefaults,
   readStoredLowVram,
   writeStoredLowVram,
   writeStoredParams,
@@ -459,6 +460,74 @@ function Workbench({
     [clipWorkflows, sending],
   );
 
+  /**
+   * Load a past generation's settings back into the form, and switch to the
+   * workflow it was made with.
+   *
+   * Everything it was run with, not only the values: the mode switches are as
+   * much a part of how a take came out as any control, and the steps range
+   * depends on turbo, so the values are merged against the workflow *as that
+   * mode has it*. `mergeWithDefaults` does the rest of the work — a param since
+   * renamed, removed, or changed type is dropped rather than restored as
+   * nonsense, which is the same protection stored settings get on load.
+   *
+   * The seed is deliberately not restored. Reusing settings is how a take gets
+   * varied; reproducing one exactly is a separate act with its own button on
+   * the result, and rolling the seed back here would silently pin every rerun
+   * to the old noise.
+   *
+   * Nothing is submitted. As with the clip hand-offs, this only fills the form
+   * in and leaves the run to the user.
+   */
+  const reuseSettings = useCallback(
+    (job: Job) => {
+      const target = workflows.find(
+        (workflow) => workflow.id === job.workflowId,
+      );
+      if (!target) return;
+
+      const turbo = Boolean(job.turbo) && Boolean(target.turbo);
+      const restored = mergeWithDefaults(
+        effectiveWorkflow(target, turbo),
+        job.resolved,
+      );
+      for (const param of target.params) {
+        if (param.type === "seed") restored[param.id] = param.default;
+      }
+
+      setValuesByWorkflow((previous) => ({
+        ...previous,
+        [target.id]: restored,
+      }));
+      if (target.turbo) {
+        setTurboByWorkflow((previous) => ({ ...previous, [target.id]: turbo }));
+      }
+      // Only the switches this workflow still offers: one since removed or
+      // renamed would be sent on the next run and refused by the server over a
+      // switch the form never showed.
+      setPatchesByWorkflow((previous) => ({
+        ...previous,
+        [target.id]: target.patches
+          .filter((patch) => job.patches?.includes(patch.id))
+          .map((patch) => patch.id),
+      }));
+      setSelectedId(target.id);
+
+      // Same reason as the clip hand-off: on mobile the form sits above the
+      // stage this was opened from, so the settings it just filled in would
+      // otherwise be off-screen.
+      if (window.matchMedia("(max-width: 1023px)").matches) {
+        requestAnimationFrame(() =>
+          settingsRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          }),
+        );
+      }
+    },
+    [workflows],
+  );
+
   const [tipsOpen, setTipsOpen] = useState(false);
   const tips = selected ? tipsFor(selected.id, modes) : undefined;
 
@@ -872,6 +941,16 @@ function Workbench({
           workflow={workflows.find(
             (workflow) => workflow.id === settingsJob.workflowId,
           )}
+          // Withheld when the workflow that made this run is no longer
+          // registered: there is nothing to load the settings into, and a
+          // button that cannot work is worse than no button.
+          onReuse={
+            workflows.some(
+              (workflow) => workflow.id === settingsJob.workflowId,
+            )
+              ? reuseSettings
+              : undefined
+          }
         />
       ) : null}
     </div>

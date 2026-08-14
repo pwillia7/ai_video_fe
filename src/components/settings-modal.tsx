@@ -1,8 +1,13 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { formatDuration, formatWhen, renderMs, type Job } from "@/lib/jobs";
-import type { ParamValue, WorkflowSummary } from "@/lib/workflows/types";
+import {
+  paramVisible,
+  type ParamValue,
+  type WorkflowSummary,
+} from "@/lib/workflows/types";
 
 /**
  * What a past generation was actually run with.
@@ -22,23 +27,67 @@ export function SettingsModal({
   onClose,
   job,
   workflow,
+  onReuse,
 }: {
   open: boolean;
   onClose: () => void;
   job: Job | null;
   /** Absent if the workflow has since been removed from the registry. */
   workflow: WorkflowSummary | undefined;
+  /**
+   * Loads this run's settings back into the form. Absent when there is nothing
+   * to load them into — see the button below.
+   */
+  onReuse?: (job: Job) => void;
 }) {
   if (!job) return null;
 
   const resolved = job.resolved ?? {};
+  // Only what was actually in play. A control the form was hiding at these
+  // values took no part in the run — the lyrics box while the lyricist was
+  // switched on holds whatever was last typed there, and reading it back as
+  // this generation's lyrics would be a plain lie about what was sung.
   const known = workflow
-    ? workflow.params.filter((param) => param.id in resolved)
+    ? workflow.params.filter(
+        (param) => param.id in resolved && paramVisible(param, resolved),
+      )
     : [];
-  const knownIds = new Set(known.map((param) => param.id));
+  // Every id the workflow still declares, not only the ones shown above: a
+  // param that was hidden at these values is accounted for, and must not fall
+  // through to the raw-id list below as though the definition had lost it.
+  const declaredIds = new Set(workflow?.params.map((param) => param.id) ?? []);
   const unknown = Object.keys(resolved).filter(
-    (id) => !knownIds.has(id) && id !== "prompt",
+    (id) => !declaredIds.has(id) && id !== "prompt",
   );
+
+  /**
+   * The written fields, each under its own heading.
+   *
+   * A section rather than a row in the settings list because these are the ones
+   * with newlines in them, and because they are what someone opening this is
+   * usually here to read back. There used to be exactly one — the prompt — and
+   * it was rendered from `job.prompt` while every other text control was
+   * skipped outright. The music workflow has three, so they are all taken from
+   * `resolved` now and the prompt is no longer a special case.
+   */
+  const written = known
+    .filter((param) => param.type === "text" || param.type === "textarea")
+    .map((param) => ({
+      id: param.id,
+      label: param.label,
+      value: String(resolved[param.id] ?? "").trim(),
+    }))
+    .filter((field) => field.value !== "");
+
+  // The fallback for a generation whose workflow is gone: there are no param
+  // definitions to read labels off, but the prompt was stored on the job
+  // itself and is the one field worth keeping in that case.
+  const writtenFields =
+    written.length > 0
+      ? written
+      : job.prompt.trim()
+        ? [{ id: "prompt", label: "Prompt", value: job.prompt.trim() }]
+        : [];
 
   const rendered = renderMs(job);
 
@@ -48,19 +97,34 @@ export function SettingsModal({
       onClose={onClose}
       title="Generation settings"
       subtitle={job.workflowName}
+      footer={
+        onReuse ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              onReuse(job);
+              onClose();
+            }}
+            title="Load these settings back into the form"
+          >
+            Reuse settings
+          </Button>
+        ) : undefined
+      }
     >
-      {job.prompt.trim() ? (
-        <Section heading="Prompt">
+      {writtenFields.map((field) => (
+        <Section key={field.id} heading={field.label}>
           {/*
-            Pre-wrap, not a single line: a prompt is written with deliberate
-            line breaks and this is the one place it can be read back exactly
-            as it was submitted, ready to copy.
+            Pre-wrap, not a single line: these are written with deliberate line
+            breaks — a lyric sheet most of all — and this is the one place they
+            can be read back exactly as submitted, ready to copy.
           */}
           <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-fg-muted">
-            {job.prompt}
+            {field.value}
           </p>
         </Section>
-      ) : null}
+      ))}
 
       {known.length > 0 || unknown.length > 0 ? (
         <Section heading="Settings">

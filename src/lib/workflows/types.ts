@@ -350,6 +350,31 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
   };
 }
 
+/**
+ * Whether a control is in play at these values — see `revealedBy` and
+ * `hiddenBy`, which are the same question asked in opposite directions.
+ *
+ * "Set" means a value that is neither empty nor false, which reads correctly
+ * for both users: a reference slot waits on the picture before it, and the
+ * music workflow's lyrics box stands down while its switch is on.
+ *
+ * Shared between the form and the record of a past generation on purpose. A
+ * control the form was not showing is a control that had no part in the run,
+ * and reading back a lyric sheet that was sitting in a hidden box while an LLM
+ * wrote the words that were actually sung is worse than showing nothing.
+ */
+export function paramVisible(
+  param: Pick<ParamBase, "revealedBy" | "hiddenBy">,
+  values: Record<string, ParamValue>,
+): boolean {
+  const isSet = (value: ParamValue | undefined) =>
+    value !== undefined && value !== "" && value !== false;
+
+  if (param.revealedBy && !isSet(values[param.revealedBy])) return false;
+  if (param.hiddenBy && isSet(values[param.hiddenBy])) return false;
+  return true;
+}
+
 export function defaultValuesFor(
   workflow: WorkflowSummary,
 ): Record<string, ParamValue> {

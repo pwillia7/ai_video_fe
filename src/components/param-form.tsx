@@ -13,7 +13,11 @@ import {
   Toggle,
 } from "@/components/ui/inputs";
 import { VideoUpload } from "@/components/ui/video-upload";
-import type { ClientParam, ParamValue } from "@/lib/workflows/types";
+import {
+  paramVisible,
+  type ClientParam,
+  type ParamValue,
+} from "@/lib/workflows/types";
 
 const DEFAULT_GROUP = "Settings";
 
@@ -66,7 +70,7 @@ export function ParamForm({
         // A control still waiting on another one is not advanced — it is not
         // available yet — so it is filtered out before the disclosure counts
         // what it has to reveal.
-        const shown = groupParams.filter((param) => revealed(param, values));
+        const shown = groupParams.filter((param) => paramVisible(param, values));
         const advanced = shown.filter((param) => param.advanced);
         const visible = shown.filter((param) => open || !param.advanced);
         if (visible.length === 0) return null;
@@ -121,27 +125,6 @@ export function ParamForm({
       })}
     </div>
   );
-}
-
-/**
- * Whether a control that depends on another one is showing — see `revealedBy`
- * and `hiddenBy`, which are the same question asked in opposite directions.
- *
- * "Set" means a value that is neither empty nor false, which reads correctly
- * for both users: an upload slot waits on the picture before it, and the music
- * workflow's lyrics box stands down while its switch is on.
- */
-function revealed(
-  param: ClientParam,
-  values: Record<string, ParamValue>,
-): boolean {
-  if (param.revealedBy && !isSet(values[param.revealedBy])) return false;
-  if (param.hiddenBy && isSet(values[param.hiddenBy])) return false;
-  return true;
-}
-
-function isSet(value: ParamValue | undefined): boolean {
-  return value !== undefined && value !== "" && value !== false;
 }
 
 /** A quiet show/hide control with a chevron that turns. */

@@ -7,6 +7,7 @@ import {
   expireStale,
   learnedEstimateSeconds,
   isActive,
+  isAudioOnly,
   readJobs,
   sortJobs,
   writeJobs,
@@ -160,7 +161,14 @@ export function useJobs(): JobsController {
       if (!job.completedAt || Date.now() - job.completedAt > 10_000) continue;
 
       if (job.phase === "done") {
-        notify("Video ready", job.workflowName, job.promptId);
+        // Named after what actually came back, for the same reason the Generate
+        // button is: a desktop notification saying "Video ready" for an mp3 is
+        // the app telling someone something untrue while they are elsewhere.
+        notify(
+          isAudioOnly(job) ? "Music ready" : "Video ready",
+          job.workflowName,
+          job.promptId,
+        );
       } else {
         notify("Generation failed", job.error ?? job.workflowName, job.promptId);
       }
