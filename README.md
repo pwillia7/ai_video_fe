@@ -11,7 +11,7 @@ Five MiniMax H3 video workflows — text to video, image to video, reference to
 video, **Remix** (rebuild a clip you already made) and **Extend** (carry one on
 past where it stopped) — plus **Music**, which runs MiniMax Music 3 and comes
 back with a song rather than a clip. Each has a hand-picked set of controls
-rather than the whole graph. Of the video ones, all but Remix can be run in
+rather than the whole graph. All five video ones can be run in
 **Turbo**, a switch that applies a distilled LoRA and samples in a handful of
 steps instead of a dozen or more; all five carry **SageAttention** and
 **Spectrum**, which swap the attention kernel and forecast sampler steps
@@ -95,7 +95,7 @@ The first three packs install from ComfyUI Manager by name:
 | --- | --- | --- |
 | [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow |
 | [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate`, `PathchSageAttentionKJ` | Remix, Extend, and the SageAttention switch everywhere |
-| [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA`, `MiniMaxH3TurboSampler` | the Turbo switch (every workflow but Remix), and 4 steps on any workflow |
+| [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA`, `MiniMaxH3TurboSampler` | the Turbo switch and 4 steps — every video workflow |
 | whichever pack you got `SpectrumApplyMiniMaxH3` from | `SpectrumApplyMiniMaxH3` | the Spectrum switch — every workflow |
 
 The Spectrum row is deliberately not a link: this repo takes the node from a
@@ -217,7 +217,7 @@ LoRA comes from its own pack, and the three Music 3 files from
 | `qwen3vl_32b_minimax_h3_bf16.safetensors` | `models/text_encoders/` | reference to video and Remix, at 4 steps |
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video graphs |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video graphs |
-| [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow but Remix |
+| [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |
@@ -452,7 +452,7 @@ machinery and nothing else, and none of the switches below apply to it.
 
 ### Turbo, SageAttention and Spectrum are modes, not more workflows
 
-Four of the video workflows — everything but Remix — offer a **Turbo**
+All five video workflows offer a **Turbo**
 switch in the settings panel, **on by default**. It splices a
 `MiniMaxH3TurboLoRA` node between the graph's `UNETLoader` and
 everything that reads it — in practice `BasicScheduler` and `BasicGuider`, both
@@ -467,18 +467,21 @@ in the picker. What it changes is the step count: the control's range becomes
 4–8 rather than 4–60, because the LoRA is distilled to converge in single
 digits and 60 there is not a slower-but-better setting.
 
-**Remix does not offer it**, and not because of the model — it runs the same
-`ref2va` UNET as reference to video, which does have the switch. It just samples
-at 8 already, the top of the LoRA's range, so turbo there would spend quality
-per step and save no time.
+**Remix offers it too, and used not to.** The argument for withholding it was
+that the graph already samples at 8, the top of the LoRA's range, so the LoRA
+would spend quality per step and save no time. That was only ever an argument
+about the number that workflow ships at, and it left the other end of the
+control broken: at 4 steps the graph takes the pack's four-step form — distilled
+sampler, bf16 weights, no Spectrum — and *that sampler exists to be paired with
+this LoRA*. Four steps without one is not a usable take, so the cheap end of the
+range was reachable and worthless.
 
-That argument covers the workflow as it ships and not the whole of its steps
-control. Move it to 4 and you get the pack's four-step form — distilled sampler,
-bf16 weights, no Spectrum — with no distilled LoRA under it, and four steps
-without one is not a usable take. Adding `h3Turbo` to that workflow is what
-would finish that end of the range. It is left off rather than switched on
-quietly because the shared spec defaults to *on*, and that would change what
-every ordinary remix is without anyone having asked.
+On that graph turbo moves the range without moving the value: 8 is both the
+number it ships at and the turbo default, so switching modes changes what a step
+is rather than how many there are. Its turbo estimate is therefore the base
+graph's own 480 seconds rather than something scaled down — a mode claiming to
+be faster would only mispace the progress bar until the first finished run
+replaced it with that machine's median.
 
 **Low VRAM** is the node pack's own memory-sparing way of applying the LoRA,
 passed straight through as the `low_vram` input on the node that gets spliced
@@ -490,12 +493,14 @@ plainer reason that the node it writes to does not exist until the splice
 happens. It lives under **Model** with the patches below, and only appears in
 turbo — off, there is no LoRA node for it to say anything about.
 
-**On reference to video, check a turbo take against a standard one before you
-trust it for a likeness.** The LoRA is distilled against `fl2va` and its author
+**On the two graphs that run `ref2va` — reference to video and Remix — check a
+turbo take against a standard one before you trust it for a likeness.** The LoRA is distilled against `fl2va` and its author
 [does not officially support](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10)
 `ref2va` yet — "not yet but planned", with reports of identity reference
 degrading. It is offered anyway because it demonstrably works here; the first
-turbo mode in this app was exactly that graph. The spec still lists the models
+turbo mode in this app was exactly that graph. Remix is the same model and gets
+the same caveat — more sharply, if anything, since holding to a source clip is
+what it is for. The spec still lists the models
 the LoRA may land on, so a graph on some third UNET fails `check:workflows`
 rather than finishing a run that looks subtly wrong.
 
@@ -536,9 +541,7 @@ have an explicit entry: `DEFAULTS_VERSION` in `src/lib/param-storage.ts` moves
 the storage keys when that needs to happen, forgetting deliberate choices once
 in exchange.
 
-Remix offers both. Turbo is refused there because 8 steps is already the top of
-the LoRA's range; these change how a step is arrived at rather than how many
-there are, so that argument does not apply.
+Remix offers all three, as every video workflow now does.
 
 **They stack, in a fixed order.** Turbo's LoRA attaches to the raw diffusion
 model, the attention patch swaps the kernel on whatever weights are in play by

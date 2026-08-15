@@ -53,9 +53,8 @@ Tell them plainly what has to be true, then let them go do it:
   the checker calls present means the package is what is missing.
 - **MiniMax-H3 Turbo** (`Larryvrh/ComfyUI-MiniMax-H3-Turbo`) — provides
   `MiniMaxH3TurboLoRA` and `MiniMaxH3TurboSampler`. The **Turbo** switch needs
-  the first, and also wants the LoRA file listed below; every workflow but Remix
-  offers that switch, and Remix is left out for its step count rather than its
-  model. The second is used by every workflow whenever the steps control is on
+  the first, and also wants the LoRA file listed below; every video workflow
+  offers that switch. The second is used by every workflow whenever the steps control is on
   4, switch or no switch — that step count is what the sampler is for, so the
   graph swaps it in rather than asking. So this pack is needed with the switch
   off too, if anyone sets steps to 4.
@@ -157,7 +156,7 @@ have them change it to a model their key can use — once per file in
 | `qwen3vl_32b_minimax_h3_bf16.safetensors` | `models/text_encoders/` | Reference to Video at 4 steps, alongside the bf16 diffusion model |
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video workflows |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video workflows |
-| `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every video workflow but Remix) |
+| `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every video workflow) |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |

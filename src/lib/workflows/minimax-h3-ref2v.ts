@@ -9,6 +9,7 @@ import {
   h3Bf16Models,
   h3Patches,
   h3StepSampler,
+  h3Turbo,
   literalPromptParam,
   promptParam,
   promptTarget,
@@ -333,6 +334,9 @@ const params: ParamDef[] = [
   // rather than inventing from noise, so it converges quickly. This is the
   // number that ships; node 124's literal is whatever the export happened to
   // carry and never reaches ComfyUI.
+  //
+  // It is also the number turbo retunes this control to, so switching modes on
+  // this graph moves the range without moving the value.
   ...samplingParams(ids, { steps: 8 }),
 ];
 
@@ -348,19 +352,26 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
   params: hideDirectorOnly(params, bypass),
   directorBypass: bypass,
   /**
-   * No `turbo` here, though the model would now allow it — see minimax-h3-ref,
-   * which runs the same `ref2va` UNET and does carry the switch. This graph
-   * already samples at 8, the top of the LoRA's range, so turning it on would
-   * buy no time at all and spend quality per step for the privilege.
+   * The same switch as every other video graph, on the same `ref2va` UNET
+   * Reference to Video applies it to.
    *
-   * That argument covers the graph as it ships and not the whole of the steps
-   * control. Anyone who moves it to 4 now gets the pack's four-step form —
-   * distilled sampler, bf16 weights, no Spectrum — with no distilled LoRA under
-   * it, and four steps without one is not a usable take. Adding `h3Turbo` here
-   * is what would finish that end of the range; it is left off rather than
-   * turned on quietly because the shared spec defaults to *on*, and that would
-   * change what every ordinary remix is without anyone asking for it.
+   * It was withheld here for a while on the argument that this graph already
+   * samples at 8, the top of the LoRA's range, so the LoRA would spend quality
+   * per step and save no time. That was only ever an argument about the number
+   * this workflow ships at, and it left the other end of the range broken: at 4
+   * steps the graph takes the pack's four-step form — distilled sampler, bf16
+   * weights, no Spectrum — and the sampler in that form exists to be paired with
+   * the distilled LoRA. Four steps without one is not a usable take, so the
+   * cheap end of the control was reachable and worthless.
+   *
+   * The estimate is the base graph's own 480 rather than a scaled-down number,
+   * and that is not an oversight. Turbo moves the steps range to 4-8 with the
+   * default at 8, which is where this graph already was — so switching it on
+   * changes what a step is, not how many there are, and a mode that claimed to
+   * be faster would mispace the progress bar until the first finished run
+   * replaced it with this machine's own median.
    */
+  turbo: h3Turbo(480),
   /**
    * The patches do apply, though, and for the reason turbo does not: they
    * change how a step is arrived at rather than how many there are, so a low

@@ -202,7 +202,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         items: [
           "Eight is where this ships, and it is lower than the generating workflows on purpose: a remix holds to a source rather than inventing from noise, so it converges sooner.",
           "At 4 the graph becomes the node pack's own four-step form — its dedicated four-step sampler, the bf16 diffusion model and text encoder in place of the quantised pair, and no Spectrum. That is the same swap Reference to Video makes, for the same reason: it runs the same ref2va model through the same reference node.",
-          "There is no Turbo switch here, so four steps runs that sampler without the distilled LoRA it was built to pair with. Eight is the honest setting on this workflow until there is one.",
+          "Leave Turbo on for that. The four-step sampler is built to be paired with the distilled LoRA, and four steps without one is not a usable take — which is the whole reason this workflow carries the switch.",
         ],
       },
       {
@@ -345,8 +345,8 @@ const TURBO: TipSection = {
   heading: "Turbo is on",
   items: [
     "A distilled LoRA is applied to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Everything else — the prompt director, the length maths, the frame you start from — behaves exactly as it does with the switch off.",
-    "Remix does not offer it. It runs the reference model at 8 steps already, so the LoRA would cost quality and save no time there.",
-    "On Reference to Video, compare a turbo take against a standard one before trusting it for a likeness. The LoRA's author does not officially support the reference model yet, and identity is the first thing to suffer if it drifts.",
+    "Remix offers it too, and there it moves the range without moving the value: that workflow already ships at 8 steps, so switching modes changes what a step is rather than how many there are. What it buys is the bottom of the range — 4 steps on that graph is the pack's four-step form, and that sampler is built to be paired with this LoRA.",
+    "On the two workflows that run the reference model — Reference to Video and Remix — compare a turbo take against a standard one before trusting it for a likeness. The LoRA's author does not officially support that model yet, and identity is the first thing to suffer if it drifts.",
     "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
     "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
     "At exactly 4, the graph swaps in the pack's dedicated 4-step sampler in place of the usual one. Nothing to turn on: the steps control decides it, and the note under that control says so while it is in effect. It comes from the same pack as the LoRA.",
