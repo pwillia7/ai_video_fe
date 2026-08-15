@@ -132,6 +132,14 @@ Restart ComfyUI after either change.
 (Ollama, vLLM, LM Studio) in `src/lib/workflows/*.ts`. Those generally need no
 key, so the stock `api_key: "-"` is right and the patch above is unnecessary.
 
+**Audio into the director is a second, optional patch.** The pack's chat
+completion node takes text and images only. `docs/comfyui-openai-api-audio.patch`
+in this repo adds an optional `audio` input (mono 16 kHz WAV, trimmed to 30s by
+default, sent as an `input_audio` content part) — apply it from the pack's
+directory with `patch -p1`. Do not offer it as part of setup: nothing in the app
+wires audio into a director yet, the model has to be one that accepts audio
+input, and like the key patch above a pack update overwrites it.
+
 **Not using an LLM at all?** Every workflow has a **Send my prompt as written**
 switch beside its prompt box, which queues a graph with no OpenAI node in it —
 no key, no patch, no `comfyui-openai-api` pack needed for that run. Say so if

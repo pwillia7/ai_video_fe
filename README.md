@@ -184,6 +184,45 @@ import os   # <- add this alongside the existing imports
 Restart ComfyUI. **Updating the pack overwrites this**, so if generations start
 failing after a ComfyUI Manager update, check here first.
 
+### Optional: letting the node take audio
+
+[`hekmon/comfyui-openai-api`](https://github.com/hekmon/comfyui-openai-api)'s
+chat completion node takes text and images. It has no audio input, so a
+reference track cannot be shown to a prompt director the way a reference image
+is — which is why every director here is told it has not heard the music.
+
+[`docs/comfyui-openai-api-audio.patch`](docs/comfyui-openai-api-audio.patch)
+adds one. Apply it in the pack's directory and restart:
+
+```bash
+cd custom_nodes/comfyui-openai-api
+patch -p1 < /path/to/soran-t/docs/comfyui-openai-api-audio.patch
+```
+
+It adds an optional `audio` input and an `audio_seconds` widget to
+`OAIAPI_ChatCompletion`, and sends the clip as an `input_audio` content part
+alongside the images. The conversion is mono 16 kHz 16-bit WAV, trimmed to the
+first 30 seconds by default, because none of that costs a description anything
+and a three-minute song sent whole at 44.1 kHz stereo is a 42 MB request. Both
+inputs are optional, so every existing workflow — including all six here —
+validates and runs exactly as before.
+
+It needs nothing new installed: `wave` is stdlib, and `torchaudio` is already a
+hard dependency of ComfyUI itself. Two caveats worth knowing before you spend an
+afternoon on it:
+
+- **The model has to accept audio input.** On OpenAI that is an audio-capable
+  model; ask a text-only one for `input_audio` and you get a 400 back at the
+  rewrite step.
+- **Nothing in this app wires it yet.** The patch makes the input exist; sending
+  the reference track to the director is a change to the graph *and* to what the
+  director is told, since `referenceTrack` currently instructs it that it has
+  not heard the music and must not invent a score.
+
+The patch also moves the prompt's text part out of the image loop, where
+upstream repeats it once per image. Restart ComfyUI after applying it, and note
+that a pack update overwrites it exactly like the key patch above.
+
 ### Which model the rewrite asks for
 
 Every graph requests `model: "gpt-5.6-terra"` — twice in the music one, which

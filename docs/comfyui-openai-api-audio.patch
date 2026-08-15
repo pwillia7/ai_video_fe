@@ -1,0 +1,138 @@
+--- a/completions.py
++++ b/completions.py
+@@ -2,9 +2,11 @@
+ from io import BytesIO
+ import json
+ import time
++import wave
+ from typing import Any
+ 
+ import torch
++import torchaudio
+ import numpy as np
+ from PIL import Image
+ from openai import OpenAI
+@@ -29,6 +31,40 @@
+     return f"data:image/png;base64,{b64_png.decode('utf-8')}"
+ 
+ 
++def comfy_audio_to_base64_wav(audio: dict,
++                              max_seconds: float | None = None,
++                              sample_rate: int = 16000,
++                              ) -> str:
++    # ComfyUI AUDIO is {"waveform": [batch, channels, samples], "sample_rate": int}
++    waveform = audio["waveform"]
++    source_rate = int(audio["sample_rate"])
++    if waveform.ndim == 3:
++        waveform = waveform[0]  # the API takes one clip, not a batch
++    waveform = waveform.detach().to(device="cpu", dtype=torch.float32)
++    # Mono: a description does not need the stereo image, and stereo is twice
++    # the bytes and twice the audio tokens
++    if waveform.shape[0] > 1:
++        waveform = waveform.mean(dim=0, keepdim=True)
++    # 16 kHz is plenty for anything a model is asked to describe, and a third of
++    # the payload of 44.1 kHz
++    if sample_rate and sample_rate != source_rate:
++        waveform = torchaudio.functional.resample(waveform, source_rate, sample_rate)
++    else:
++        sample_rate = source_rate
++    if max_seconds:
++        waveform = waveform[:, :int(max_seconds * sample_rate)]
++    # 16 bit PCM, interleaved, in a WAV container
++    samples = torch.clamp(waveform, -1., 1.).mul(32767.).to(torch.int16).numpy()
++    buffer = BytesIO()
++    with wave.open(buffer, "wb") as wav:
++        wav.setnchannels(samples.shape[0])
++        wav.setsampwidth(2)
++        wav.setframerate(sample_rate)
++        wav.writeframes(samples.T.tobytes())
++    # Raw base64, with no data: URL around it, unlike the image parts above
++    return base64.b64encode(buffer.getvalue()).decode("utf-8")
++
++
+ def format_usage(usage: CompletionUsage | None) -> str | None:
+     if usage is None:
+         return None
+@@ -146,6 +182,22 @@
+                     optional=True,
+                     tooltip="Image(s) to include in the request",
+                 ),
++                io.Audio.Input(
++                    id="audio",
++                    display_name="audio",
++                    optional=True,
++                    tooltip="Audio to include in the request. Needs a model that accepts audio input.",
++                ),
++                io.Float.Input(
++                    id="audio_seconds",
++                    display_name="Audio Seconds",
++                    optional=True,
++                    tooltip="Send only the first N seconds of the audio. 0 sends all of it, which for a whole song is a large request.",
++                    default=30.,
++                    min=0.,
++                    max=3600.,
++                    step=1.,
++                ),
+             ],
+             outputs=[
+                 io.String.Output(
+@@ -188,6 +240,8 @@
+                 history: HistoryPayload | None = None,
+                 options: OptionsPayload | None = None,
+                 images: list[torch.Tensor] | None = None,
++                audio: dict | None = None,
++                audio_seconds: float = 30.,
+                 force_regen: bool = False,
+                 ) -> io.NodeOutput:
+         # Handle options
+@@ -266,24 +320,39 @@
+                         "content": system_prompt,
+                     })
+         # Handle user message
+-        if images is not None:
++        if images is not None or audio is not None:
+             # Build multi modal content
+             content: list[ChatCompletionContentPartParam] = []
+-            for image in images:
+-                content.append(
+-                    {
+-                        "type": "image_url",
+-                        "image_url": {
+-                            "url": comfy_image_to_base64_png_url(image)
++            if images is not None:
++                for image in images:
++                    content.append(
++                        {
++                            "type": "image_url",
++                            "image_url": {
++                                "url": comfy_image_to_base64_png_url(image)
++                            }
+                         }
+-                    }
+-                )
++                    )
++            if audio is not None:
+                 content.append(
+                     {
+-                        "type": "text",
+-                        "text": prompt
++                        "type": "input_audio",
++                        "input_audio": {
++                            "data": comfy_audio_to_base64_wav(
++                                audio,
++                                max_seconds=audio_seconds if audio_seconds and audio_seconds > 0 else None,
++                            ),
++                            "format": "wav",
++                        }
+                     }
+                 )
++            # Once, after the attachments, rather than once per image
++            content.append(
++                {
++                    "type": "text",
++                    "text": prompt
++                }
++            )
+             # Add the multi-modal content to the messages list
+             messages.append(
+                 {
