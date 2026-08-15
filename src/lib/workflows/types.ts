@@ -227,11 +227,17 @@ export interface AudioParam extends ParamBase {
   default: "";
   /** Block submission until something is chosen. */
   required?: boolean;
+  /**
+   * Id of a `measured` param this control fills in with the loaded track's
+   * running time, on the same terms as a video's. Named here rather than the
+   * other way round because the upload is what has the file in hand.
+   */
+  measures?: string;
 }
 
 /**
- * A number the UI observes rather than the user setting it — today, only the
- * running time of the clip a `video` param has loaded.
+ * A number the UI observes rather than the user setting it — the running time
+ * of the clip a `video` param has loaded, or of the track an `audio` one has.
  *
  * It is a param rather than something bolted onto the video control because
  * what it is *for* is writing into the graph, and that is what params do: it

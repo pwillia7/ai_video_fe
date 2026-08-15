@@ -411,7 +411,10 @@ function Control({
       );
     }
 
-    case "audio":
+    case "audio": {
+      // Bound outside the closure so it stays narrowed to a string, as in the
+      // video case above.
+      const measures = param.measures;
       return (
         <Field
           id={id}
@@ -424,11 +427,15 @@ function Control({
             id={id}
             value={String(value ?? "")}
             onChange={(next) => onChange(param.id, next)}
+            onMeasure={
+              measures ? (seconds) => onChange(measures, seconds) : undefined
+            }
             disabled={readOnly}
             describedBy={describedBy}
           />
         </Field>
       );
+    }
 
     // Filled in by whichever control measures it — see `measures` on the video
     // param. Nothing to draw.

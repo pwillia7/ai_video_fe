@@ -1044,12 +1044,23 @@ Three further things are deliberately *not* true of it:
   through, which is the old behaviour and rarely what anyone wants — MiniMax's
   model card puts a reference track at 2–15 seconds, ComfyUI's standalone
   `ref_audios` path truncates nothing, and a three-minute track is thousands of
-  latent frames of packed sequence for a five-second video. Both controls write
-  the same node input through the same function, for the same reason the
-  director's instructions are assembled by one: a target write is an assignment,
-  so each contributor has to produce the whole answer. It is always the start of
-  the track; `start_index` stays at 0, and which fifteen seconds you want is the
-  first control to add here if it turns out to matter.
+  latent frames of packed sequence for a five-second video. **Start at** picks where
+  those seconds come from, so a song's chorus is reachable and not just its
+  intro. Every one of those controls writes its node input through one function,
+  for the same reason the director's instructions are assembled by one: a target
+  write is an assignment, so each contributor has to produce the whole answer.
+
+  The start is only safe because the track gets measured. `TrimAudioDuration`
+  clamps a start to the length of the audio and then raises when nothing is left
+  between start and end, which is the one way to fail it — so `AudioUpload`
+  reports the length it already reads off the loaded player, `measures` carries
+  it into a `measured` param exactly as a video clip's does, and `finalize`
+  rejects an impossible start at submit with the track's real length in the
+  message. Rejected rather than clamped: quietly moving to a different part of
+  the song is worse than being told, and this is a number someone typed. With no
+  measurement — a form submitted before the player has its metadata — the start
+  is passed through, which is the risk every run took before the control
+  existed.
 - **It is not the output soundtrack.** H3 generates its own audio; the track
   conditions it. `referenceTrack` in `minimax-common.ts` tells the director so,
   because left alone it writes a `non_diegetic_music` section inventing a score

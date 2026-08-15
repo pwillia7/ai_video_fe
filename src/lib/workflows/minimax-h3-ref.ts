@@ -46,7 +46,8 @@ import {
  *   unused means removed, not blank. It is what the Create video button on a
  *   finished track fills in — see `clipTarget` — and the reason this graph,
  *   alone among the H3 ones, has a LoadAudio in it. What reaches the model is
- *   as many seconds of it as the video is long, unless the form says otherwise.
+ *   as many seconds of it as the video is long, from wherever the form says to
+ *   start, unless the form says to send all of it.
  * - **A track pins the run to four steps**, and four steps loads a different
  *   diffusion model and text encoder from the rest of the range. See
  *   `FOUR_STEP_MODELS` and `TRACK_PINS_STEPS`.
@@ -80,6 +81,8 @@ const AUDIO_INPUT = "ref_audios.ref_audio_0";
 const AUDIO_PARAM = "reference_audio";
 const TRIM_PARAM = "reference_trim";
 const TRIM_SECONDS_PARAM = "reference_trim_seconds";
+const TRIM_START_PARAM = "reference_trim_start";
+const TRACK_SECONDS_PARAM = "reference_track_seconds";
 
 /** What the trim select offers, and what each answer means in seconds. */
 const TRIM_WHOLE = "whole";
@@ -160,6 +163,28 @@ const trimSeconds = (values: Record<string, ParamValue>): number => {
   // deleted the node this is written to by the time anything is queued.
   return effectiveSeconds(Number(values.duration ?? 10));
 };
+
+/**
+ * Where in the track the reference starts, in seconds.
+ *
+ * Written by the start control and by the measurement of the track itself,
+ * which both target the same input for the same reason the two length controls
+ * do: a target write is an assignment, so each has to produce the whole answer.
+ *
+ * The measurement is what makes the control safe. `TrimAudioDuration` clamps a
+ * start to the length of the audio and then raises if nothing is left — so a
+ * start past the end of the track is the one way to fail the node — and the
+ * browser reads that length off the loaded track and reports it here. With a
+ * length known, `finalize` rejects an impossible start at submit and says how
+ * long the track actually is; with none known it is passed through, which is
+ * the pre-measurement case and the same risk every run took before.
+ */
+const startSeconds = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[TRIM_START_PARAM] ?? 0));
+
+/** How long the loaded track runs, or 0 for "nothing has measured it". */
+const trackSeconds = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[TRACK_SECONDS_PARAM] ?? 0));
 
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
 const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
@@ -401,10 +426,9 @@ const graph: ComfyGraph = {
   // which is why it is in the stored graph rather than spliced in: `pnpm
   // check:nodes` then asks a real ComfyUI whether the class is there.
   //
-  // `duration` is written per run by the trim controls. `start_index` stays at
-  // 0 — which fifteen seconds of a song to take is a real question and a
-  // control it would need, and the first thing to add here if it turns out to
-  // matter. Deleted outright when the whole track is wanted, see `finalize`.
+  // Both inputs are written per run by the trim controls: `duration` for how
+  // much, `start_index` for where from. Deleted outright when the whole track
+  // is wanted, see `finalize`.
   "167": {
     class_type: "TrimAudioDuration",
     inputs: {
@@ -448,11 +472,32 @@ const params: ParamDef[] = [
     default: "",
     help: "Optional. Pins the run to 4 steps, which is where a track works. A long track is a reference rather than a running time, so only as much of it as the video is long is sent — see below.",
     group: "References",
+    // Nothing else knows how long the track runs, and the start control has to
+    // land inside it. The browser reads it off the loaded player and reports it
+    // to the measured param below.
+    measures: TRACK_SECONDS_PARAM,
     targets: [
       { node: AUDIO_NODE, input: "audio" },
       // Also the director's, which is told to stop inventing a score once a
       // real one has been handed to the model. See referenceTrack.
       director,
+    ],
+  },
+  {
+    id: TRACK_SECONDS_PARAM,
+    label: "Track length",
+    type: "measured",
+    // Nothing measured yet, which every reader treats as "unknown" rather than
+    // as an empty track — a form can be submitted before the player has its
+    // metadata.
+    default: 0,
+    group: "References",
+    targets: [
+      {
+        node: TRIM_NODE,
+        input: "start_index",
+        transform: (_value, values) => startSeconds(values),
+      },
     ],
   },
   {
@@ -474,15 +519,38 @@ const params: ParamDef[] = [
     ],
   },
   {
+    id: TRIM_START_PARAM,
+    label: "Start at",
+    type: "number",
+    default: 0,
+    min: 0,
+    max: 3600,
+    step: 0.5,
+    unit: "sec",
+    help: "Where in the track the reference is taken from. 0 is the opening, which on most songs is the least like the rest of it.",
+    group: "References",
+    // A question about a track that is there, and only while some of it is
+    // being taken: with all of it, the trim node is not in the run at all.
+    revealedBy: AUDIO_PARAM,
+    hiddenBy: { param: TRIM_PARAM, is: TRIM_WHOLE },
+    targets: [
+      {
+        node: TRIM_NODE,
+        input: "start_index",
+        transform: (_value, values) => startSeconds(values),
+      },
+    ],
+  },
+  {
     id: TRIM_SECONDS_PARAM,
-    label: "Track length",
+    label: "Seconds to use",
     type: "slider",
     default: 15,
     min: 1,
     max: 60,
     step: 0.5,
     unit: "sec",
-    help: "From the start of the track. Longer than the track itself simply sends the track.",
+    help: "How much to take from the start point. Past the end of the track simply stops there.",
     group: "References",
     // Both conditions, so a stored "a set length" cannot leave this control
     // sitting in a form with no track in it.
@@ -673,6 +741,26 @@ export const minimaxH3Reference: WorkflowDef = {
       throw new ParamError(
         "Add a reference image or a reference track — this workflow needs at least one to build from.",
         "reference_image_1",
+      );
+    }
+
+    /**
+     * A start past the end of the track, which is the one way the trim node
+     * fails: it clamps a start to the length of the audio and then raises
+     * because there is nothing between the start and the end.
+     *
+     * Rejected here rather than clamped, because clamping would silently hand
+     * the model a different part of the song than the one that was asked for,
+     * and this is a number someone typed. Only decidable when the browser has
+     * measured the track — with no measurement it is passed through, which is
+     * what every run did before there was a start control at all.
+     */
+    const start = startSeconds(values);
+    const length = trackSeconds(values);
+    if (graph[TRIM_NODE] && length > 0 && start >= length) {
+      throw new ParamError(
+        `The track is ${length.toFixed(1)} seconds long, so it has nothing at ${start}s to start from.`,
+        TRIM_START_PARAM,
       );
     }
   },

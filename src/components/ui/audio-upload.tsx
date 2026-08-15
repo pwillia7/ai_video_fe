@@ -35,12 +35,19 @@ export function AudioUpload({
   id,
   value,
   onChange,
+  onMeasure,
   disabled,
   describedBy,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
+  /**
+   * Reports how long the loaded track runs, for a form that has something to do
+   * with the answer — the reference trim's start, which has to land inside the
+   * track. Same contract as the video control's.
+   */
+  onMeasure?: (seconds: number) => void;
   disabled?: boolean;
   describedBy?: string;
 }) {
@@ -54,6 +61,17 @@ export function AudioUpload({
    * player has its metadata.
    */
   const [seconds, setSeconds] = useState<number | null>(null);
+
+  /**
+   * The one place `seconds` is set, so what is reported upward can never drift
+   * from what is displayed. A length that is not a finite number — which a
+   * stream, or a file still loading, will give — reports as 0, which is the
+   * same as no track at all and is what every reader has to treat as "unknown".
+   */
+  const applySeconds = (next: number | null) => {
+    setSeconds(next);
+    onMeasure?.(next !== null && Number.isFinite(next) ? Math.max(0, next) : 0);
+  };
 
   const upload = async (file: File) => {
     setError(null);
@@ -80,7 +98,7 @@ export function AudioUpload({
         body: form,
       });
       onChange(result.ref);
-      setSeconds(null);
+      applySeconds(null);
     } catch (cause) {
       setError(
         cause instanceof ApiError
@@ -162,11 +180,11 @@ export function AudioUpload({
               preload="metadata"
               onLoadedMetadata={(event) => {
                 const length = event.currentTarget.duration;
-                setSeconds(Number.isFinite(length) ? length : null);
+                applySeconds(Number.isFinite(length) ? length : null);
               }}
               onError={() => {
                 onChange("");
-                setSeconds(null);
+                applySeconds(null);
                 setError(
                   "That track is no longer on the ComfyUI server. Choose it again.",
                 );
@@ -202,7 +220,7 @@ export function AudioUpload({
                   onClick={() => {
                     onChange("");
                     setError(null);
-                    setSeconds(null);
+                    applySeconds(null);
                   }}
                 >
                   Remove
