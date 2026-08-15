@@ -255,9 +255,9 @@ export function hideDirectorOnly(
     const existing =
       param.hiddenBy === undefined
         ? []
-        : typeof param.hiddenBy === "string"
-          ? [param.hiddenBy]
-          : param.hiddenBy;
+        : Array.isArray(param.hiddenBy)
+          ? param.hiddenBy
+          : [param.hiddenBy];
     return { ...param, hiddenBy: [...existing, spec.param] };
   });
 }

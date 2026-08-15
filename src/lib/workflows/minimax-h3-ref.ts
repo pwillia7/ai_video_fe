@@ -6,6 +6,7 @@ import type { ParamDef, ParamPin, ParamValue, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   directorBypassFor,
+  effectiveSeconds,
   directorTarget,
   durationParam,
   REFERENCE_DIRECTOR,
@@ -40,11 +41,12 @@ import {
  *   must *remove* the unused inputs and their LoadImage nodes rather than leave
  *   them blank — see `finalize` below.
  * - A different UNET from the other two: `ref2va` rather than `fl2va`.
- * - `ref_audios.ref_audio_0` takes a track, from node 155. Same variadic form
- *   as the images and the same rule: unused means removed, not blank. It is
- *   what the Create video button on a finished track fills in — see
- *   `clipTarget` — and the reason this graph, alone among the H3 ones, has a
- *   LoadAudio in it.
+ * - `ref_audios.ref_audio_0` takes a track, through the trim at node 167 and
+ *   from the loader at 155. Same variadic form as the images and the same rule:
+ *   unused means removed, not blank. It is what the Create video button on a
+ *   finished track fills in — see `clipTarget` — and the reason this graph,
+ *   alone among the H3 ones, has a LoadAudio in it. What reaches the model is
+ *   as many seconds of it as the video is long, unless the form says otherwise.
  * - **A track pins the run to four steps**, and four steps loads a different
  *   diffusion model and text encoder from the rest of the range. See
  *   `FOUR_STEP_MODELS` and `TRACK_PINS_STEPS`.
@@ -73,8 +75,16 @@ const REF_NODES = ["137", "139", "165", "166"];
 const REFERENCE_NODE = "136";
 const BATCH_NODE = "146";
 const AUDIO_NODE = "155";
+const TRIM_NODE = "167";
 const AUDIO_INPUT = "ref_audios.ref_audio_0";
 const AUDIO_PARAM = "reference_audio";
+const TRIM_PARAM = "reference_trim";
+const TRIM_SECONDS_PARAM = "reference_trim_seconds";
+
+/** What the trim select offers, and what each answer means in seconds. */
+const TRIM_WHOLE = "whole";
+const TRIM_MATCH = "match";
+const TRIM_SET = "set";
 
 /** Whether this run has a reference track, which several things turn on. */
 const trackAttached = (values: Record<string, ParamValue>): boolean =>
@@ -127,6 +137,28 @@ const TRACK_PINS_STEPS: ParamPin = {
   whenSet: AUDIO_PARAM,
   value: 4,
   note: "A reference track pins this to 4 — the step count the bf16 model pair and the pack's own sampler take a track at. Leave Turbo on: four steps without the distilled LoRA is not a usable take.",
+};
+
+/**
+ * How many seconds of the track the model is given.
+ *
+ * One function rather than one per control, because both controls write the
+ * same node input and a target write is an assignment: each of them has to
+ * produce the whole answer or the last one to run would win with half of it.
+ * The same rule the director's instructions are assembled under.
+ *
+ * "As long as the video" is the *snapped* length rather than the number on the
+ * slider — the frame grid rounds a request up by as much as two thirds of a
+ * second, and the trim should match what actually comes back rather than what
+ * was asked for. It is the same number the director is told the video runs to.
+ */
+const trimSeconds = (values: Record<string, ParamValue>): number => {
+  if (String(values[TRIM_PARAM] ?? TRIM_MATCH) === TRIM_SET) {
+    return Number(values[TRIM_SECONDS_PARAM] ?? 15);
+  }
+  // Whole-track runs land here too, and it does not matter: `finalize` has
+  // deleted the node this is written to by the time anything is queued.
+  return effectiveSeconds(Number(values.duration ?? 10));
 };
 
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
@@ -264,9 +296,10 @@ const graph: ComfyGraph = {
       "ref_images.ref_image_1": ["139", 0],
       "ref_images.ref_image_2": ["165", 0],
       "ref_images.ref_image_3": ["166", 0],
-      // The one reference that is not a picture. Removed with its loader on
-      // every run that has no track — see `finalize`.
-      "ref_audios.ref_audio_0": ["155", 0],
+      // The one reference that is not a picture. It comes through the trim
+      // rather than straight off the loader; both go on every run that has no
+      // track — see `finalize`.
+      "ref_audios.ref_audio_0": ["167", 0],
     },
     _meta: { title: "MiniMax H3 Reference to Video" },
   },
@@ -353,6 +386,34 @@ const graph: ComfyGraph = {
     inputs: { audio: "" },
     _meta: { title: "Load Audio" },
   },
+
+  // How much of that track the model is actually given.
+  //
+  // Pressing Create video on a finished song hands over the whole song, and a
+  // reference is not a running time: MiniMax's own model card puts a reference
+  // audio at 2–15 seconds, ComfyUI's standalone `ref_audios` path truncates
+  // nothing, and a three-minute track is thousands of latent frames of packed
+  // sequence for a five-second video. So the trim sits between the loader and
+  // the reference node, and the default is the length of the video being made.
+  //
+  // `TrimAudioDuration` is a ComfyUI built-in (comfy_extras/nodes_audio.py), so
+  // this needs no pack the graph did not already need — but it is a recent one,
+  // which is why it is in the stored graph rather than spliced in: `pnpm
+  // check:nodes` then asks a real ComfyUI whether the class is there.
+  //
+  // `duration` is written per run by the trim controls. `start_index` stays at
+  // 0 — which fifteen seconds of a song to take is a real question and a
+  // control it would need, and the first thing to add here if it turns out to
+  // matter. Deleted outright when the whole track is wanted, see `finalize`.
+  "167": {
+    class_type: "TrimAudioDuration",
+    inputs: {
+      audio: ["155", 0],
+      start_index: 0,
+      duration: 15,
+    },
+    _meta: { title: "Trim Audio Duration" },
+  },
 };
 
 /**
@@ -385,13 +446,49 @@ const params: ParamDef[] = [
     label: "Reference track",
     type: "audio",
     default: "",
-    help: "Optional. Pins the run to 4 steps, which is where a track works. The video is still the length of the Duration control — a long track is a reference, not a running time.",
+    help: "Optional. Pins the run to 4 steps, which is where a track works. A long track is a reference rather than a running time, so only as much of it as the video is long is sent — see below.",
     group: "References",
     targets: [
       { node: AUDIO_NODE, input: "audio" },
       // Also the director's, which is told to stop inventing a score once a
       // real one has been handed to the model. See referenceTrack.
       director,
+    ],
+  },
+  {
+    id: TRIM_PARAM,
+    label: "How much of the track",
+    type: "select",
+    default: TRIM_MATCH,
+    options: [
+      { value: TRIM_MATCH, label: "As much as the video is long" },
+      { value: TRIM_SET, label: "A set length" },
+      { value: TRIM_WHOLE, label: "All of it" },
+    ],
+    help: "Pressing Create video on a finished song hands over the whole song. MiniMax documents a reference track at 2–15 seconds.",
+    group: "References",
+    // Only a question about a track that is there.
+    revealedBy: AUDIO_PARAM,
+    targets: [
+      { node: TRIM_NODE, input: "duration", transform: (_value, values) => trimSeconds(values) },
+    ],
+  },
+  {
+    id: TRIM_SECONDS_PARAM,
+    label: "Track length",
+    type: "slider",
+    default: 15,
+    min: 1,
+    max: 60,
+    step: 0.5,
+    unit: "sec",
+    help: "From the start of the track. Longer than the track itself simply sends the track.",
+    group: "References",
+    // Both conditions, so a stored "a set length" cannot leave this control
+    // sitting in a form with no track in it.
+    revealedBy: [AUDIO_PARAM, { param: TRIM_PARAM, is: TRIM_SET }],
+    targets: [
+      { node: TRIM_NODE, input: "duration", transform: (_value, values) => trimSeconds(values) },
     ],
   },
   {
@@ -551,6 +648,14 @@ export const minimaxH3Reference: WorkflowDef = {
     if (!trackAttached(values)) {
       delete graph[REFERENCE_NODE].inputs[AUDIO_INPUT];
       delete graph[AUDIO_NODE];
+      delete graph[TRIM_NODE];
+    } else if (String(values[TRIM_PARAM] ?? TRIM_MATCH) === TRIM_WHOLE) {
+      // All of it is the trim *removed* rather than the trim set to the track's
+      // length: how long the file runs is not a number this app has — nothing
+      // has opened it, and the browser never sees the bytes for a track that
+      // arrived through Create video.
+      graph[REFERENCE_NODE].inputs[AUDIO_INPUT] = [AUDIO_NODE, 0];
+      delete graph[TRIM_NODE];
     }
 
     /**

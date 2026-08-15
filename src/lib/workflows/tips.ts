@@ -86,6 +86,8 @@ const REFERENCE_TRACK: TipSection = {
     "It goes to the model as a reference audio, alongside whatever pictures you attach — the two are separate references and neither replaces the other. A track and no picture is allowed; so is a picture and no track. One of the two is required, and with no picture everything on screen comes from your prompt.",
     "A loaded track pins Steps to 4. That is the step count this workflow takes a track at: at 4 it loads the bf16 diffusion model and text encoder, which is the pair that accepts a track and pictures together, and leaves Spectrum out. Remove the track and the control is yours again. Leave Turbo on — four steps without the distilled LoRA is not a usable take.",
     "The video is still the length of the Duration control. A four-minute song attached to a five-second clip is a reference to five seconds of music, not an instruction to make a four-minute video — nothing here can generate one.",
+    "So only the opening of the track is sent, as many seconds of it as the video is long. How much of the track changes that: a set length if you want a fixed number of seconds, all of it if you really want the whole file. MiniMax documents a reference track at 2–15 seconds, and a three-minute one is thousands of latent frames of sequence for a five-second video.",
+    "It is always the start of the track. Which fifteen seconds of a song you get is not a choice yet, so if the opening is an intro that sounds like nothing else on the record, trim the track before you generate it rather than after.",
     "The soundtrack that comes back is the model's own. The attached track steers it rather than being copied into the output, so treat it as a brief for the score and not as the score.",
     "The director is told a track is attached and stops writing a score of its own. Without that it invents one, and the model is then asked for a second piece of music over the one it was handed.",
     "It cannot hear the track — the director is shown pictures and nothing else — so if you want the action timed to the music, say so in the prompt. Anything on the beat has to come from you.",
@@ -258,6 +260,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         heading: "What to do with a finished track",
         items: [
           "Create video sends it to Reference to Video as a reference track, the same way Remix and Extend send a clip. The picture is then yours to supply — a reference image, a prompt, or both — and that run is pinned to 4 steps, which is where the track works.",
+          "The whole song goes across, but only the first few seconds of it reach the model: as much as the video is long, unless you say otherwise there. A song is a reference for those seconds rather than a length to fill.",
           "The video is as long as that workflow's own Duration control, which tops out at 20 seconds. A finished song is a reference for those seconds rather than a length to fill.",
           "The file never goes through your browser: it is copied between ComfyUI's own directories, so the upload size limit does not apply to it.",
         ],

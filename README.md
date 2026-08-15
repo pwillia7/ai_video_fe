@@ -1035,7 +1035,21 @@ Three further things are deliberately *not* true of it:
 
 - **It does not set the length.** The video is as long as the Duration control
   says, capped at 20 seconds. A four-minute song is a reference for those
-  seconds.
+  seconds — and only those seconds actually go: a `TrimAudioDuration` at node
+  167 sits between the loader and the reference node, and **How much of the
+  track** decides what it is given. The default is the video's own length, the
+  *snapped* one rather than the number on the slider, so the reference matches
+  what comes back rather than what was asked for. *A set length* reveals a
+  seconds control; *all of it* deletes the trim and wires the loader straight
+  through, which is the old behaviour and rarely what anyone wants — MiniMax's
+  model card puts a reference track at 2–15 seconds, ComfyUI's standalone
+  `ref_audios` path truncates nothing, and a three-minute track is thousands of
+  latent frames of packed sequence for a five-second video. Both controls write
+  the same node input through the same function, for the same reason the
+  director's instructions are assembled by one: a target write is an assignment,
+  so each contributor has to produce the whole answer. It is always the start of
+  the track; `start_index` stays at 0, and which fifteen seconds you want is the
+  first control to add here if it turns out to matter.
 - **It is not the output soundtrack.** H3 generates its own audio; the track
   conditions it. `referenceTrack` in `minimax-common.ts` tells the director so,
   because left alone it writes a `non_diegetic_music` section inventing a score
@@ -1341,13 +1355,20 @@ disclosure.
 Four more fields on a param, each of which exists for one of the workflows
 above:
 
-- **`revealedBy`** keeps a control out of the form until the named param has a
-  value — the chain of optional reference slots, each waiting on the one before.
-- **`hiddenBy`** is the same question backwards, and takes a list: the music
-  workflow's *Plan the sections* is hidden by both the lyrics box and the
-  lyricist, so it appears only when neither is supplying words. Both are
-  presentation only. A hidden control still submits its stored value; what stops
-  it reaching ComfyUI is `finalize`.
+- **`revealedBy`** keeps a control out of the form until its condition holds —
+  the chain of optional reference slots, each waiting on the one before. A bare
+  id asks whether that param has a value at all; `{ param, is }` asks whether it
+  has one particular value, which is what a control belonging to one option of a
+  select needs. A list means all of them have to hold: the reference trim's
+  length waits on a track being attached *and* on the trim being set to a
+  length, so a stored answer cannot leave it sitting in a form with no track.
+- **`hiddenBy`** is the same question backwards, takes the same two forms, and a
+  list there means any one of them hides — the music workflow's *Plan the
+  sections* is hidden by both the lyrics box and the lyricist, so it appears
+  only when neither is supplying words. The asymmetry is deliberate: waiting is
+  a chain of things that must be true, standing down is a list of reasons any of
+  which is enough. Both are presentation only. A hidden control still submits
+  its stored value; what stops it reaching ComfyUI is `finalize`.
 - **`pinnedBy`** is the third of that family and the only one that is *not*
   presentation only: while the named param is set, the control shows the pinned
   value, takes no input, and submits that value whatever was stored under it —
