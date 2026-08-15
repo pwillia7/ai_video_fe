@@ -54,6 +54,13 @@ export interface Job {
    */
   patches?: string[];
   hasAudio: boolean;
+  /**
+   * Marked by the user as worth keeping. Purely an organising flag — it sorts
+   * the entry into its own section at the top of the history and protects it
+   * from the bulk clears and from eviction, but changes nothing about the file
+   * itself, which is on the ComfyUI box either way.
+   */
+  favorite?: boolean;
   submittedAt: number;
   /**
    * When ComfyUI actually started rendering, as opposed to when it accepted
@@ -116,6 +123,28 @@ export function isActive(job: Job): boolean {
   return job.phase === "queued" || job.phase === "running";
 }
 
+export function isFavorite(job: Job): boolean {
+  return job.favorite === true;
+}
+
+/**
+ * The favourited entries and everything else, each in the order they arrived.
+ *
+ * Lifted out rather than merely sorted to the top: an entry appears in the
+ * favourites section *instead of* under its day, so the same generation is
+ * never on screen twice and a day's Download and Delete act on exactly the rows
+ * that day is showing.
+ */
+export function partitionFavorites(jobs: Job[]): {
+  favorites: Job[];
+  rest: Job[];
+} {
+  const favorites: Job[] = [];
+  const rest: Job[] = [];
+  for (const job of jobs) (isFavorite(job) ? favorites : rest).push(job);
+  return { favorites, rest };
+}
+
 /** What a generation can come back as with no picture in it. */
 const AUDIO_ONLY = /\.(mp3|flac|wav|opus|ogg|m4a)$/i;
 
@@ -162,6 +191,13 @@ export function readJobs(): Job[] {
  * can reach. Those are kept whatever they cost — there are only ever a handful,
  * and they become evictable the moment they finish.
  *
+ * Favourites go next, newest first, because marking one is the user saying this
+ * is the entry to keep — losing it to a run of newer takes would answer that
+ * with the opposite. They still queue for the same budget rather than being
+ * exempt from it like an in-flight job: there can be any number of them, and
+ * "the newest favourites survive" degrades far better than a write the browser
+ * refuses outright.
+ *
  * The rest fill what is left, newest first, stopping at the first that does not
  * fit rather than skipping it to pack in smaller older ones. That keeps the
  * contract one sentence long — history is the most recent runs that fit — which
@@ -182,12 +218,17 @@ export function trimToBudget(jobs: Job[], budget = MAX_HISTORY_CHARS): Job[] {
     used += sizeOf(job);
   }
 
-  for (const job of ordered) {
-    if (keep.has(job.promptId)) continue;
-    const size = sizeOf(job);
-    if (used + size > budget) break;
-    keep.add(job.promptId);
-    used += size;
+  for (const pass of [isFavorite, () => true]) {
+    for (const job of ordered) {
+      if (keep.has(job.promptId) || !pass(job)) continue;
+      const size = sizeOf(job);
+      // `break` rather than `continue`, per the note above — but only out of
+      // this pass, so an oversized favourite does not also stop the ordinary
+      // history from filling whatever is left.
+      if (used + size > budget) break;
+      keep.add(job.promptId);
+      used += size;
+    }
   }
 
   return ordered.filter((job) => keep.has(job.promptId));

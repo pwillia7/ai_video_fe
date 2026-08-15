@@ -8,6 +8,7 @@ import {
   learnedEstimateSeconds,
   isActive,
   isAudioOnly,
+  isFavorite,
   readJobs,
   sortJobs,
   writeJobs,
@@ -82,6 +83,9 @@ export interface JobsController {
   remove: (promptId: string) => void;
   /** Drop several at once, so a day's worth is one state write. */
   removeMany: (promptIds: string[]) => void;
+  /** Mark or unmark a generation as one to keep. */
+  toggleFavorite: (promptId: string) => void;
+  /** Everything finished except the favourites, which is the point of them. */
   clearFinished: () => void;
   dismissSubmitError: () => void;
 }
@@ -422,8 +426,20 @@ export function useJobs(): JobsController {
     setJobs((previous) => previous.filter((job) => !doomed.has(job.promptId)));
   }, []);
 
+  const toggleFavorite = useCallback((promptId: string) => {
+    setJobs((previous) =>
+      previous.map((job) =>
+        job.promptId === promptId ? { ...job, favorite: !job.favorite } : job,
+      ),
+    );
+  }, []);
+
+  // Favourites survive, which is most of what marking one is for: the whole
+  // reason to keep a generation is so the tidy-up does not take it.
   const clearFinished = useCallback(() => {
-    setJobs((previous) => previous.filter(isActive));
+    setJobs((previous) =>
+      previous.filter((job) => isActive(job) || isFavorite(job)),
+    );
   }, []);
 
   const dismissSubmitError = useCallback(() => setSubmitError(null), []);
@@ -444,6 +460,7 @@ export function useJobs(): JobsController {
     cancel,
     remove,
     removeMany,
+    toggleFavorite,
     clearFinished,
     dismissSubmitError,
   };

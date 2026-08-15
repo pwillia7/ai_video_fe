@@ -11,9 +11,12 @@ import {
   groupByDay,
   isActive,
   isAudioOnly,
+  isFavorite,
   lineageOrder,
+  partitionFavorites,
   type Job,
 } from "@/lib/jobs";
+import { StarIcon } from "@/components/ui/star-icon";
 
 const PHASE_LABEL: Record<Job["phase"], string> = {
   queued: "Queued",
@@ -43,6 +46,12 @@ const DOWNLOAD_STAGGER_MS = 300;
 type Pending = { day: string; action: "download" | "delete" } | null;
 
 /**
+ * The favourites section's own key, in the same namespace as the day keys it
+ * sits above. It cannot collide with one: those are `YYYY-MM-DD`.
+ */
+const FAVORITES_KEY = "favorites";
+
+/**
  * Past and in-flight generations for this device, grouped by the day they were
  * started.
  *
@@ -58,6 +67,7 @@ export function GenerationsPanel({
   onCancel,
   onRemove,
   onRemoveMany,
+  onToggleFavorite,
   onClearFinished,
 }: {
   jobs: Job[];
@@ -67,6 +77,7 @@ export function GenerationsPanel({
   onCancel: (promptId: string) => void;
   onRemove: (promptId: string) => void;
   onRemoveMany: (promptIds: string[]) => void;
+  onToggleFavorite: (promptId: string) => void;
   onClearFinished: () => void;
 }) {
   /**
@@ -131,12 +142,29 @@ export function GenerationsPanel({
   // "Today", so regrouping the whole history a second at a time was buying one
   // label change at midnight.
   const today = dayKey(now);
-  const groups = useMemo(
+  const groups = useMemo(() => {
+    // Favourites are lifted out of their days rather than copied above them,
+    // so nothing appears twice and a day's Download and Delete still act on
+    // exactly the rows that day is showing.
+    const { favorites, rest } = partitionFavorites(jobs);
+    const days = groupByDay(rest, now).map((group) => ({
+      ...group,
+      pinned: false,
+    }));
+    return favorites.length > 0
+      ? [
+          {
+            key: FAVORITES_KEY,
+            label: "Favorites",
+            jobs: favorites,
+            pinned: true,
+          },
+          ...days,
+        ]
+      : days;
     // `now` is read through `today`, which is what the dependency list names.
-    () => groupByDay(jobs, now),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [jobs, today],
-  );
+  }, [jobs, today]);
 
   if (jobs.length === 0) {
     return (
@@ -146,13 +174,22 @@ export function GenerationsPanel({
     );
   }
 
-  const finishedCount = jobs.filter((job) => !isActive(job)).length;
+  // Favourites are excluded because `onClearFinished` spares them; counting
+  // them here would promise to remove rows that would still be there after.
+  const finishedCount = jobs.filter(
+    (job) => !isActive(job) && !isFavorite(job),
+  ).length;
+  const firstDayIndex = groups.findIndex((group) => !group.pinned);
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-col gap-3">
         {groups.map((group, index) => {
-          const open = openOverrides[group.key] ?? index === 0;
+          // Favourites and the newest day both open by default: the section is
+          // there to be read, and burying it under a closed header would make
+          // marking something feel like filing it away.
+          const open =
+            openOverrides[group.key] ?? (group.pinned || index === firstDayIndex);
           const downloadable = group.jobs.filter(
             (job) => job.outputs.length > 0,
           );
@@ -191,6 +228,12 @@ export function GenerationsPanel({
                         fill="none"
                       />
                     </svg>
+                    {group.pinned ? (
+                      <StarIcon
+                        filled
+                        className="size-3 shrink-0 text-accent"
+                      />
+                    ) : null}
                     <span
                       className="truncate text-[11px] font-medium uppercase tracking-[0.08em]
                         text-fg-subtle transition-colors group-hover:text-fg-muted"
@@ -231,15 +274,21 @@ export function GenerationsPanel({
                         Download
                       </Button>
                     ) : null}
-                    <Button
-                      variant="quiet-danger"
-                      size="xs"
-                      onClick={() =>
-                        setPending({ day: group.key, action: "delete" })
-                      }
-                    >
-                      Delete
-                    </Button>
+                    {/* No bulk delete on the favourites: one click that
+                        forgets the entries someone marked to keep is the
+                        opposite of what marking them was for. The row's own
+                        remove button is still there for one at a time. */}
+                    {group.pinned ? null : (
+                      <Button
+                        variant="quiet-danger"
+                        size="xs"
+                        onClick={() =>
+                          setPending({ day: group.key, action: "delete" })
+                        }
+                      >
+                        Delete
+                      </Button>
+                    )}
                   </div>
                 )}
               </header>
@@ -271,6 +320,7 @@ export function GenerationsPanel({
                         onSelect={onSelect}
                         onCancel={onCancel}
                         onRemove={onRemove}
+                        onToggleFavorite={onToggleFavorite}
                         onToggleTrack={toggleTrack}
                       />
                     </li>
@@ -288,6 +338,7 @@ export function GenerationsPanel({
           size="xs"
           className="mt-1 self-start"
           onClick={onClearFinished}
+          title="Forget every finished generation. Favorites are kept."
         >
           Clear {finishedCount} finished
         </Button>
@@ -357,6 +408,7 @@ function Row({
   onSelect,
   onCancel,
   onRemove,
+  onToggleFavorite,
   onToggleTrack,
 }: {
   job: Job;
@@ -367,9 +419,11 @@ function Row({
   onSelect: (promptId: string) => void;
   onCancel: (promptId: string) => void;
   onRemove: (promptId: string) => void;
+  onToggleFavorite: (promptId: string) => void;
   onToggleTrack: (job: Job) => void;
 }) {
   const active = isActive(job);
+  const favorite = isFavorite(job);
   /**
    * A track can be played from the row it is on, without selecting it.
    *
@@ -484,6 +538,24 @@ function Row({
           )}
         </button>
       ) : null}
+
+      {/* Always visible for the same reason as the play button above, and only
+          once there is something to keep: a run still in the queue has no
+          result yet, and its row already has a cancel to reach for. */}
+      {active ? null : (
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(job.promptId)}
+          title={favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-label={favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-pressed={favorite}
+          className={`grid size-7 shrink-0 place-items-center rounded-md
+            transition-colors hover:bg-surface
+            ${favorite ? "text-accent" : "text-fg-subtle hover:text-fg"}`}
+        >
+          <StarIcon filled={favorite} />
+        </button>
+      )}
 
       {active ? (
         <button

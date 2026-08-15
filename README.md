@@ -1476,6 +1476,22 @@ involved. Each day header can download or delete its generations in one go,
 both behind an inline confirmation — deleting only forgets where the files are,
 which is why the prompt says so.
 
+**Anything worth keeping can be starred**, from the row in the history or from
+the finished result on the stage, and starred generations collect in a
+**Favorites** section above the days. It is a local organising flag and nothing
+more: the file on the ComfyUI box is untouched either way, and there is no
+server to sync it to. What it changes is what happens *around* the entry — a
+favourite is lifted out of its day rather than copied above it, so nothing
+appears twice and a day's Download and Delete still act on exactly the rows that
+day is showing; **Clear finished** spares favourites, which is most of what
+marking one is for; and when the storage budget has to shed history, favourites
+are kept ahead of ordinary entries. They are not exempt from the budget the way
+an in-flight job is — there can be any number of them — so what degrades is
+"the oldest favourites went", not the write itself. The section has no bulk
+delete, on the grounds that one click that forgets everything you marked to keep
+is the opposite of what marking it meant; the row's own remove button still
+takes them one at a time.
+
 The settings kept are the **resolved** ones — what the server made of the form,
 not what the form held. That distinction is the point: a run submitted with the
 seed on "random" records the number it actually got, which is what makes the

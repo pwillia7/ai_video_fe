@@ -3,7 +3,8 @@
 import { Badge, Dot } from "@/components/ui/panel";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { withToken } from "@/lib/client";
-import { formatDuration, isAudioOnly, type Job } from "@/lib/jobs";
+import { formatDuration, isAudioOnly, isFavorite, type Job } from "@/lib/jobs";
+import { StarIcon } from "@/components/ui/star-icon";
 import type { ClipAction, ClipHandoff } from "@/lib/workflows/types";
 
 /**
@@ -19,6 +20,7 @@ export function GenerationStage({
   clipActions,
   onClipAction,
   onShowSettings,
+  onToggleFavorite,
   busyAction = null,
 }: {
   job: Job | null;
@@ -36,6 +38,12 @@ export function GenerationStage({
   onClipAction?: (job: Job, action: ClipAction) => void;
   /** Opens the record of what this generation was run with. */
   onShowSettings?: () => void;
+  /**
+   * Marks this result as one to keep. Offered here as well as on the history
+   * row because the moment to decide is usually the moment it lands, and that
+   * is what the stage is showing.
+   */
+  onToggleFavorite?: (promptId: string) => void;
   /** The hand-off whose copy into ComfyUI's input directory is in flight. */
   busyAction?: ClipAction | null;
 }) {
@@ -50,6 +58,7 @@ export function GenerationStage({
           clipActions={clipActions}
           onClipAction={onClipAction}
           onShowSettings={onShowSettings}
+          onToggleFavorite={onToggleFavorite}
           busyAction={busyAction}
         />
       ) : job.phase === "error" ? (
@@ -356,6 +365,7 @@ function Result({
   clipActions,
   onClipAction,
   onShowSettings,
+  onToggleFavorite,
   busyAction,
 }: {
   job: Job;
@@ -363,6 +373,7 @@ function Result({
   clipActions?: readonly ClipHandoff[];
   onClipAction?: (job: Job, action: ClipAction) => void;
   onShowSettings?: () => void;
+  onToggleFavorite?: (promptId: string) => void;
   busyAction?: ClipAction | null;
 }) {
   const [primary, ...rest] = job.outputs;
@@ -385,6 +396,7 @@ function Result({
           : REUSABLE_VIDEO.test(primary.filename),
       )
     : [];
+  const favorite = isFavorite(job);
   const took =
     job.completedAt !== undefined
       ? formatDuration(job.completedAt - job.submittedAt)
@@ -432,6 +444,31 @@ function Result({
         {typeof seed === "number" ? <Badge mono>seed {seed}</Badge> : null}
 
         <div className="ml-auto flex items-center gap-2">
+          {onToggleFavorite ? (
+            <Button
+              size="sm"
+              // The colour rides on the icon rather than on the button, because
+              // an accent utility in `className` and the variant's own text
+              // colour are the same specificity — which one won would come down
+              // to the order Tailwind happened to emit them in.
+              variant={favorite ? "secondary" : "quiet"}
+              onClick={() => onToggleFavorite(job.promptId)}
+              aria-pressed={favorite}
+              title={
+                favorite
+                  ? "Remove from favorites"
+                  : "Keep this at the top of the history"
+              }
+              icon={
+                <StarIcon
+                  filled={favorite}
+                  className={`size-3.5 ${favorite ? "text-accent" : ""}`}
+                />
+              }
+            >
+              {favorite ? "Favorited" : "Favorite"}
+            </Button>
+          ) : null}
           {onShowSettings ? (
             <Button size="sm" variant="quiet" onClick={onShowSettings}>
               Settings

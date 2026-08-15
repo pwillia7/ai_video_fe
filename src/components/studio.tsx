@@ -919,6 +919,7 @@ function Workbench({
                   ? () => setSettingsForId(viewedJob.promptId)
                   : undefined
               }
+              onToggleFavorite={jobs.toggleFavorite}
               busyAction={sending}
             />
 
@@ -939,6 +940,7 @@ function Workbench({
                 onCancel={(promptId) => void jobs.cancel(promptId)}
                 onRemove={jobs.remove}
                 onRemoveMany={jobs.removeMany}
+                onToggleFavorite={jobs.toggleFavorite}
                 onClearFinished={jobs.clearFinished}
               />
             </Panel>
