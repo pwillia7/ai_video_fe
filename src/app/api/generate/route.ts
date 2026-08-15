@@ -82,7 +82,12 @@ export async function POST(request: Request) {
     // `applied` is what the run actually got: the step count can refuse a
     // switch that was asked for, and the answer has to reach the client or the
     // history would name a mode the graph did not have. See `suppresses`.
-    const { graph, resolved, patches: applied } = applyParams(
+    const {
+      graph,
+      resolved,
+      patches: applied,
+      lora: appliedLora,
+    } = applyParams(
       workflow,
       body.params ?? {},
       allowedValues,

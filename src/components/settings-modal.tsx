@@ -90,6 +90,10 @@ export function SettingsModal({
         : [];
 
   const rendered = renderMs(job);
+  const loraLabel =
+    workflow?.turbo?.loras?.find((lora) => lora.id === job.lora)?.label ??
+    job.lora ??
+    "";
 
   return (
     <Modal
@@ -148,6 +152,14 @@ export function SettingsModal({
       <Section heading="Run">
         <dl className="flex flex-col">
           <Row label="Workflow" value={workflow?.name ?? job.workflowName} />
+          {/* Which distillation, where the run had a choice of them. The modes
+              themselves are in the subtitle above — `workflowName` carries
+              them — but this one is not a mode, it is which of two files the
+              one mode loaded, and it is the difference between two takes that
+              are otherwise identical. Resolved to its label off the workflow,
+              falling back to the raw id for the same reason an unrecognised
+              param falls back to its: a stale name beats dropping the answer. */}
+          {job.lora ? <Row label="Turbo LoRA" value={loraLabel} /> : null}
           <Row label="Started" value={formatWhen(job.submittedAt)} />
           {rendered !== null ? (
             <Row label="Render time" value={formatDuration(rendered)} />

@@ -570,6 +570,17 @@ function Workbench({
           .filter((patch) => job.patches?.includes(patch.id))
           .map((patch) => patch.id),
       }));
+      // And which distillation it ran, on the same terms — an id the workflow
+      // no longer offers is dropped rather than restored, and the current
+      // choice stands. Without this a take made with one LoRA reruns with
+      // whatever the form was last left on, which is the one difference between
+      // two otherwise identical runs that nothing else here would show.
+      if (target.turbo?.loras?.some((lora) => lora.id === job.lora)) {
+        setLorasByWorkflow((previous) => ({
+          ...previous,
+          [target.id]: job.lora!,
+        }));
+      }
       setSelectedId(target.id);
 
       // Same reason as the clip hand-off: on mobile the form sits above the

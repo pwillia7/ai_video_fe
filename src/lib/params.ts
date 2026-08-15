@@ -189,6 +189,15 @@ export interface AppliedParams {
    * the estimate is learned per combination of them.
    */
   patches: string[];
+  /**
+   * Which distilled LoRA was applied, by id — absent on a standard run, and on
+   * a workflow with only one to apply.
+   *
+   * Reported for the same reason `patches` is: what the run *got* rather than
+   * what was asked for. Off turbo the choice is ignored rather than refused, so
+   * the answer here is the only honest record of whether it meant anything.
+   */
+  lora?: string;
 }
 
 /**
@@ -268,6 +277,13 @@ export function applyParams(
     if (pinned !== undefined) resolved[param.id] = pinned;
   }
 
+  /**
+   * Which LoRA turbo ended up applying, for the record of the run. Undefined
+   * off turbo, and on a workflow with nothing to choose between — both of which
+   * are the honest answer rather than a missing one.
+   */
+  let appliedLora: string | undefined;
+
   // Every splice runs before the values are written, so `finalize` sees the
   // graph that will actually be queued. Nothing targets the loader or any
   // spliced node in any case.
@@ -286,6 +302,7 @@ export function applyParams(
     // with the wrong file — which is the one question the control exists to let
     // someone ask.
     const lora = loraFor(workflow.turbo, mode.lora);
+    appliedLora = lora?.id;
     if (mode.lora !== undefined && !lora) {
       throw new ParamError(
         `Workflow "${workflow.id}" has no "${mode.lora}" turbo LoRA.`,
@@ -358,7 +375,12 @@ export function applyParams(
     applyBypass(graph, workflow.directorBypass);
   }
 
-  return { graph, resolved, patches: patches.map((patch) => patch.id) };
+  return {
+    graph,
+    resolved,
+    patches: patches.map((patch) => patch.id),
+    lora: appliedLora,
+  };
 }
 
 /**

@@ -56,6 +56,8 @@ interface GenerateResponse {
   resolved: Record<string, ParamValue>;
   /** The switches the run actually got, which can be fewer than were asked for. */
   patches?: string[];
+  /** Which distilled LoRA it applied, absent off turbo or with no choice. */
+  lora?: string;
   estimatedSeconds: number | null;
 }
 
@@ -379,6 +381,11 @@ export function useJobs(): JobsController {
           prompt: String(values.prompt ?? ""),
           turbo,
           patches,
+          // What the server says it applied rather than what was asked for, on
+          // the same terms as the patches above: off turbo the choice is
+          // ignored, and a run recorded as having used a LoRA it never loaded
+          // would send someone back to compare two takes that were the same.
+          lora: response.lora,
           derivedFrom: options?.derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),

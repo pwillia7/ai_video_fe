@@ -498,7 +498,9 @@ server with the graph — and a run says which one it wants by id. An id the
 workflow does not offer is refused rather than falling back to the default,
 because "which LoRA made this take" is the question the control exists to let
 someone answer. It is remembered per workflow, unlike Low VRAM, since what it
-answers is which distillation suits *this graph's model*.
+answers is which distillation suits *this graph's model* — and it is recorded on
+the finished job, so the modal can say which one made a take and Reuse settings
+can put it back.
 
 `check:workflows` holds the list honest at both ends: each entry carries its own
 `requiresModel`, so offering the `ref2va` one from an `fl2va` graph fails a check
@@ -1615,6 +1617,16 @@ into the form and switches to the workflow that made it, mode switches included,
 merged against the workflow *as that mode has it* so a steps value from a turbo
 run lands in the turbo range. Not the seed: varying a take is what this is for,
 and reproducing one exactly is the button on the result. Nothing is submitted.
+
+Which distillation turbo applied travels with it, on both halves. The job
+records the id the server says it *applied* — absent off turbo, and on a
+workflow with nothing to choose between, both of which are the honest answer
+rather than a missing one — the modal shows it as **Turbo LoRA** under Run, and
+Reuse settings puts the choice back. Without that, two takes made from the same
+settings with different LoRAs are indistinguishable in the history and the
+second one reruns with whatever the form was last left on, which defeats the
+comparison the control exists for. An id the workflow no longer offers is
+dropped rather than restored, exactly as a removed patch id is.
 
 That record outlives the workflow that made it. Params get renamed, removed or
 added between a run and the reading of it, so the modal labels what the current
