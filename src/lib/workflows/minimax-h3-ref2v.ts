@@ -364,14 +364,19 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * the distilled LoRA. Four steps without one is not a usable take, so the
    * cheap end of the control was reachable and worthless.
    *
-   * The estimate is the base graph's own 480 rather than a scaled-down number,
-   * and that is not an oversight. Turbo moves the steps range to 4-8 with the
-   * default at 8, which is where this graph already was — so switching it on
-   * changes what a step is, not how many there are, and a mode that claimed to
-   * be faster would mispace the progress bar until the first finished run
-   * replaced it with this machine's own median.
+   * **It starts at four steps**, not at the eight this graph ships at with the
+   * switch off. Four is where the node pack's own form is complete — its
+   * four-step sampler, the bf16 pair, no Spectrum — and with the LoRA under it
+   * that form is the fast one and the intended one at once. Eight is still a
+   * drag of the control away for a take worth the extra minutes.
+   *
+   * 270s is scaled from this graph's own 480 on the fit Reference to Video's
+   * numbers imply: about 60s of everything that is not sampling, and the rest
+   * per step — so 480 at eight steps puts a step near 52s, and four of them at
+   * 60 + 210. Measured on nothing; the first finished run in this combination
+   * replaces it with this machine's median.
    */
-  turbo: h3Turbo(480),
+  turbo: h3Turbo(270, 4),
   /**
    * The patches do apply, though, and for the reason turbo does not: they
    * change how a step is arrived at rather than how many there are, so a low

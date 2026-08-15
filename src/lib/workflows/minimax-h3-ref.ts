@@ -665,10 +665,20 @@ export const minimaxH3Reference: WorkflowDef = {
    * identity work, but not a reason to withhold a mode that had been working.
    * <https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/discussions/10>
    *
-   * 220s is scaled from this graph's own 300s rather than measured; the first
-   * finished turbo run on a machine replaces it with that machine's median.
+   * **It starts at four steps**, which is the fast end of the range and also the
+   * only end of it the node pack has a complete form for: the four-step sampler,
+   * the bf16 pair, no Spectrum. Eight is still there for a take worth spending
+   * the time on, and a reference track pins the control to four in any case —
+   * so four as the shipped number is what the graph was already doing whenever
+   * a track was attached, made the default for everything else too.
+   *
+   * 140s is scaled from this graph's own 300s rather than measured, on the fit
+   * the old 220s implied: 300 at twelve steps and 220 at eight puts a step at
+   * 20s and everything that is not sampling — the rewrite, the model load, the
+   * decode — at about 60s, so four steps is 60 + 80. The first finished turbo
+   * run on a machine replaces it with that machine's median.
    */
-  turbo: h3Turbo(220),
+  turbo: h3Turbo(140, 4),
 
   patches: h3Patches(),
   stepSampler: h3StepSampler({

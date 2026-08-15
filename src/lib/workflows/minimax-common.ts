@@ -355,7 +355,14 @@ export function h3Turbo(
    * bit costs nothing.
    */
   estimatedSeconds: number,
-  /** Where in the 4–8 range this graph starts. */
+  /**
+   * Where in the 4–8 range this graph starts.
+   *
+   * 8 on the `fl2va` graphs, where 4 is a fast setting to iterate at. The two
+   * `ref2va` ones start at 4, because there that count is not a cheaper version
+   * of the graph — it is the node pack's own complete form, with a sampler built
+   * for exactly four steps and the bf16 weights to go with it.
+   */
   steps = 8,
 ): TurboSpec {
   return {

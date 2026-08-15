@@ -200,9 +200,9 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       {
         heading: "Steps, and what four of them means",
         items: [
-          "Eight is where this ships, and it is lower than the generating workflows on purpose: a remix holds to a source rather than inventing from noise, so it converges sooner.",
-          "At 4 the graph becomes the node pack's own four-step form — its dedicated four-step sampler, the bf16 diffusion model and text encoder in place of the quantised pair, and no Spectrum. That is the same swap Reference to Video makes, for the same reason: it runs the same ref2va model through the same reference node.",
-          "Leave Turbo on for that. The four-step sampler is built to be paired with the distilled LoRA, and four steps without one is not a usable take — which is the whole reason this workflow carries the switch.",
+          "Four is where this ships, with Turbo on. At 4 the graph becomes the node pack's own four-step form — its dedicated four-step sampler, the bf16 diffusion model and text encoder in place of the quantised pair, and no Spectrum. That is the same swap Reference to Video makes, for the same reason: it runs the same ref2va model through the same reference node.",
+          "Leave Turbo on at that setting. The four-step sampler is built to be paired with the distilled LoRA, and four steps without one is not a usable take — which is the whole reason this workflow carries the switch.",
+          "Eight is a drag of the control away, for a take worth the extra minutes: it samples the quantised weights with the ordinary sampler and brings Spectrum back. Higher than that only helps with Turbo off, where a remix holds to a source rather than inventing from noise and still needs fewer steps than the generating workflows.",
         ],
       },
       {
@@ -345,10 +345,10 @@ const TURBO: TipSection = {
   heading: "Turbo is on",
   items: [
     "A distilled LoRA is applied to the diffusion model, so the sampler converges in a handful of steps instead of a dozen or more. Everything else — the prompt director, the length maths, the frame you start from — behaves exactly as it does with the switch off.",
-    "Remix offers it too, and there it moves the range without moving the value: that workflow already ships at 8 steps, so switching modes changes what a step is rather than how many there are. What it buys is the bottom of the range — 4 steps on that graph is the pack's four-step form, and that sampler is built to be paired with this LoRA.",
+    "Remix offers it too, and it is what makes that workflow's default of 4 steps worth having: 4 there is the pack's four-step form, and the sampler in it was built to be paired with this LoRA. With the switch off, that workflow samples the quantised weights at 8.",
     "On the two workflows that run the reference model — Reference to Video and Remix — compare a turbo take against a standard one before trusting it for a likeness. The LoRA's author does not officially support that model yet, and identity is the first thing to suffer if it drifts.",
     "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
-    "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
+    "On the two reference workflows — Reference to Video and Remix — 4 is where they ship, because there it is a complete form rather than a cheap one: the pack's own four-step sampler and the bf16 weights that go with it. Elsewhere 4 is the setting to iterate at, and 8 is the take you keep.",
     "At exactly 4, the graph swaps in the pack's dedicated 4-step sampler in place of the usual one. Nothing to turn on: the steps control decides it, and the note under that control says so while it is in effect. It comes from the same pack as the LoRA.",
     "This is the one thing in the app that needs a node pack and a model file the base workflows do not. If every run fails with the switch on and succeeds with it off, that is what to check.",
     "Low VRAM, under the switch, applies the LoRA the memory-sparing way the pack offers. It is slower and changes nothing about the video, so leave it off unless a turbo run dies out of memory. It stays where you set it for every workflow, since it is your card it is about.",

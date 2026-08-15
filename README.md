@@ -476,12 +476,27 @@ sampler, bf16 weights, no Spectrum — and *that sampler exists to be paired wit
 this LoRA*. Four steps without one is not a usable take, so the cheap end of the
 range was reachable and worthless.
 
-On that graph turbo moves the range without moving the value: 8 is both the
-number it ships at and the turbo default, so switching modes changes what a step
-is rather than how many there are. Its turbo estimate is therefore the base
-graph's own 480 seconds rather than something scaled down — a mode claiming to
-be faster would only mispace the progress bar until the first finished run
-replaced it with that machine's median.
+**Both `ref2va` workflows ship at four steps**, in turbo, which is the whole of
+the point above. Four there is not a cheaper version of the graph — it is the
+node pack's complete form, the four-step sampler and the bf16 pair, with the
+distilled LoRA under it. Reference to Video was already doing exactly that
+whenever a reference track was attached, since a track pins the control to 4; the
+default now says so for every other run too. Eight is one drag away for a take
+worth the minutes, and brings back the quantised weights, the ordinary sampler
+and Spectrum with it.
+
+The turbo estimates are scaled to match: 140 seconds on reference to video and
+270 on Remix. Both come off the fit the old numbers already implied — 300 at
+twelve steps and 220 at eight puts a step at about 20 seconds and everything that
+is not sampling at about 60 — and both are replaced by the machine's own median
+after one finished run in that combination.
+
+**These are defaults for a fresh browser only.** The stored params blob keeps its
+key across releases, because it holds what someone actually typed, so a step
+count that has already been written stays where it was. Someone who has run the
+app before gets 4 by dragging the control to it once, not by upgrading —
+`DEFAULTS_VERSION` moves the *switch* keys and deliberately does not touch this
+one.
 
 **Low VRAM** is the node pack's own memory-sparing way of applying the LoRA,
 passed straight through as the `low_vram` input on the node that gets spliced
@@ -571,9 +586,10 @@ form is the same form, and running the quantised pair under the distilled
 sampler there was an accident of which graph the swap happened to be worked out
 on. What did **not** carry across is the pin: Reference to Video holds the steps
 at 4 while a track is attached because the quantised pair failed on one, while
-Remix has audio on every run and ships at 8 with those weights — which is
-evidence they take a clip's audio perfectly well. Pinning it there would fix a
-problem that workflow does not have, at the cost of every remix it makes.
+Remix has audio on every run and works with those weights at
+every count the control offers — which is evidence they take a clip's audio
+perfectly well. Its default is 4 like the other graph's, but as a default rather
+than a rule: dragging the control up is allowed there and refused under a track.
 
 **There is no sigma-shift node here, and that is the same as running the
 model's own.** ComfyUI's `MiniMaxH3SigmaShift` — shown in the node menu as
