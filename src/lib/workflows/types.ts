@@ -458,14 +458,6 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
           lowVram: turbo.lowVram
             ? { label: turbo.lowVram.label, help: turbo.lowVram.help }
             : undefined,
-          // Ids, labels and help only. The filenames stay here for the same
-          // reason the graph does — they name files on someone's ComfyUI box —
-          // and a run says which one it wants by id.
-          loras: turbo.loras?.options.map(({ id, label, help }) => ({
-            id,
-            label,
-            help,
-          })),
         }
       : undefined,
     params: params.map((param) => {

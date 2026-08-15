@@ -14,12 +14,7 @@ import {
   samplerNodeIn,
   suppressedPatches,
 } from "@/lib/workflows/step-sampler";
-import {
-  applyTurbo,
-  defaultLora,
-  loraFor,
-  turboParams,
-} from "@/lib/workflows/turbo";
+import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
 import {
   pinnedValue,
   type ParamDef,
@@ -189,15 +184,6 @@ export interface AppliedParams {
    * the estimate is learned per combination of them.
    */
   patches: string[];
-  /**
-   * Which distilled LoRA was applied, by id — absent on a standard run, and on
-   * a workflow with only one to apply.
-   *
-   * Reported for the same reason `patches` is: what the run *got* rather than
-   * what was asked for. Off turbo the choice is ignored rather than refused, so
-   * the answer here is the only honest record of whether it meant anything.
-   */
-  lora?: string;
 }
 
 /**
@@ -212,15 +198,6 @@ export interface AppliedParams {
 export interface RunMode extends RunModes {
   /** Apply the turbo LoRA the memory-sparing way. Only means anything with turbo. */
   lowVram?: boolean;
-  /**
-   * Which of the offered LoRAs to apply, by id. Only means anything with turbo,
-   * and only on a workflow that offers a choice — see `TurboLora`.
-   *
-   * Here rather than in `RunModes` for the same reason `lowVram` is: it is a
-   * detail of how the one node is spliced rather than a mode a finished run is
-   * named after. Unset takes the node's own file, which is the default option.
-   */
-  lora?: string;
 }
 
 /**
@@ -277,13 +254,6 @@ export function applyParams(
     if (pinned !== undefined) resolved[param.id] = pinned;
   }
 
-  /**
-   * Which LoRA turbo ended up applying, for the record of the run. Undefined
-   * off turbo, and on a workflow with nothing to choose between — both of which
-   * are the honest answer rather than a missing one.
-   */
-  let appliedLora: string | undefined;
-
   // Every splice runs before the values are written, so `finalize` sees the
   // graph that will actually be queued. Nothing targets the loader or any
   // spliced node in any case.
@@ -296,22 +266,7 @@ export function applyParams(
     if (!workflow.turbo) {
       throw new ParamError(`Workflow "${workflow.id}" has no turbo mode.`);
     }
-    // Refused rather than fallen back on. An id this workflow does not offer
-    // means the two ends disagree about what is installed or what is on offer,
-    // and quietly applying the default would answer "which LoRA made this take"
-    // with the wrong file — which is the one question the control exists to let
-    // someone ask.
-    const lora = loraFor(workflow.turbo, mode.lora);
-    appliedLora = lora?.id;
-    if (mode.lora !== undefined && !lora) {
-      throw new ParamError(
-        `Workflow "${workflow.id}" has no "${mode.lora}" turbo LoRA.`,
-      );
-    }
-    applyTurbo(graph, workflow.turbo, {
-      lowVram: mode.lowVram === true,
-      lora,
-    });
+    applyTurbo(graph, workflow.turbo, mode.lowVram === true);
   }
 
   for (const id of mode.patches ?? []) {
@@ -375,12 +330,7 @@ export function applyParams(
     applyBypass(graph, workflow.directorBypass);
   }
 
-  return {
-    graph,
-    resolved,
-    patches: patches.map((patch) => patch.id),
-    lora: appliedLora,
-  };
+  return { graph, resolved, patches: patches.map((patch) => patch.id) };
 }
 
 /**
@@ -671,38 +621,6 @@ function turboProblems(workflow: WorkflowDef): string[] {
     if (!known) {
       problems.push(
         `Turbo's LoRA goes on ${spec.requiresModel.map((prefix) => `${prefix}*`).join(" or ")}, but this graph loads ${String(model)}.`,
-      );
-    }
-  }
-
-  // Each offered LoRA answers the same question the spec-level `requiresModel`
-  // does, for itself: a list covering every option at once cannot catch one
-  // that belongs on a different UNET from the graph offering it.
-  if (spec.loras) {
-    const ids = new Set<string>();
-    for (const lora of spec.loras.options) {
-      if (ids.has(lora.id)) {
-        problems.push(`Turbo offers two LoRAs with the id "${lora.id}".`);
-      }
-      ids.add(lora.id);
-
-      const model = loader ? workflow.graph[loader].inputs.unet_name : undefined;
-      if (!lora.requiresModel?.length || typeof model !== "string") continue;
-      if (!lora.requiresModel.some((prefix) => model.startsWith(prefix))) {
-        problems.push(
-          `Turbo's "${lora.id}" LoRA goes on ${lora.requiresModel
-            .map((prefix) => `${prefix}*`)
-            .join(" or ")}, but this graph loads ${model}.`,
-        );
-      }
-    }
-
-    // The node's own file is what a run with nothing chosen loads, so it has to
-    // be one of the things on offer — otherwise the form opens showing a
-    // selected option that is not what the graph would actually use.
-    if (!defaultLora(spec)) {
-      problems.push(
-        `Turbo loads ${String(spec.node.inputs[spec.loras.input])} by default, which is not one of the LoRAs it offers.`,
       );
     }
   }

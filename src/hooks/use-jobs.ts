@@ -56,8 +56,6 @@ interface GenerateResponse {
   resolved: Record<string, ParamValue>;
   /** The switches the run actually got, which can be fewer than were asked for. */
   patches?: string[];
-  /** Which distilled LoRA it applied, absent off turbo or with no choice. */
-  lora?: string;
   estimatedSeconds: number | null;
 }
 
@@ -77,8 +75,6 @@ export interface JobsController {
     options?: RunModes & {
       /** Apply the turbo LoRA the memory-sparing way. Nothing without turbo. */
       lowVram?: boolean;
-      /** Which of the offered LoRAs to apply, by id. Nothing without turbo. */
-      lora?: string;
       /** The generation whose clip this one was made from, if any. */
       derivedFrom?: string;
     },
@@ -338,11 +334,7 @@ export function useJobs(): JobsController {
     async (
       workflow: WorkflowSummary,
       values: Record<string, ParamValue>,
-      options?: RunModes & {
-        lowVram?: boolean;
-        lora?: string;
-        derivedFrom?: string;
-      },
+      options?: RunModes & { lowVram?: boolean; derivedFrom?: string },
     ) => {
       const turbo = Boolean(options?.turbo);
       const asked = options?.patches ?? [];
@@ -359,7 +351,6 @@ export function useJobs(): JobsController {
             turbo,
             patches: asked,
             lowVram: Boolean(options?.lowVram),
-            lora: options?.lora,
           }),
         });
 
@@ -381,11 +372,6 @@ export function useJobs(): JobsController {
           prompt: String(values.prompt ?? ""),
           turbo,
           patches,
-          // What the server says it applied rather than what was asked for, on
-          // the same terms as the patches above: off turbo the choice is
-          // ignored, and a run recorded as having used a LoRA it never loaded
-          // would send someone back to compare two takes that were the same.
-          lora: response.lora,
           derivedFrom: options?.derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),

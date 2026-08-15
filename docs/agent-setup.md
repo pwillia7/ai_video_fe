@@ -145,7 +145,7 @@ rewrite step with an error that says nothing about models. If they hit that,
 have them change it to a model their key can use — once per file in
 `src/lib/workflows/`.
 
-**Eleven model files**, named literally in the graphs, plus one optional twelfth:
+**Eleven model files**, named literally in the graphs:
 
 | File | Directory | Needed by |
 | --- | --- | --- |
@@ -157,7 +157,6 @@ have them change it to a model their key can use — once per file in
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video workflows |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video workflows |
 | `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every video workflow) |
-| `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` | `models/loras/` | optional — only if someone picks it from the Turbo LoRA dropdown on the two reference workflows |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |

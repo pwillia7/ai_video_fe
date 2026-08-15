@@ -53,17 +53,6 @@ export interface Job {
    * way.
    */
   patches?: string[];
-  /**
-   * Which distilled LoRA turbo applied, by id, where the workflow offered a
-   * choice. Absent on a standard run, and on a workflow with one distillation.
-   *
-   * Recorded for a different reason from the two above: it is not about the
-   * estimate — two distillations at the same step count cost the same — it is
-   * that a take made with one of them cannot be repeated without knowing which.
-   * That is the whole point of being able to pick, and it is what **Reuse
-   * settings** puts back.
-   */
-  lora?: string;
   hasAudio: boolean;
   /**
    * Marked by the user as worth keeping. Purely an organising flag — it sorts
