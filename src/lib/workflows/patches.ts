@@ -1,5 +1,6 @@
 import type { ComfyGraph, ComfyNode } from "@/lib/comfy";
 import { spliceModel, type SpliceId } from "./model-chain";
+import type { ParamValue } from "./types";
 
 /**
  * A patch: one node put in the model's path, and a switch to put it there.
@@ -59,11 +60,38 @@ export interface PatchDef {
  * the same reason the graph is: they are server-side wiring the form has no use
  * for.
  */
-export type ClientPatch = Omit<PatchDef, "node" | "modelInput">;
+export type ClientPatch = Omit<PatchDef, "node" | "modelInput"> & {
+  /**
+   * The value of another control at which this switch is refused, and the line
+   * that says so — see `suppresses` on StepSampler, which is where the rule
+   * actually lives.
+   *
+   * Not written by hand on a patch, exactly like a param's `noteAt`:
+   * `toSummary` fills it in from whatever declares the rule, so the switch
+   * cannot claim something the queued graph does not do.
+   */
+  suppressedAt?: { param: string; value: ParamValue; note: string };
+};
 
 export function toClientPatch(patch: PatchDef): ClientPatch {
   const { node: _node, modelInput: _modelInput, ...rest } = patch;
   return rest;
+}
+
+/**
+ * Whether this switch is refused at these values — asked by the form, so the
+ * row can show as off rather than lying about a node the run will not have.
+ *
+ * The values passed have to be the ones that will actually run: a pinned
+ * control submits its pinned value and not what is stored under it. See
+ * `pinnedValues`.
+ */
+export function patchSuppressed(
+  patch: ClientPatch,
+  values: Record<string, ParamValue>,
+): boolean {
+  const rule = patch.suppressedAt;
+  return rule !== undefined && values[rule.param] === rule.value;
 }
 
 /** Splice the patch in, in place. Call it on a clone — `applyParams` does. */

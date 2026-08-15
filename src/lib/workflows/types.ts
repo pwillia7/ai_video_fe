@@ -406,8 +406,21 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
   return {
     ...rest,
     // Their nodes are withheld for the same reason as turbo's below: they are
-    // server-side wiring the form has no use for.
-    patches: (patches ?? []).map(toClientPatch),
+    // server-side wiring the form has no use for. What they gain is the rule
+    // that refuses them at a particular step count, copied off the same
+    // `stepSampler` the note below comes from — so the switch and the control
+    // that overrides it cannot describe different runs.
+    patches: (patches ?? []).map((patch) => {
+      const client = toClientPatch(patch);
+      if (stepSampler?.suppresses?.includes(patch.id)) {
+        client.suppressedAt = {
+          param: stepSampler.param,
+          value: stepSampler.atValue,
+          note: stepSampler.note,
+        };
+      }
+      return client;
+    }),
     // Withheld for the same reason as the graph: the node names a model file
     // that exists on the ComfyUI box and nowhere else.
     turbo: turbo
@@ -467,6 +480,27 @@ export function pinnedValue(
   return isSet(values[param.pinnedBy.whenSet])
     ? param.pinnedBy.value
     : undefined;
+}
+
+/**
+ * The submission as it will actually run: every pinned control at its pinned
+ * value, everything else as it was.
+ *
+ * What the form has to read before deciding anything downstream of a value —
+ * which switches a step count refuses, say — because a pinned control still
+ * *stores* whatever was under it. `applyParams` does the same thing on its way
+ * past, so the two agree by construction rather than by both remembering to.
+ */
+export function pinnedValues(
+  params: Array<Pick<ParamBase, "id" | "pinnedBy">>,
+  values: Record<string, ParamValue>,
+): Record<string, ParamValue> {
+  const resolved = { ...values };
+  for (const param of params) {
+    const pinned = pinnedValue(param, values);
+    if (pinned !== undefined) resolved[param.id] = pinned;
+  }
+  return resolved;
 }
 
 /**

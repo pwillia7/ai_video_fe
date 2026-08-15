@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { Disclosure } from "@/components/param-form";
 import { Toggle } from "@/components/ui/inputs";
-import type { ClientPatch } from "@/lib/workflows/patches";
+import { patchSuppressed, type ClientPatch } from "@/lib/workflows/patches";
 import type { ClientTurbo } from "@/lib/workflows/turbo";
+import type { ParamValue } from "@/lib/workflows/types";
 
 /**
  * Everything that changes how the model is run, behind one heading.
@@ -25,6 +26,7 @@ import type { ClientTurbo } from "@/lib/workflows/turbo";
 export function ModelOptions({
   patches,
   on,
+  values,
   onPatchChange,
   turbo,
   turboOn,
@@ -34,6 +36,12 @@ export function ModelOptions({
   patches: ClientPatch[];
   /** Ids of the patches currently switched on. */
   on: string[];
+  /**
+   * The form's values as they will actually run — pins applied, see
+   * `pinnedValues`. Read only to answer whether a step count is refusing one of
+   * these switches, which is a fact about the graph rather than about the form.
+   */
+  values: Record<string, ParamValue>;
   onPatchChange: (id: string, on: boolean) => void;
   /** Absent where the workflow has no turbo mode, which hides Low VRAM. */
   turbo?: ClientTurbo;
@@ -48,13 +56,21 @@ export function ModelOptions({
   const showLowVram = Boolean(turbo?.lowVram) && turboOn;
 
   const rows = [
-    ...patches.map((patch) => ({
-      key: patch.id,
-      label: patch.label,
-      help: patch.help,
-      checked: on.includes(patch.id),
-      onChange: (next: boolean) => onPatchChange(patch.id, next),
-    })),
+    ...patches.map((patch) => {
+      // The run will not have this node whatever the switch says, so the switch
+      // says so too: shown off, taking no input, with the rule underneath in
+      // place of the help. Its stored value is untouched and comes straight
+      // back when the control that refuses it moves.
+      const refused = patchSuppressed(patch, values);
+      return {
+        key: patch.id,
+        label: patch.label,
+        help: refused ? patch.suppressedAt!.note : patch.help,
+        checked: !refused && on.includes(patch.id),
+        refused,
+        onChange: (next: boolean) => onPatchChange(patch.id, next),
+      };
+    }),
     ...(showLowVram && turbo?.lowVram
       ? [
           {
@@ -62,6 +78,7 @@ export function ModelOptions({
             label: turbo.lowVram.label,
             help: turbo.lowVram.help,
             checked: lowVram,
+            refused: false,
             onChange: onLowVramChange,
           },
         ]
@@ -99,7 +116,9 @@ export function ModelOptions({
               <div className="flex items-center gap-3">
                 <label
                   htmlFor={`model-${row.key}`}
-                  className="text-[12px] font-medium text-fg"
+                  className={`text-[12px] font-medium ${
+                    row.refused ? "text-fg-subtle" : "text-fg"
+                  }`}
                 >
                   {row.label}
                 </label>
@@ -108,6 +127,7 @@ export function ModelOptions({
                     id={`model-${row.key}`}
                     checked={row.checked}
                     onChange={row.onChange}
+                    disabled={row.refused}
                     describedBy={`model-${row.key}-help`}
                   />
                 </div>

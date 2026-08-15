@@ -362,6 +362,7 @@ const PATCHES: Record<string, TipSection> = {
       "It is offered on every workflow, Remix included. Remix skips Turbo because it already samples at 8 steps, which is no argument here.",
       "Like Turbo, this needs a node pack the base workflows do not. If every run fails with the switch on and succeeds with it off, that is what to check — `pnpm check:nodes` names the pack.",
       "Forecast steps are approximations of computed ones. If a take comes out mushier than the same seed without it, that is the trade showing, and the switch is where to look first.",
+      "Reference to Video refuses it at 4 steps, and shows the switch as off there. That graph's four-step form is the pack's own — distilled sampler, bf16 weights, no forecaster — and a reference track pins the run to 4, so a track means no Spectrum. The switch keeps its setting and comes back the moment the step count does.",
     ],
   },
 };

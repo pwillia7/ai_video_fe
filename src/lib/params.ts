@@ -7,10 +7,12 @@ import {
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import type { RunModes } from "@/lib/workflows/modes";
 import { applyPatch, enabledPatches } from "@/lib/workflows/patches";
+import type { SpliceId } from "@/lib/workflows/model-chain";
 import {
   applyStepSampler,
   modelProblems,
   samplerNodeIn,
+  suppressedPatches,
 } from "@/lib/workflows/step-sampler";
 import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
 import {
@@ -175,6 +177,13 @@ export interface AppliedParams {
   graph: ComfyGraph;
   /** The values actually used, including any seed we generated. */
   resolved: Record<string, ParamValue>;
+  /**
+   * The switches this run actually got, which is what was asked for minus
+   * whatever the step count refuses. Reported rather than assumed so the run is
+   * recorded as what it was: the history names the modes a generation used, and
+   * the estimate is learned per combination of them.
+   */
+  patches: string[];
 }
 
 /**
@@ -209,6 +218,42 @@ export function applyParams(
   const graph = structuredClone(workflow.graph);
   const resolved: Record<string, ParamValue> = {};
 
+  // The steps control has a different range in turbo, so the range a value is
+  // checked against has to be the one the form was showing.
+  const params = turbo
+    ? turboParams(workflow.params, workflow.turbo)
+    : workflow.params;
+
+  // Coercion first, before anything touches the graph. Nothing here reads it,
+  // and one thing below needs the answers: which switches the run may have
+  // depends on the step count, which is a submitted value like any other.
+  //
+  // Then everything is coerced before anything is *written*, so a transform can
+  // read the whole submission and not merely its own value. The director's
+  // `system_prompt` is why: several controls contribute to it — the duration,
+  // and on the reference graph the per-reference facet selects — and each of
+  // them rebuilds the entire instruction from the same inputs. That is only
+  // safe if they all see the same complete values, which in a single pass they
+  // would not: what each could read would depend on where it sat in the params
+  // array, and the last one to run would win with a partial view.
+  for (const param of params) {
+    resolved[param.id] = coerce(
+      param,
+      submitted[param.id],
+      allowedValues ? allowedValues[param.id] : undefined,
+    );
+  }
+
+  // Before anything reads a value, because a pin is decided by another
+  // control's coerced value and every later reader — the splices below, the
+  // targets, the step sampler, `finalize`, and the record of the run that is
+  // stored afterwards — has to see the pinned number rather than the submitted
+  // one. See `pinnedBy`.
+  for (const param of params) {
+    const pinned = pinnedValue(param, resolved);
+    if (pinned !== undefined) resolved[param.id] = pinned;
+  }
+
   // Every splice runs before the values are written, so `finalize` sees the
   // graph that will actually be queued. Nothing targets the loader or any
   // spliced node in any case.
@@ -229,40 +274,17 @@ export function applyParams(
       throw new ParamError(`Workflow "${workflow.id}" has no "${id}" switch.`);
     }
   }
-  for (const patch of enabledPatches(workflow.patches, mode.patches)) {
+  // An unknown id is still an error above; a refused one is not. The step count
+  // decides which nodes this graph is run with, and a switch it does not take
+  // is left set and left out — see `suppresses`, and `patches` in the result,
+  // which is what the run is recorded as having used.
+  const refused = suppressedPatches(workflow.stepSampler, resolved);
+  const patches = enabledPatches(
+    workflow.patches,
+    (mode.patches ?? []).filter((id) => !refused.includes(id as SpliceId)),
+  );
+  for (const patch of patches) {
     applyPatch(graph, patch);
-  }
-
-  // The steps control has a different range in turbo, so the range a value is
-  // checked against has to be the one the form was showing.
-  const params = turbo
-    ? turboParams(workflow.params, workflow.turbo)
-    : workflow.params;
-
-  // Two passes. Everything is coerced before anything is written, so a
-  // transform can read the whole submission and not merely its own value.
-  //
-  // The director's `system_prompt` is why: several controls contribute to it —
-  // the duration, and on the reference graph the per-reference facet selects —
-  // and each of them rebuilds the entire instruction from the same inputs. That
-  // is only safe if they all see the same complete values, which in a single
-  // pass they would not: what each could read would depend on where it sat in
-  // the params array, and the last one to run would win with a partial view.
-  for (const param of params) {
-    resolved[param.id] = coerce(
-      param,
-      submitted[param.id],
-      allowedValues ? allowedValues[param.id] : undefined,
-    );
-  }
-
-  // Between the two passes, because a pin is decided by another control's
-  // coerced value and every later reader — the targets below, the step sampler,
-  // `finalize`, and the record of the run that is stored afterwards — has to see
-  // the pinned number rather than the submitted one. See `pinnedBy`.
-  for (const param of params) {
-    const pinned = pinnedValue(param, resolved);
-    if (pinned !== undefined) resolved[param.id] = pinned;
   }
 
   for (const param of params) {
@@ -308,7 +330,7 @@ export function applyParams(
     applyBypass(graph, workflow.directorBypass);
   }
 
-  return { graph, resolved };
+  return { graph, resolved, patches: patches.map((patch) => patch.id) };
 }
 
 /**
@@ -433,6 +455,17 @@ function stepSamplerProblems(workflow: WorkflowDef): string[] {
   const problems: string[] = [];
 
   problems.push(...modelProblems(spec, workflow.graph));
+
+  // A refused switch this workflow does not offer would refuse nothing, and the
+  // form would say nothing either — `suppressedAt` lands on the patch it names,
+  // so a name that matches none of them silently goes nowhere.
+  for (const id of spec.suppresses ?? []) {
+    if (!workflow.patches?.some((patch) => patch.id === id)) {
+      problems.push(
+        `The ${spec.atValue}-step form refuses the "${id}" switch, which this workflow does not offer.`,
+      );
+    }
+  }
 
   if (!samplerNodeIn(workflow.graph, spec)) {
     const found = Object.values(workflow.graph).filter(

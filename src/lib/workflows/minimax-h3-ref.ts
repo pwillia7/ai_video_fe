@@ -473,7 +473,19 @@ export const minimaxH3Reference: WorkflowDef = {
   patches: h3Patches(),
   stepSampler: h3StepSampler({
     models: FOUR_STEP_MODELS,
-    note: "It also loads the bf16 diffusion model and text encoder, which are the pair that takes a reference track.",
+    /**
+     * Spectrum forecasts sampler steps from the ones already taken, and at four
+     * steps there is nothing to forecast from worth having: the ComfyUI export
+     * that produced a working four-step take with a reference track has no
+     * Spectrum node in it. So the four-step form of this graph is the whole of
+     * that export — distilled sampler, bf16 weights, no forecaster — and the
+     * switch is refused rather than quietly left on.
+     *
+     * Which also settles the reference-track case, without a second rule for
+     * it: a track pins the steps to 4, and this keys off the pinned value.
+     */
+    suppresses: ["spectrum"],
+    note: "It also loads the bf16 diffusion model and text encoder — the pair that takes a reference track — and leaves Spectrum out, which the four-step form does not use.",
   }),
 
   /**

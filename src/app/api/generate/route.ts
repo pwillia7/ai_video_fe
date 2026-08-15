@@ -74,7 +74,10 @@ export async function POST(request: Request) {
       }),
     );
 
-    const { graph, resolved } = applyParams(
+    // `applied` is what the run actually got: the step count can refuse a
+    // switch that was asked for, and the answer has to reach the client or the
+    // history would name a mode the graph did not have. See `suppresses`.
+    const { graph, resolved, patches: applied } = applyParams(
       workflow,
       body.params ?? {},
       allowedValues,
@@ -89,12 +92,13 @@ export async function POST(request: Request) {
       queueNumber: result.number,
       clientId,
       resolved,
+      patches: applied,
       // Only ever a starting point: the client replaces it with this machine's
       // own median for this workflow and these modes as soon as it has one, so
       // the fact that neither number describes both switches at once costs a
       // rough progress bar on the first run in a combination and nothing after.
       estimatedSeconds:
-        enabledPatches(workflow.patches, patches)
+        enabledPatches(workflow.patches, applied)
           .map((patch) => patch.estimatedSeconds)
           .findLast((seconds) => seconds !== undefined) ??
         (turbo ? workflow.turbo?.estimatedSeconds : undefined) ??

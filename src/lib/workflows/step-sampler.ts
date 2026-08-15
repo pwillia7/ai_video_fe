@@ -1,4 +1,5 @@
 import type { ComfyGraph, ComfyNode } from "@/lib/comfy";
+import type { SpliceId } from "./model-chain";
 import type { ParamValue } from "./types";
 
 /**
@@ -55,6 +56,20 @@ export interface StepSampler {
    */
   models?: StepModel[];
   /**
+   * Switches this step count refuses, by patch id.
+   *
+   * Same principle as the sampler and the weights: at this count the graph is
+   * the node pack's own four-step form, and that form does not include them. A
+   * switch left on here would be a node spliced into a chain it was never part
+   * of, on a run the user cannot tell apart from one that was.
+   *
+   * Refused rather than turned off — the switch keeps whatever it was set to,
+   * and comes back the moment the step count moves. The form says so on the
+   * switch itself, from `suppressedAt` on the client patch, so nothing is
+   * dropped quietly.
+   */
+  suppresses?: SpliceId[];
+  /**
    * The line the form shows under that control while the swap is in effect.
    *
    * Here rather than on the param so it cannot drift from the rule that
@@ -92,6 +107,18 @@ export function stepSamplerApplies(
   values: Record<string, ParamValue>,
 ): boolean {
   return Number(values[spec.param]) === spec.atValue;
+}
+
+/**
+ * The switches this step count will not take, at these values. Empty at every
+ * other count, and empty for a graph that refuses none.
+ */
+export function suppressedPatches(
+  spec: StepSampler | undefined,
+  values: Record<string, ParamValue>,
+): SpliceId[] {
+  if (!spec || !stepSamplerApplies(spec, values)) return [];
+  return spec.suppresses ?? [];
 }
 
 /**

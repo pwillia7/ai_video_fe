@@ -537,6 +537,23 @@ export they came from does. The order lives in `SPLICE_ORDER` in
 to be applied, because any other arrangement would fail nothing and quietly
 sample something none of the nodes was meant to produce.
 
+**Reference to Video refuses Spectrum at 4 steps.** That graph's four-step form
+is the ComfyUI export that actually works there — distilled sampler, bf16
+weights, no forecaster — so the switch is left out of the run rather than
+spliced into a chain it was never part of. It is refused, not turned off: the
+setting is kept, the switch shows as off with the reason under it, and it comes
+back the moment the step count moves. A reference track pins the steps to 4, so
+a track means no Spectrum without a second rule saying so. The declaration is
+`suppresses` on that workflow's `stepSampler`, beside the sampler swap and the
+model swap it belongs with, and `check:workflows` rejects a name the workflow
+does not offer.
+
+That is also why `applyParams` coerces before it splices, and why the response
+reports the patches a run actually got: the history names the modes a generation
+used and the estimate is learned per combination of them, so recording a switch
+the graph did not have would put the run in the wrong bucket and name a node
+that was never there.
+
 Unlike Turbo, neither patch retunes a control or declares a time estimate. What
 they cost is a fact about your machine, and the progress bar learns it from your
 own history — which counts each combination of switches separately, so a
@@ -978,7 +995,10 @@ past it. Removing the track hands the control back with that number still in it.
 
 Leave **Turbo** on for those runs. Four steps swaps the sampler but not the
 distilled LoRA, which is a switch of its own, and four steps without it is not a
-usable take — see the note under the control.
+usable take — see the note under the control. **Spectrum** goes the other way:
+this graph refuses it at four steps, so a run with a track never has the
+forecaster in it. That is `suppresses` on the same `stepSampler`, and the switch
+shows as off with the reason under it rather than being silently dropped.
 
 Three further things are deliberately *not* true of it:
 

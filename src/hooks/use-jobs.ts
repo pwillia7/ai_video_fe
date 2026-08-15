@@ -53,6 +53,8 @@ interface GenerateResponse {
   promptId: string;
   queueNumber: number;
   resolved: Record<string, ParamValue>;
+  /** The switches the run actually got, which can be fewer than were asked for. */
+  patches?: string[];
   estimatedSeconds: number | null;
 }
 
@@ -331,7 +333,7 @@ export function useJobs(): JobsController {
       options?: RunModes & { lowVram?: boolean; derivedFrom?: string },
     ) => {
       const turbo = Boolean(options?.turbo);
-      const patches = options?.patches ?? [];
+      const asked = options?.patches ?? [];
       setSubmitting(true);
       setSubmitError(null);
       setSubmitErrorField(null);
@@ -343,10 +345,15 @@ export function useJobs(): JobsController {
             workflowId: workflow.id,
             params: values,
             turbo,
-            patches,
+            patches: asked,
             lowVram: Boolean(options?.lowVram),
           }),
         });
+
+        // What the run got rather than what was asked for: a step count can
+        // refuse a switch, and recording the request would put this generation
+        // in the wrong bucket for the estimate and name a mode it did not use.
+        const patches = response.patches ?? asked;
 
         const job: Job = {
           promptId: response.promptId,

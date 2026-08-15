@@ -19,6 +19,7 @@ import { tipsFor } from "@/lib/workflows/tips";
 import { TokenGate } from "@/components/token-gate";
 import { ModelOptions } from "@/components/model-options";
 import { TurboSwitch } from "@/components/turbo-switch";
+import { patchSuppressed } from "@/lib/workflows/patches";
 import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { WorkflowPicker } from "@/components/workflow-picker";
@@ -43,6 +44,7 @@ import { effectiveWorkflow } from "@/lib/workflows/turbo";
 import {
   CLIP_ACTIONS,
   defaultValuesFor,
+  pinnedValues,
   type ClipAction,
   type ParamValue,
   type WorkflowSummary,
@@ -263,6 +265,35 @@ function Workbench({
   );
 
   const values = valuesByWorkflow[selectedId] ?? {};
+
+  /**
+   * The same values as the server will resolve them: a pinned control submits
+   * its pinned value rather than whatever is stored under it, and anything
+   * deciding what the run *is* — which switches its step count refuses — has to
+   * read that number and not the stored one. See `pinnedValues`.
+   */
+  const runValues = useMemo(
+    () => (selected ? pinnedValues(selected.params, values) : values),
+    [selected, values],
+  );
+
+  /**
+   * The modes as this run would actually have them, for everywhere a run is
+   * *named* — the panel hint and the history entry. A switch the step count
+   * refuses is still on and still remembered, but it is not part of what this
+   * generation is, and naming it there would be the one place the app said so.
+   * `modes` is what gets submitted, and stays what was asked for.
+   */
+  const runModes = useMemo(
+    () => ({
+      turbo: turboOn,
+      patches: patchesOn.filter((id) => {
+        const patch = selected?.patches.find((candidate) => candidate.id === id);
+        return !patch || !patchSuppressed(patch, runValues);
+      }),
+    }),
+    [turboOn, patchesOn, selected, runValues],
+  );
 
   /**
    * Switching mode moves the steps range under a value that was valid in the
@@ -726,7 +757,7 @@ function Workbench({
               >
                 <PanelHeader
                   title="Settings"
-                  hint={workflowLabel(selected.name, modes, selected.patches)}
+                  hint={workflowLabel(selected.name, runModes, selected.patches)}
                   action={
                     <div className="flex shrink-0 items-center gap-2">
                       {tips ? (
@@ -765,6 +796,7 @@ function Workbench({
                 <ModelOptions
                   patches={selected.patches}
                   on={patchesOn}
+                  values={runValues}
                   onPatchChange={setPatch}
                   turbo={selected.turbo}
                   turboOn={turboOn}
@@ -941,7 +973,7 @@ function Workbench({
         <TipsModal
           open={tipsOpen}
           onClose={() => setTipsOpen(false)}
-          title={workflowLabel(selected.name, modes, selected.patches)}
+          title={workflowLabel(selected.name, runModes, selected.patches)}
           tips={tips}
         />
       ) : null}

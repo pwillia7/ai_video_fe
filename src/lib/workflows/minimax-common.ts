@@ -1,4 +1,5 @@
 import type { DirectorBypass } from "./director";
+import type { SpliceId } from "./model-chain";
 import type { PatchDef } from "./patches";
 import type { StepModel, StepSampler } from "./step-sampler";
 import type { TurboSpec } from "./turbo";
@@ -364,6 +365,7 @@ export function h3Turbo(
  */
 export function h3StepSampler({
   models,
+  suppresses,
   note = "",
 }: {
   /**
@@ -371,6 +373,12 @@ export function h3StepSampler({
    * on StepSampler. Only Reference to Video has any.
    */
   models?: StepModel[];
+  /**
+   * Switches this graph will not take at four steps — see `suppresses`. Only
+   * Reference to Video refuses any; the rule is about that graph's four-step
+   * form rather than about four steps in general, so it is not shared here.
+   */
+  suppresses?: SpliceId[];
   /** Appended to the shared note, for a graph that swaps more than the sampler. */
   note?: string;
 } = {}): StepSampler {
@@ -385,6 +393,7 @@ export function h3StepSampler({
       _meta: { title: "MiniMax-H3 Turbo Sampler (4-step)" },
     },
     models,
+    suppresses,
     note:
       "At 4, the pack's dedicated 4-step sampler replaces the default one." +
       (note ? ` ${note}` : ""),
