@@ -211,9 +211,16 @@ It needs nothing new installed: `wave` is stdlib, and `torchaudio` is already a
 hard dependency of ComfyUI itself. Two caveats worth knowing before you spend an
 afternoon on it:
 
-- **The model has to accept audio input.** On OpenAI that is an audio-capable
-  model; ask a text-only one for `input_audio` and you get a 400 back at the
-  rewrite step.
+- **`gpt-5.6-terra` does not accept audio, so the patch alone gets you a 400.**
+  Checked against OpenAI's model pages in August 2026: the model every graph
+  here requests is text and image in, text out. The chat-completions audio path
+  is `gpt-audio`, which takes text and audio — and no images. Nothing in the
+  lineup takes text, image *and* audio at once, and the `gpt-realtime` family
+  speaks a WebSocket API this node cannot.
+- **Which means one call cannot both see the pictures and hear the track.** The
+  shape that works is a second completion on an audio-capable model, given the
+  track alone, writing a description that feeds the main director as text — the
+  same trick the music graph plays with node 47 reading node 46's caption.
 - **Nothing in this app wires it yet.** The patch makes the input exist; sending
   the reference track to the director is a change to the graph *and* to what the
   director is told, since `referenceTrack` currently instructs it that it has

@@ -137,8 +137,11 @@ completion node takes text and images only. `docs/comfyui-openai-api-audio.patch
 in this repo adds an optional `audio` input (mono 16 kHz WAV, trimmed to 30s by
 default, sent as an `input_audio` content part) — apply it from the pack's
 directory with `patch -p1`. Do not offer it as part of setup: nothing in the app
-wires audio into a director yet, the model has to be one that accepts audio
-input, and like the key patch above a pack update overwrites it.
+wires audio into a director yet, and like the key patch above a pack update
+overwrites it. Nor does the stock model take audio — as of August 2026
+`gpt-5.6-terra` is text and image in, and OpenAI's chat-completions audio model
+`gpt-audio` takes no images, so no single call can be shown the reference
+pictures and the reference track both.
 
 **Not using an LLM at all?** Every workflow has a **Send my prompt as written**
 switch beside its prompt box, which queues a graph with no OpenAI node in it —
