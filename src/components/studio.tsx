@@ -30,10 +30,12 @@ import { api, ApiError, getToken } from "@/lib/client";
 import {
   clampValues,
   hydrateAll,
+  hydrateLoras,
   hydratePatches,
   hydrateTurbo,
   mergeWithDefaults,
   readStoredLowVram,
+  writeStoredLoras,
   writeStoredLowVram,
   writeStoredParams,
   writeStoredPatches,
@@ -182,6 +184,7 @@ function Workbench({
     return {
       turbo,
       patches: hydratePatches(workflows),
+      loras: hydrateLoras(workflows),
       values: hydrateAll(workflows, turbo),
     };
   });
@@ -196,6 +199,14 @@ function Workbench({
    * one boolean where this is a list.
    */
   const [patchesByWorkflow, setPatchesByWorkflow] = useState(initial.patches);
+
+  /**
+   * Which distilled LoRA turbo applies, per workflow. Kept apart from the two
+   * above for the same reason they are kept apart from each other: it is one id
+   * where those are a boolean and a list, and only the graphs with more than one
+   * distillation to choose from ever have an entry.
+   */
+  const [lorasByWorkflow, setLorasByWorkflow] = useState(initial.loras);
 
   /**
    * Turbo's low-VRAM path, for every workflow at once — it answers a question
@@ -222,6 +233,10 @@ function Workbench({
   useEffect(() => {
     writeStoredPatches(patchesByWorkflow);
   }, [patchesByWorkflow]);
+
+  useEffect(() => {
+    writeStoredLoras(lorasByWorkflow);
+  }, [lorasByWorkflow]);
 
   useEffect(() => {
     writeStoredLowVram(lowVram);
@@ -619,6 +634,7 @@ function Workbench({
     void jobs.submit(selected, values, {
       ...modes,
       lowVram,
+      lora: lorasByWorkflow[selectedId],
       // Only meaningful on the workflow the clip was actually loaded into, and
       // only for the hand-off that put it there.
       derivedFrom:
@@ -637,7 +653,7 @@ function Workbench({
         stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
     }
-  }, [selected, values, jobs, clipSource, modes, lowVram]);
+  }, [selected, values, jobs, clipSource, modes, lowVram, lorasByWorkflow, selectedId]);
 
   // Cmd/Ctrl+Enter from anywhere fires the run. Held in a ref so the listener
   // is attached once rather than on every keystroke in the prompt box.
@@ -802,6 +818,13 @@ function Workbench({
                   turboOn={turboOn}
                   lowVram={lowVram}
                   onLowVramChange={setLowVram}
+                  lora={lorasByWorkflow[selectedId]}
+                  onLoraChange={(id) =>
+                    setLorasByWorkflow((previous) => ({
+                      ...previous,
+                      [selectedId]: id,
+                    }))
+                  }
                 />
 
                 {clipNotice &&

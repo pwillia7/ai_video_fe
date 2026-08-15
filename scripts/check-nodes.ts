@@ -87,10 +87,24 @@ function collect() {
       { label: workflow.id, graph: workflow.graph },
     ];
     if (workflow.turbo) {
-      graphs.push({
-        label: `${workflow.id} (turbo)`,
-        graph: turboGraph(workflow.graph, workflow.turbo),
-      });
+      // Once per LoRA on offer, not once for the mode. A workflow with a choice
+      // of distillation names a second file that no graph on disk mentions, and
+      // an alternative nobody has downloaded is a dropdown entry that fails a
+      // render — which is exactly the kind of thing this script exists to find
+      // before the render does.
+      const loras = workflow.turbo.loras?.options ?? [];
+      if (loras.length === 0) {
+        graphs.push({
+          label: `${workflow.id} (turbo)`,
+          graph: turboGraph(workflow.graph, workflow.turbo),
+        });
+      }
+      for (const lora of loras) {
+        graphs.push({
+          label: `${workflow.id} (turbo: ${lora.id})`,
+          graph: turboGraph(workflow.graph, workflow.turbo, lora),
+        });
+      }
     }
     for (const patch of workflow.patches ?? []) {
       graphs.push({

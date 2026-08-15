@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Disclosure } from "@/components/param-form";
-import { Toggle } from "@/components/ui/inputs";
+import { Select, Toggle } from "@/components/ui/inputs";
 import { patchSuppressed, type ClientPatch } from "@/lib/workflows/patches";
 import type { ClientTurbo } from "@/lib/workflows/turbo";
 import type { ParamValue } from "@/lib/workflows/types";
@@ -32,6 +32,8 @@ export function ModelOptions({
   turboOn,
   lowVram,
   onLowVramChange,
+  lora,
+  onLoraChange,
 }: {
   patches: ClientPatch[];
   /** Ids of the patches currently switched on. */
@@ -48,12 +50,24 @@ export function ModelOptions({
   turboOn: boolean;
   lowVram: boolean;
   onLowVramChange: (lowVram: boolean) => void;
+  /** Which distilled LoRA this workflow runs, by id. */
+  lora: string | undefined;
+  onLoraChange: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
 
   // Low VRAM is only meaningful in turbo: off, there is no LoRA node in the
   // graph for it to say anything about.
   const showLowVram = Boolean(turbo?.lowVram) && turboOn;
+
+  /**
+   * Which LoRA, on the same terms and for the same reason: off, there is no
+   * node to load one. Only where a workflow declares more than one — the three
+   * `fl2va` graphs have a single distillation that belongs on them, and a
+   * dropdown with one entry is a question with one answer.
+   */
+  const loras = turboOn && (turbo?.loras?.length ?? 0) > 1 ? turbo!.loras! : [];
+  const chosen = loras.find((option) => option.id === lora) ?? loras[0];
 
   const rows = [
     ...patches.map((patch) => {
@@ -85,9 +99,15 @@ export function ModelOptions({
       : []),
   ];
 
-  if (rows.length === 0) return null;
+  if (rows.length === 0 && loras.length === 0) return null;
 
-  const enabled = rows.filter((row) => row.checked).map((row) => row.label);
+  const enabled = [
+    ...rows.filter((row) => row.checked).map((row) => row.label),
+    // Only when it is not the one the graph would have loaded anyway. The
+    // summary is here so a shut section cannot hide a setting that matters, and
+    // the default is the setting that does not.
+    ...(chosen && chosen !== loras[0] ? [chosen.label] : []),
+  ];
 
   return (
     <div className="mb-6 rounded-lg border border-border-default bg-bg-subtle">
@@ -108,6 +128,38 @@ export function ModelOptions({
 
       {open ? (
         <div className="border-t border-border-default">
+          {/* Above the switches: it is the only one of these that changes what
+              the model *is* rather than how it is run, and the help under it is
+              where the trade-off between the two files is stated. */}
+          {loras.length > 0 && chosen ? (
+            <div className="border-b border-border-default p-3">
+              <label
+                htmlFor="model-lora"
+                className="text-[12px] font-medium text-fg"
+              >
+                Turbo LoRA
+              </label>
+              <div className="mt-2">
+                <Select
+                  id="model-lora"
+                  value={chosen.id}
+                  onChange={onLoraChange}
+                  options={loras.map((option) => ({
+                    value: option.id,
+                    label: option.label,
+                  }))}
+                  describedBy="model-lora-help"
+                />
+              </div>
+              <p
+                id="model-lora-help"
+                className="mt-2 text-[12px] leading-relaxed text-fg-muted"
+              >
+                {chosen.help}
+              </p>
+            </div>
+          ) : null}
+
           {rows.map((row) => (
             <div
               key={row.key}

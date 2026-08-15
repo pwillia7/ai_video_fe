@@ -346,6 +346,48 @@ export function clipDurationParam(director: ParamTarget): ParamDef {
  * with the switch off and every workflow fails with it on. `pnpm check:nodes`
  * checks the turbo graphs too, so it catches this before a render does.
  */
+/**
+ * The general H3 distillation, and the one made for the reference model.
+ *
+ * Only the two `ref2va` graphs have a choice to make. The LoRA every workflow
+ * here has always used is distilled against `fl2va`; its author calls `ref2va`
+ * "not yet but planned" and there are reports under that thread of identity
+ * reference degrading when it is applied anyway, which is why the README tells
+ * you to compare a take. A distillation aimed at `ref2va` is the obvious answer
+ * to that, and it is a file rather than a code change — so the choice belongs to
+ * whoever has both files, next to the switch that applies them.
+ *
+ * The general one stays the default because it is the one this app has actually
+ * been run on. Nothing here has generated a frame with the other, and shipping a
+ * default nobody has tested would be worse than offering a switch.
+ *
+ * `requiresModel` is per option and narrower than the spec's: the ref2v
+ * distillation belongs on `ref2va` and nowhere else, so offering it from a
+ * `fl2va` graph is a mistake `check:workflows` can catch rather than something
+ * to remember.
+ */
+export function h3RefLoras(): TurboSpec["loras"] {
+  return {
+    input: "lora_name",
+    options: [
+      {
+        id: "h3-turbo-v4",
+        label: "H3 Turbo v4 (general)",
+        file: "minimax_h3_turbo_v4_step600_ema.safetensors",
+        help: "The distillation every workflow here uses. Trained against the fl2va model rather than this graph's, so it works but is not officially supported on it.",
+        requiresModel: ["minimax_h3_fl2va", "minimax_h3_ref2va"],
+      },
+      {
+        id: "ref2v-4step",
+        label: "Ref2V 4-step v0.1",
+        file: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+        help: "Distilled for the reference model this graph runs, at 4 steps. A separate download, and untested here — compare a take against the general one before trusting it.",
+        requiresModel: ["minimax_h3_ref2va"],
+      },
+    ],
+  };
+}
+
 export function h3Turbo(
   /**
    * Scaled from the base graph's estimate rather than measured: the same work
@@ -357,6 +399,13 @@ export function h3Turbo(
   estimatedSeconds: number,
   /** Where in the 4–8 range this graph starts. */
   steps = 8,
+  /**
+   * The LoRAs this graph offers a choice of, where there is one worth making.
+   * Absent leaves the node's own file and shows no control — which is right for
+   * the `fl2va` graphs, where the general distillation is the only one that
+   * belongs.
+   */
+  loras?: TurboSpec["loras"],
 ): TurboSpec {
   return {
     node: {
@@ -395,6 +444,9 @@ export function h3Turbo(
       label: "Low VRAM",
       help: "Applies the LoRA the memory-sparing way the node pack offers. Slower, and only worth it if a turbo run dies out of memory on this card.",
     },
+    // Only where a graph has more than one distillation to pick from. The
+    // node's `lora_name` above is the default, and has to be one of them.
+    loras,
     estimatedSeconds,
     /**
      * On unless someone turns it off. The distilled LoRA is how these graphs

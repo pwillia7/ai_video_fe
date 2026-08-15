@@ -8,6 +8,7 @@ import {
   clipDurationParam,
   h3Bf16Models,
   h3Patches,
+  h3RefLoras,
   h3StepSampler,
   h3Turbo,
   literalPromptParam,
@@ -371,7 +372,7 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * be faster would mispace the progress bar until the first finished run
    * replaced it with this machine's own median.
    */
-  turbo: h3Turbo(480),
+  turbo: h3Turbo(480, 8, h3RefLoras()),
   /**
    * The patches do apply, though, and for the reason turbo does not: they
    * change how a step is arrived at rather than how many there are, so a low

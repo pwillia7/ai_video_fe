@@ -202,7 +202,8 @@ case the stock `api_key: "-"` is correct and you can skip the patch above.
 
 ### Models
 
-Eleven files, named literally in the graphs. Get the seven H3 ones from ComfyUI's
+Eleven files, named literally in the graphs, plus an optional twelfth. Get the
+seven H3 ones from ComfyUI's
 [MiniMax H3 tutorial](https://docs.comfy.org/tutorials/video/minimax/minimax-h3),
 which is also the current word on what the model needs from your GPU. The turbo
 LoRA comes from its own pack, and the three Music 3 files from
@@ -218,6 +219,7 @@ LoRA comes from its own pack, and the three Music 3 files from
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video graphs |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video graphs |
 | [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow |
+| `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` | `models/loras/` | optional — the **Turbo LoRA** dropdown's second entry on reference to video and Remix |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |
@@ -482,6 +484,32 @@ is rather than how many there are. Its turbo estimate is therefore the base
 graph's own 480 seconds rather than something scaled down — a mode claiming to
 be faster would only mispace the progress bar until the first finished run
 replaced it with that machine's median.
+
+**Which LoRA, on the two `ref2va` graphs.** The distillation this app has always
+used is trained against `fl2va`, and there is one aimed at the reference model
+instead — so on reference to video and Remix the **Turbo LoRA** dropdown under
+**Model** picks between them, and on the three `fl2va` graphs there is no
+dropdown, because a choice with one answer is not one.
+
+It is a mode rather than a param, for the same reason Low VRAM is: the input it
+writes belongs to a node that does not exist until the splice happens. The
+browser is given ids, labels and help — never the filenames, which stay on the
+server with the graph — and a run says which one it wants by id. An id the
+workflow does not offer is refused rather than falling back to the default,
+because "which LoRA made this take" is the question the control exists to let
+someone answer. It is remembered per workflow, unlike Low VRAM, since what it
+answers is which distillation suits *this graph's model*.
+
+`check:workflows` holds the list honest at both ends: each entry carries its own
+`requiresModel`, so offering the `ref2va` one from an `fl2va` graph fails a check
+rather than a render, and the file the node loads by default has to be one of the
+entries or the form would open showing a choice the graph would not make.
+`check:nodes` asks ComfyUI about every entry rather than only the default, so an
+alternative nobody has downloaded is reported before it is picked.
+
+The general one stays the default because it is the one this app has actually
+been run on — nothing here has generated a frame with the other, and a default
+nobody has tested would be worse than a switch.
 
 **Low VRAM** is the node pack's own memory-sparing way of applying the LoRA,
 passed straight through as the `low_vram` input on the node that gets spliced

@@ -350,6 +350,7 @@ const TURBO: TipSection = {
     "Steps stop at 8 here rather than 60. Past that the LoRA is being asked for something it was not distilled to do, and the extra time buys nothing.",
     "4 is the fastest useful setting — good for iterating on a prompt. Come back up to 8 for the take you intend to keep.",
     "At exactly 4, the graph swaps in the pack's dedicated 4-step sampler in place of the usual one. Nothing to turn on: the steps control decides it, and the note under that control says so while it is in effect. It comes from the same pack as the LoRA.",
+    "Turbo LoRA, under Model, picks which distillation is applied — but only on Reference to Video and Remix, the two that run the reference model. The general H3 one is the default and is what this app has been run on; the ref2v one is a separate download aimed at that model. Compare a take before switching for good, and remember the choice is per workflow.",
     "This is the one thing in the app that needs a node pack and a model file the base workflows do not. If every run fails with the switch on and succeeds with it off, that is what to check.",
     "Low VRAM, under the switch, applies the LoRA the memory-sparing way the pack offers. It is slower and changes nothing about the video, so leave it off unless a turbo run dies out of memory. It stays where you set it for every workflow, since it is your card it is about.",
   ],

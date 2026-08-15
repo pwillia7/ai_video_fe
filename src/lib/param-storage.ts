@@ -41,6 +41,16 @@ const DEFAULTS_VERSION = 2;
 const TURBO_KEY = `sorant-turbo-v${DEFAULTS_VERSION}`;
 const PATCHES_KEY = `sorant-patches-v${DEFAULTS_VERSION}`;
 /**
+ * Which distilled LoRA turbo applies, per workflow — a third key for the same
+ * reason there are two above: it is one id per workflow rather than a boolean or
+ * a list.
+ *
+ * Per workflow rather than once for the app, unlike Low VRAM. What it answers is
+ * which distillation suits the *model this graph runs*, and the two H3 UNETs
+ * here do not have the same answer.
+ */
+const LORA_KEY = `sorant-loras-v${DEFAULTS_VERSION}`;
+/**
  * Whether turbo's low-VRAM path is on. One boolean for the whole app rather
  * than one per workflow, because what it answers is "will this card hold the
  * LoRA the fast way", which is the same answer on every graph.
@@ -133,6 +143,34 @@ export function hydratePatches(workflows: WorkflowSummary[]): StoredPatches {
       .map((patch) => patch.id);
   }
   return patches;
+}
+
+/** Which turbo LoRA each workflow uses, by id. */
+export type StoredLoras = Record<string, string>;
+
+export const writeStoredLoras = (loras: StoredLoras) => write(LORA_KEY, loras);
+
+/**
+ * The stored LoRA choice per workflow, keeping only workflows that still offer
+ * a choice and ids they still offer.
+ *
+ * An id that has since been removed — or renamed, which is the same thing here —
+ * would otherwise be sent on the next run and refused by the server over an
+ * option the form never showed. The first option stands in, because a workflow
+ * declaring the list puts the node's own default first.
+ */
+export function hydrateLoras(workflows: WorkflowSummary[]): StoredLoras {
+  const stored = read<string>(LORA_KEY);
+  const loras: StoredLoras = {};
+  for (const workflow of workflows) {
+    const offered = workflow.turbo?.loras;
+    if (!offered?.length) continue;
+    const saved = stored[workflow.id];
+    loras[workflow.id] = offered.some((lora) => lora.id === saved)
+      ? saved
+      : offered[0].id;
+  }
+  return loras;
 }
 
 export type StoredParams = Record<string, Record<string, ParamValue>>;

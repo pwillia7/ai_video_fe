@@ -75,6 +75,8 @@ export interface JobsController {
     options?: RunModes & {
       /** Apply the turbo LoRA the memory-sparing way. Nothing without turbo. */
       lowVram?: boolean;
+      /** Which of the offered LoRAs to apply, by id. Nothing without turbo. */
+      lora?: string;
       /** The generation whose clip this one was made from, if any. */
       derivedFrom?: string;
     },
@@ -334,7 +336,11 @@ export function useJobs(): JobsController {
     async (
       workflow: WorkflowSummary,
       values: Record<string, ParamValue>,
-      options?: RunModes & { lowVram?: boolean; derivedFrom?: string },
+      options?: RunModes & {
+        lowVram?: boolean;
+        lora?: string;
+        derivedFrom?: string;
+      },
     ) => {
       const turbo = Boolean(options?.turbo);
       const asked = options?.patches ?? [];
@@ -351,6 +357,7 @@ export function useJobs(): JobsController {
             turbo,
             patches: asked,
             lowVram: Boolean(options?.lowVram),
+            lora: options?.lora,
           }),
         });
 

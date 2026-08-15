@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       params?: Record<string, unknown>;
       turbo?: boolean;
       lowVram?: boolean;
+      lora?: string;
       patches?: string[];
     };
 
@@ -52,6 +53,10 @@ export async function POST(request: Request) {
     // LoRA node, which a standard run never splices in, so there is nothing
     // for it to be wrong about.
     const lowVram = turbo && body.lowVram === true;
+    // Ignored off turbo on the same terms, and checked against what the
+    // workflow offers by `applyParams` rather than here — an unknown id is a
+    // refusal, not a fallback.
+    const lora = turbo && typeof body.lora === "string" ? body.lora : undefined;
 
     const problems = validateWorkflow(workflow);
     if (problems.length > 0) {
@@ -81,7 +86,7 @@ export async function POST(request: Request) {
       workflow,
       body.params ?? {},
       allowedValues,
-      { turbo, lowVram, patches },
+      { turbo, lowVram, lora, patches },
     );
 
     const clientId = crypto.randomUUID();

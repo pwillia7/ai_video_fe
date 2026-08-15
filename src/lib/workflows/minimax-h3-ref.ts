@@ -12,6 +12,7 @@ import {
   TRACK_WORDS,
   h3Bf16Models,
   h3Patches,
+  h3RefLoras,
   h3StepSampler,
   h3Turbo,
   leadingReferences,
@@ -668,7 +669,7 @@ export const minimaxH3Reference: WorkflowDef = {
    * 220s is scaled from this graph's own 300s rather than measured; the first
    * finished turbo run on a machine replaces it with that machine's median.
    */
-  turbo: h3Turbo(220),
+  turbo: h3Turbo(220, 8, h3RefLoras()),
 
   patches: h3Patches(),
   stepSampler: h3StepSampler({
