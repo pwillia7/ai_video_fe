@@ -183,6 +183,9 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
           "How much changes follows how much you ask for. A costume note touches the costume; “turn this into claymation” or “set this underwater” is licensed to re-render nearly everything while the performance, staging and timing survive. Ask small for small.",
           "Sound moves with the world. Change the weather, the room or the medium and the soundtrack follows — but the words spoken, the voices speaking them and the music stay put unless you say otherwise.",
           "It will not invent replacement dialogue just because someone is speaking. The clip's own audio supplies the words unless you ask for different ones.",
+          "But it has not heard them, and neither has anything else here — so it carries the speech over without quoting it, and the model regenerates a soundtrack from a description that never contained the words. Words in the clip is where you type them, and it is what stops a remix coming back saying something else.",
+          "They are copied in verbatim, section tags kept out of anyone's mouth, and the rule about writing [unclear] rather than guessing stops applying to anything you have typed. Ask for different words in the prompt and yours still win — what you typed is then what is being replaced.",
+          "The words are appended to your prompt rather than folded into the rewrite, so they reach the model with Send my prompt as written on too.",
           "It is shown five frames sampled evenly across the clip, so it can write about what is actually there. Those frames are for the director only — the model itself works from the clip — and it refers to the source as <Video 1> and <Audio 1>.",
           LITERAL_NOTE,
         ],
@@ -192,6 +195,14 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         items: [
           "Both are measured off the clip: its frames give the width and height, and how many of them there are gives the length. A remix comes back the same shape and the same length as what went in.",
           "So there is no aspect ratio, frame size or duration control here, and no frame rate either — that is fixed at the 24fps the model works in, on every workflow.",
+        ],
+      },
+      {
+        heading: "Steps, and what four of them means",
+        items: [
+          "Eight is where this ships, and it is lower than the generating workflows on purpose: a remix holds to a source rather than inventing from noise, so it converges sooner.",
+          "At 4 the graph becomes the node pack's own four-step form — its dedicated four-step sampler, the bf16 diffusion model and text encoder in place of the quantised pair, and no Spectrum. That is the same swap Reference to Video makes, for the same reason: it runs the same ref2va model through the same reference node.",
+          "There is no Turbo switch here, so four steps runs that sampler without the distilled LoRA it was built to pair with. Eight is the honest setting on this workflow until there is one.",
         ],
       },
       {

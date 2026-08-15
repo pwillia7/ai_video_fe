@@ -212,9 +212,9 @@ LoRA comes from its own pack, and the three Music 3 files from
 | --- | --- | --- |
 | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | text/image to video, Extend |
 | `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/` | reference to video, Remix |
-| `minimax_h3_ref2va_bf16.safetensors` | `models/diffusion_models/` | reference to video at 4 steps |
+| `minimax_h3_ref2va_bf16.safetensors` | `models/diffusion_models/` | reference to video and Remix, at 4 steps |
 | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | `models/text_encoders/` | the five video graphs |
-| `qwen3vl_32b_minimax_h3_bf16.safetensors` | `models/text_encoders/` | reference to video at 4 steps |
+| `qwen3vl_32b_minimax_h3_bf16.safetensors` | `models/text_encoders/` | reference to video and Remix, at 4 steps |
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video graphs |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video graphs |
 | [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow but Remix |
@@ -472,6 +472,14 @@ digits and 60 there is not a slower-but-better setting.
 at 8 already, the top of the LoRA's range, so turbo there would spend quality
 per step and save no time.
 
+That argument covers the workflow as it ships and not the whole of its steps
+control. Move it to 4 and you get the pack's four-step form — distilled sampler,
+bf16 weights, no Spectrum — with no distilled LoRA under it, and four steps
+without one is not a usable take. Adding `h3Turbo` to that workflow is what
+would finish that end of the range. It is left off rather than switched on
+quietly because the shared spec defaults to *on*, and that would change what
+every ordinary remix is without anyone having asked.
+
 **Low VRAM** is the node pack's own memory-sparing way of applying the LoRA,
 passed straight through as the `low_vram` input on the node that gets spliced
 in. It is off by default and slower; turn it on if a turbo run dies out of
@@ -542,16 +550,27 @@ export they came from does. The order lives in `SPLICE_ORDER` in
 to be applied, because any other arrangement would fail nothing and quietly
 sample something none of the nodes was meant to produce.
 
-**Reference to Video refuses Spectrum at 4 steps.** That graph's four-step form
-is the ComfyUI export that actually works there — distilled sampler, bf16
-weights, no forecaster — so the switch is left out of the run rather than
-spliced into a chain it was never part of. It is refused, not turned off: the
-setting is kept, the switch shows as off with the reason under it, and it comes
-back the moment the step count moves. A reference track pins the steps to 4, so
-a track means no Spectrum without a second rule saying so. The declaration is
-`suppresses` on that workflow's `stepSampler`, beside the sampler swap and the
+**The two `ref2va` graphs refuse Spectrum at 4 steps.** That four-step form is
+the ComfyUI export that actually works — distilled sampler, bf16 weights, no
+forecaster — so the switch is left out of the run rather than spliced into a
+chain it was never part of. It is refused, not turned off: the setting is kept,
+the switch shows as off with the reason under it, and it comes back the moment
+the step count moves. On Reference to Video a reference track pins the steps to
+4, so a track means no Spectrum without a second rule saying so. The declaration
+is `suppresses` on the workflow's `stepSampler`, beside the sampler swap and the
 model swap it belongs with, and `check:workflows` rejects a name the workflow
 does not offer.
+
+Remix carries the same declaration, and got it later than Reference to Video
+did. It is the same model — `minimax_h3_ref2va` through
+`MiniMaxH3ReferenceToVideo`, handed a reference to work over — so its four-step
+form is the same form, and running the quantised pair under the distilled
+sampler there was an accident of which graph the swap happened to be worked out
+on. What did **not** carry across is the pin: Reference to Video holds the steps
+at 4 while a track is attached because the quantised pair failed on one, while
+Remix has audio on every run and ships at 8 with those weights — which is
+evidence they take a clip's audio perfectly well. Pinning it there would fix a
+problem that workflow does not have, at the cost of every remix it makes.
 
 **There is no sigma-shift node here, and that is the same as running the
 model's own.** ComfyUI's `MiniMaxH3SigmaShift` — shown in the node menu as
@@ -661,6 +680,9 @@ thing going wrong rather than to tidy the output:
   `[unclear]` for what you cannot make out, never to guess, so without the
   escape the only available move was to invent a plausible line. A guessed line
   is not a preserved line; it is a new one, spoken in place of what was there.
+  **Words in the clip** is the way out of that trade rather than a change to the
+  rule: for anything typed there the words are known, so they are quoted and no
+  `[unclear]` is written; for everything else the rule stands exactly as it was.
 - **A voice inside reused music is not a speaker.** Verbal content that exists
   only within a reused soundtrack cites `<Audio 1>` and gets no `(Sx)`. Remix
   reuses the whole track, so a lyric or a broadcast under the scene was exactly
@@ -910,6 +932,22 @@ or duration controls, and that is the point rather than an omission: every one
 of those is a consequence of the clip, so a picker would imply a choice that
 does not exist. What stays editable is what the clip cannot decide: the prompt
 and the sampling settings.
+
+**Words in the clip** is the one addition, and it is not a second input to the
+graph — it writes nothing the clip does not already fill. The audio at 153 is a
+recording H3 is being asked to work over, and nothing on this side can hear it:
+the director is shown five frames and no sound, and the model regenerates a
+soundtrack from a description that never contained the words. `REMIX_DIRECTOR`
+handles that honestly, by telling the director to carry the speech over *without
+quoting it* and to write `[unclear]` rather than guess — which preserves nothing
+at the point where the soundtrack is re-rendered. Typing the words out is what
+removes the premise. They go into the prompt and into the director's brief
+through `wordsBlocks`, exactly as Reference to Video's attached track does, and
+the block for a clip carries an extra paragraph naming the rule it lifts: the
+words may now be quoted, `[unclear]` no longer applies to anything typed, and
+speaker IDs still follow this director's own rule — a person producing the voice
+gets one, a lyric inside reused music is `<Audio 1>` being audible and gets
+none.
 
 A clip can arrive two ways — the Remix button, or an upload. Uploads are held
 to **768×1344, 20 seconds and 4 MB** (`video-upload.tsx`). The size and length

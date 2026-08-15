@@ -1,6 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { ParamError } from "@/lib/params";
-import type { StepModel } from "./step-sampler";
 import { hideDirectorOnly } from "./director";
 import type { ParamDef, ParamPin, ParamValue, WorkflowDef } from "./types";
 import {
@@ -10,6 +9,8 @@ import {
   directorTarget,
   durationParam,
   REFERENCE_DIRECTOR,
+  TRACK_WORDS,
+  h3Bf16Models,
   h3Patches,
   h3StepSampler,
   h3Turbo,
@@ -18,11 +19,11 @@ import {
   promptParam,
   promptTarget,
   referenceFacets,
-  referenceLyrics,
-  referenceLyricsText,
   referenceSlot,
   referenceTrack,
   samplingParams,
+  wordsBlocks,
+  wordsParam,
   type MinimaxNodeIds,
 } from "./minimax-common";
 
@@ -111,23 +112,13 @@ const trackAttached = (values: Record<string, ParamValue>): boolean =>
  * text encoder take the same references, together, at four steps, which is
  * where the fence went and why there is no longer one.
  *
- * Only this graph swaps. The other H3 graphs run `fl2va` and have never had the
- * failure, so pointing them at weights nobody here has tested would be a change
- * with no evidence behind it — and one more pair of files a fresh install has
- * to download.
+ * The graphs on `fl2va` do not swap. They have never had the failure, so
+ * pointing them at weights nobody here has tested would be a change with no
+ * evidence behind it — and one more pair of files a fresh install has to
+ * download. Remix runs the same `ref2va` UNET through the same node class and
+ * does swap; see `h3Bf16Models`, which is where the pair now lives.
  */
-const FOUR_STEP_MODELS: StepModel[] = [
-  {
-    node: "127",
-    input: "unet_name",
-    value: "minimax_h3_ref2va_bf16.safetensors",
-  },
-  {
-    node: "128",
-    input: "clip_name",
-    value: "qwen3vl_32b_minimax_h3_bf16.safetensors",
-  },
-];
+const FOUR_STEP_MODELS = h3Bf16Models({ unet: "127", clip: "128" });
 
 /**
  * A reference track holds the step count at four, which is the only step count
@@ -452,10 +443,21 @@ const graph: ComfyGraph = {
  * The appendix is told how many slots this graph wires; it reads the submitted
  * values to find out how many actually have an image in them.
  */
+/**
+ * The words of the attached track, in the prompt and in the director's brief.
+ * One declaration for both, so the block the director is told to look for is
+ * the one the prompt actually carries.
+ */
+const words = wordsBlocks({
+  sourceParam: AUDIO_PARAM,
+  wordsParam: LYRICS_PARAM,
+  source: TRACK_WORDS,
+});
+
 const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   referenceFacets(REF_NODES.length),
   referenceTrack(AUDIO_PARAM),
-  referenceLyrics(AUDIO_PARAM, LYRICS_PARAM),
+  words.director,
 ]);
 
 /**
@@ -466,9 +468,7 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
  * see `promptTarget`. One target object, shared by both, so the two cannot
  * disagree about what they are writing.
  */
-const promptText = promptTarget(ids, [
-  referenceLyricsText(AUDIO_PARAM, LYRICS_PARAM),
-]);
+const promptText = promptTarget(ids, [words.prompt]);
 
 const bypass = directorBypassFor(ids);
 
@@ -576,14 +576,9 @@ const params: ParamDef[] = [
       { node: TRIM_NODE, input: "duration", transform: (_value, values) => trimSeconds(values) },
     ],
   },
-  {
+  wordsParam({
     id: LYRICS_PARAM,
     label: "Words in the track",
-    type: "textarea",
-    rows: 8,
-    default: "",
-    placeholder: "[Verse]\nthe words as they are sung",
-    maxLength: 6000,
     help: "Optional, and the single biggest thing you can do for a run with a track. Nothing here can hear the file, so without this the model writes its own words over yours. Section tags are read as structure, not sung.",
     group: "References",
     // Only a question about a track that is there. What was typed is kept and
@@ -594,10 +589,10 @@ const params: ParamDef[] = [
       // reason it is a prompt target and not only a director one.
       promptText,
       // And the director is told what the block at the end of that prompt is,
-      // and what to do with it. See referenceLyrics.
+      // and what to do with it. See wordsBlocks.
       director,
     ],
-  },
+  }),
   {
     id: "ref_image_size",
     label: "Reference handling",

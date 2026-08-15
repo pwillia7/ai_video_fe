@@ -431,6 +431,40 @@ export function h3Turbo(
  * no loss in practice, since a four-step run without the LoRA is not a usable
  * take either way.
  */
+/**
+ * The weights the `ref2va` graphs load at four steps, in place of the quantised
+ * pair their stored graphs name.
+ *
+ * The evidence is in minimax-h3-ref.ts, where the swap was worked out: the
+ * quantised pair failed on a reference track and pictures together, the bf16
+ * pair takes them, and the ComfyUI export that produced a working four-step take
+ * loads exactly these two files. It is shared because the fact is about the
+ * model rather than about that graph — both `ref2va` workflows here run the same
+ * UNET through the same node class — and because two copies of a pair of
+ * filenames is two chances to update one of them.
+ *
+ * The loader ids are passed rather than assumed. Both graphs happen to number
+ * them 127 and 128, and a coincidence between two exports is not something to
+ * build on silently: a re-export that renumbered one would otherwise point this
+ * at whatever now held the old id.
+ */
+export function h3Bf16Models({
+  unet,
+  clip,
+}: {
+  unet: string;
+  clip: string;
+}): StepModel[] {
+  return [
+    { node: unet, input: "unet_name", value: "minimax_h3_ref2va_bf16.safetensors" },
+    {
+      node: clip,
+      input: "clip_name",
+      value: "qwen3vl_32b_minimax_h3_bf16.safetensors",
+    },
+  ];
+}
+
 export function h3StepSampler({
   models,
   suppresses,
@@ -789,79 +823,135 @@ What is on screen is where your attention belongs. Nothing about the attached tr
   };
 }
 
-/** The heading the words are appended under, named in both places that use it. */
-const LYRICS_HEADING = "THE WORDS IN THE REFERENCE TRACK";
-
 /**
- * The words performed in an attached track, as the user typed them out.
+ * Where the audio the model is being handed came from, in the words the two
+ * blocks below use to talk about it.
  *
- * Only when there is a track to have words: the control that holds them is
- * revealed by the track, but a value someone typed and then removed the track
- * from is still in the submission, and a lyric sheet for a song this run is not
- * being given is words the model would perform over silence.
+ * Two graphs give H3 a piece of audio to work over and neither can hear it: one
+ * takes a track the user attached, the other takes the soundtrack of the clip it
+ * is remixing. Everything about what to do with the words is identical; what
+ * differs is only what to call the thing they came out of, and naming it in one
+ * place is what stops a graph telling the director about a track it was never
+ * given.
  */
-function trackLyrics(
-  values: Record<string, ParamValue>,
-  trackParam: string,
-  lyricsParam: string,
-): string {
-  if (!String(values[trackParam] ?? "").trim()) return "";
-  return String(values[lyricsParam] ?? "").trim();
+export interface WordsSource {
+  /** The heading the words are appended under. Both blocks name it. */
+  heading: string;
+  /** How the source is referred to in prose — "the attached track". */
+  phrase: string;
+  /** What the user typed out, named — "its lyrics, or its script". */
+  what: string;
+  /**
+   * What this changes about the director's own standing instructions, for a
+   * director that has one this contradicts.
+   *
+   * Appended near the end of the block rather than left to position. An
+   * appendix already lands after the director and would win an argument on
+   * order alone, but a system prompt that plainly says two things and relies on
+   * the second one being lower down is a worse instruction than one that says
+   * which rule moved and why.
+   */
+  reconciles?: string;
 }
 
+export const TRACK_WORDS: WordsSource = {
+  heading: "THE WORDS IN THE REFERENCE TRACK",
+  phrase: "the attached track",
+  what: "its lyrics, or its script",
+};
+
+export const CLIP_WORDS: WordsSource = {
+  heading: "THE WORDS IN THE SOURCE CLIP",
+  phrase: "the source clip",
+  what: "what is sung or spoken in it",
+  /**
+   * REMIX_DIRECTOR tells the director to carry the source's speech over without
+   * quoting it, and to write [unclear] rather than guess at a span it does not
+   * know. Both of those exist because it has not heard the clip — which is true
+   * of the sound and no longer true of the words.
+   */
+  reconciles: `This lifts one rule above and leaves the rest standing. "You have not heard the source, so preserving its dialogue almost never means quoting it" was written for a director that had not been told the words. You have been. So write them out rather than leaving them to <Audio 1>, and write no [unclear] spans for anything covered here — quoting the source's speech and preserving it are not in tension when the quote is exact, which is the whole reason the user typed it.
+
+Speaker IDs are the exception to the paragraph before this one, and this director's own rule wins: someone on screen who actually produces the voice gets an (Sx); a voice that is only <Audio 1> being audible — a lyric inside reused music, a broadcast under the scene — is cited as <Audio 1> and gets no ID at all.`,
+};
+
 /**
- * The words themselves, appended to the prompt the video model reads.
+ * The words the model's audio has to agree with, in the two places they go.
  *
- * They go here rather than only into the director's instructions because this
- * is the one path that survives **Send my prompt as written**: with the rewrite
- * off there is no director to carry them, and the model would be handed a
- * reference track it has to sing over with no idea what the words are. The
- * director gets them the same way — its brief is this text — and
- * `referenceLyrics` below is what tells it what to do with them.
- *
- * Verbatim, under a heading, and nothing else done to them. Wrapping them in
- * `<d>` tags here would be this app inventing a language tag it has not been
- * told, which the grammar is explicit that the text has to agree with.
+ * Returned as a pair rather than built separately because they are two halves of
+ * one thing: the text goes in the prompt, and the block that tells the director
+ * what that text is names the same heading. Built apart, a graph could append
+ * the words under one heading and point the director at another — which reads
+ * fine in both files and leaves the director looking for something that is not
+ * there.
  */
-export function referenceLyricsText(
-  trackParam: string,
-  lyricsParam: string,
-): PromptAppendix {
-  return (values) => {
-    const lyrics = trackLyrics(values, trackParam, lyricsParam);
-    if (!lyrics) return "";
+export function wordsBlocks({
+  sourceParam,
+  wordsParam,
+  source,
+}: {
+  /** The control holding the audio. No audio, no words — see `words` below. */
+  sourceParam: string;
+  /** The control holding what the user typed out. */
+  wordsParam: string;
+  source: WordsSource;
+}): { prompt: PromptAppendix; director: DirectorAppendix } {
+  /**
+   * Only when there is audio to have words. The control that holds them is
+   * revealed by the source, but a value someone typed and then removed the
+   * source from is still in the submission, and a lyric sheet for audio this run
+   * is not being given is words the model would perform over silence.
+   */
+  const words = (values: Record<string, ParamValue>): string => {
+    if (!String(values[sourceParam] ?? "").trim()) return "";
+    return String(values[wordsParam] ?? "").trim();
+  };
 
-    return `${LYRICS_HEADING}
+  return {
+    /**
+     * The words themselves, appended to the prompt the video model reads.
+     *
+     * They go here rather than only into the director's instructions because
+     * this is the one path that survives **Send my prompt as written**: with the
+     * rewrite off there is no director to carry them, and the model would be
+     * handed audio it has to sing over with no idea what the words are. The
+     * director gets them the same way — its brief is this text — and the block
+     * below is what tells it what to do with them.
+     *
+     * Verbatim, under a heading, and nothing else done to them. Wrapping them in
+     * `<d>` tags here would be this app inventing a language tag it has not been
+     * told, which the grammar is explicit that the text has to agree with.
+     */
+    prompt: (values) => {
+      const lyrics = words(values);
+      if (!lyrics) return "";
 
-These words are performed in the attached track, in this order:
+      return `${source.heading}
+
+These words are performed in ${source.phrase}, in this order:
 
 ${lyrics}`;
-  };
-}
+    },
 
-/**
- * What to do with those words, for the director.
- *
- * `referenceTrack` says the director has not heard the track and must not
- * invent a score for it. This is the other half: it has not heard the track, but
- * it has been told what is *said* in it, and that is the one thing about the
- * audio it can state exactly. The model is generating a soundtrack over a
- * reference it was handed — asked to do that with no words, it invents its own,
- * and what comes back is a vocal that does not match the record.
- *
- * The rules here are all about not paraphrasing. Every one of them is a way the
- * output stops matching the track it is supposed to sit under.
- */
-export function referenceLyrics(
-  trackParam: string,
-  lyricsParam: string,
-): DirectorAppendix {
-  return (values) => {
-    if (!trackLyrics(values, trackParam, lyricsParam)) return "";
+    /**
+     * What to do with them, for the director.
+     *
+     * The director has not heard the audio — it is shown pictures and nothing
+     * else — but it has been told what is *said* in it, and that is the one
+     * thing about the sound it can state exactly. The model generates a
+     * soundtrack over the reference it was handed; asked to do that with no
+     * words, it invents its own, and what comes back is a vocal that does not
+     * match the recording.
+     *
+     * The rules are all about not paraphrasing. Every one of them is a way the
+     * output stops agreeing with the audio it is supposed to sit under.
+     */
+    director: (values) => {
+      if (!words(values)) return "";
 
-    return `THE WORDS OF THE TRACK ARE KNOWN
+      return `THE WORDS OF THE AUDIO ARE KNOWN
 
-The user has typed out what is performed in the attached track — its lyrics, or its script — and those words are at the end of their prompt under ${LYRICS_HEADING}. You still have not heard the track. What you have is the text of it, and it is exact.
+The user has typed out what is performed in ${source.phrase} — ${source.what} — and those words are at the end of their prompt under ${source.heading}. You still have not heard it. What you have is the text of it, and it is exact.
 
 Put those words into detailed_description as what is performed, inside <d> tags, with the language tag that matches the language they are actually written in. Copy them character for character. Do not translate, paraphrase, correct, tidy, complete or extend them, and do not write a single word of your own for this performance: the model is being handed the recording and the words at the same time, and text that disagrees with the recording asks it for two different vocals at once.
 
@@ -871,7 +961,53 @@ Use only as many of the words as fit the length of this video, in the order they
 
 Give the performance a speaker ID like any other voice. If someone on screen is singing or speaking them, that is who carries them, and the performance belongs in the action as well as in the tag — mouth, breath, effort, timing. If nobody on screen is performing, the words are still heard: write them as an off-screen vocal rather than dropping them.
 
+Where the user's own text asks for different words, theirs win: they are changing the line, and what is written here is what they are changing it from.
+${source.reconciles ? `\n${source.reconciles}\n` : ""}
 None of this makes the video about the words. What is on screen is still the user's prompt and the references — this settles what is heard over it.`;
+    },
+  };
+}
+
+/**
+ * The control the words are typed into.
+ *
+ * Shared because the two graphs that have audio to describe want the same box —
+ * the same generous limit, the same eight rows, the same tagged placeholder — and
+ * differ only in what to call the audio it belongs to.
+ *
+ * 6000 characters is the music workflow's own lyrics limit, so a sheet written
+ * there fits here without being trimmed at the boundary between two of this
+ * app's own controls.
+ */
+export function wordsParam({
+  id,
+  label,
+  help,
+  group,
+  revealedBy,
+  targets,
+}: {
+  id: string;
+  label: string;
+  help: string;
+  /** Whichever section the audio it describes is in — it belongs beside it. */
+  group: string;
+  /** The control holding the audio: no audio, nothing to have words. */
+  revealedBy: string;
+  targets: ParamTarget[];
+}): ParamDef {
+  return {
+    id,
+    label,
+    type: "textarea",
+    rows: 8,
+    default: "",
+    placeholder: "[Verse]\nthe words as they are sung",
+    maxLength: 6000,
+    help,
+    group,
+    revealedBy,
+    targets,
   };
 }
 

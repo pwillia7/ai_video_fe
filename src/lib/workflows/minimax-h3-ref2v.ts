@@ -2,15 +2,20 @@ import type { ComfyGraph } from "@/lib/comfy";
 import { hideDirectorOnly } from "./director";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
+  CLIP_WORDS,
   directorBypassFor,
   directorTarget,
   clipDurationParam,
+  h3Bf16Models,
   h3Patches,
   h3StepSampler,
   literalPromptParam,
   promptParam,
+  promptTarget,
   REMIX_DIRECTOR,
   samplingParams,
+  wordsBlocks,
+  wordsParam,
   type MinimaxNodeIds,
 } from "./minimax-common";
 
@@ -32,9 +37,17 @@ import {
  *   back the same shape and the same length as what went in, and there is
  *   neither a ResolutionSelector nor a duration node in this graph.
  *
- * So the clip is the one input the form offers. The reference audio and the
- * output size are consequences of it rather than choices, and controls for
- * them would misrepresent what this graph does. It can be filled either by the
+ * So the clip is the one input the form offers, with one exception: **Words in
+ * the clip**. That is not a second input to the graph — it writes no node the
+ * clip does not already fill — but the audio at 153 is a recording H3 is asked
+ * to work over, and nothing on this side can hear it. Typing the words out is
+ * the only way they reach either the director or the model. Same control, same
+ * two blocks and the same reasoning as Reference to Video's attached track;
+ * see `wordsBlocks`.
+ *
+ * Otherwise the reference audio and the output size are consequences of the clip
+ * rather than choices, and controls for them would misrepresent what this graph
+ * does. It can be filled either by the
  * Remix button (`clipTarget` below) or by an upload — see video-upload.tsx
  * for the limits that keeps within, which matter more here than elsewhere
  * because the clip decides what gets generated.
@@ -47,6 +60,8 @@ const ids: Omit<MinimaxNodeIds, "duration"> = {
 };
 
 const VIDEO_NODE = "154";
+const VIDEO_PARAM = "reference_video";
+const WORDS_PARAM = "clip_words";
 
 const graph: ComfyGraph = {
   "92": {
@@ -252,13 +267,30 @@ const graph: ComfyGraph = {
  * graph so that adding a second contributor is a matter of passing this along
  * rather than of noticing that it needed to be.
  */
-const director = directorTarget(ids, REMIX_DIRECTOR);
+/**
+ * The words heard in the source clip, in the prompt and in the director's brief.
+ *
+ * The clip's own audio is wired straight into `ref_audios.ref_audio_0`, so this
+ * graph hands H3 a recording to work over exactly as Reference to Video does
+ * with an attached track — and nothing here can hear either of them. Same
+ * problem, same pair of blocks, different noun for where the sound came from.
+ */
+const words = wordsBlocks({
+  sourceParam: VIDEO_PARAM,
+  wordsParam: WORDS_PARAM,
+  source: CLIP_WORDS,
+});
+
+const director = directorTarget(ids, REMIX_DIRECTOR, [words.director]);
+
+/** Written by the prompt and by the words below. See `promptTarget`. */
+const promptText = promptTarget(ids, [words.prompt]);
 
 const bypass = directorBypassFor(ids);
 
 const params: ParamDef[] = [
   {
-    id: "reference_video",
+    id: VIDEO_PARAM,
     label: "Clip to remix",
     type: "video",
     default: "",
@@ -275,11 +307,22 @@ const params: ParamDef[] = [
   // prompt director. See clipDurationParam for why it exists at all.
   clipDurationParam(director),
 
+  wordsParam({
+    id: WORDS_PARAM,
+    label: "Words in the clip",
+    help: "Optional. What is said or sung in the clip's own audio. Nothing here can hear it, so without this the model writes its own words over the ones already there.",
+    // Beside the clip they belong to rather than in a section of their own.
+    group: "Source",
+    revealedBy: VIDEO_PARAM,
+    targets: [promptText, director],
+  }),
+
   promptParam(
     ids,
     "Make it snow, and dress the man in a heavy winter coat.",
     "Say only what should change. Everything you leave out is held to the clip.",
     6,
+    promptText,
   ),
   literalPromptParam(),
 
@@ -308,8 +351,15 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * No `turbo` here, though the model would now allow it — see minimax-h3-ref,
    * which runs the same `ref2va` UNET and does carry the switch. This graph
    * already samples at 8, the top of the LoRA's range, so turning it on would
-   * buy no time at all and spend quality per step for the privilege. Add
-   * `h3Turbo` here if that ever stops being true.
+   * buy no time at all and spend quality per step for the privilege.
+   *
+   * That argument covers the graph as it ships and not the whole of the steps
+   * control. Anyone who moves it to 4 now gets the pack's four-step form —
+   * distilled sampler, bf16 weights, no Spectrum — with no distilled LoRA under
+   * it, and four steps without one is not a usable take. Adding `h3Turbo` here
+   * is what would finish that end of the range; it is left off rather than
+   * turned on quietly because the shared spec defaults to *on*, and that would
+   * change what every ordinary remix is without anyone asking for it.
    */
   /**
    * The patches do apply, though, and for the reason turbo does not: they
@@ -317,7 +367,33 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * step count is no argument against either of them.
    */
   patches: h3Patches(),
-  stepSampler: h3StepSampler(),
+  /**
+   * The same four-step form as Reference to Video, because it is the same model
+   * under the same node class: `minimax_h3_ref2va` through
+   * `MiniMaxH3ReferenceToVideo`, given a reference to work over — pictures and a
+   * track there, a clip and its audio here.
+   *
+   * So at four steps this graph is the pack's four-step form and nothing else:
+   * the distilled sampler, the bf16 diffusion model and text encoder in place of
+   * the quantised pair, and no Spectrum. The evidence for each is in
+   * minimax-h3-ref.ts, where it was worked out; carried across on the strength
+   * of the model rather than of a failure seen here, which is the honest account
+   * — nothing has run *this* graph at four steps on the quantised pair to find
+   * out whether it breaks the same way. If it turns out to run fine on them,
+   * that is an argument for dropping the swap here, not for having guessed.
+   *
+   * What is *not* carried across is the pin. On Reference to Video a track holds
+   * the steps at four, because the bf16 pair is loaded only there and the
+   * quantised one failed on a track. This graph has audio on every run and ships
+   * at eight steps, which is evidence the quantised pair takes a clip's audio
+   * perfectly well — so pinning it here would fix a problem this workflow does
+   * not have, at the cost of every remix it makes.
+   */
+  stepSampler: h3StepSampler({
+    models: h3Bf16Models({ unet: "127", clip: "128" }),
+    suppresses: ["spectrum"],
+    note: "It also loads the bf16 diffusion model and text encoder, and leaves Spectrum out, which the four-step form does not use.",
+  }),
   /**
    * The prompt is the one thing the clip cannot supply, so it comes across
    * from the generation being remixed. See ClipTarget for what deliberately
