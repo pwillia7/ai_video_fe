@@ -1806,6 +1806,41 @@ on a public endpoint. Two things it does not fix:
 `APP_ACCESS_TOKEN` protects *this app*; `COMFY_API_TOKEN` protects ComfyUI. They
 are independent, and ComfyUI stays directly reachable regardless of the former.
 
+## Branding and icons
+
+The mark is a film frame with the play triangle entering from the left and
+perforations punched out of the right edge. It ships as artwork rather than as
+code to improve: the same geometry is in `src/components/sorant-logo.tsx`, in
+`src/app/icon.svg`, and in the PNG app icons, and none of those can be
+regenerated from the others.
+
+**The wordmark is live Geist text**, not a picture of one — so it stays
+selectable and stays the page's `<h1>`. The apostrophe is the one piece of
+colour in the header, on the same `--accent` token everything else signals with.
+
+The mark's three blues are fixed on both themes. Its play triangle is the
+exception and takes `currentColor`: at `text-fg` that is near-black on light and
+near-white on dark, which is what lets one component serve both without a second
+copy to keep in step.
+
+Everything else is a Next file convention, discovered by filename with no
+declaration anywhere:
+
+| File | What it becomes |
+| --- | --- |
+| `src/app/favicon.ico` | the tab icon, 16/32/48/64 |
+| `src/app/icon.svg` | the modern tab icon, any size |
+| `src/app/apple-icon.png` | the iOS home-screen icon, 180×180 |
+| `src/app/opengraph-image.png` | the link preview, 1200×630 |
+| `src/app/manifest.webmanifest` | the installable-app manifest |
+| `public/icons/*` | the 192, 512 and maskable icons the manifest names |
+
+The one thing that is declared is `metadataBase` in `src/app/layout.tsx`, because
+an Open Graph URL has to be absolute and this repo cannot know the domain it
+will be deployed to. `siteUrl` in `src/lib/env.ts` reads Vercel's own
+`VERCEL_PROJECT_PRODUCTION_URL`, falls back to the per-deployment `VERCEL_URL`,
+and then to localhost — which is what `next dev` wants anyway.
+
 ## Scripts
 
 | Command | |

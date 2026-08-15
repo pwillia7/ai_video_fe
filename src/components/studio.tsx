@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { WorkflowPicker } from "@/components/workflow-picker";
 import { GenerationsPanel } from "@/components/generations-panel";
+import { SorantMark } from "@/components/sorant-logo";
 import { useJobs } from "@/hooks/use-jobs";
 import { isActive, type Job } from "@/lib/jobs";
 import { api, ApiError, getToken } from "@/lib/client";
@@ -671,16 +672,14 @@ function Workbench({
           bg-bg/80 backdrop-blur-md"
       >
         <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-2 px-4 sm:gap-3 sm:px-5">
-          <span
-            aria-hidden="true"
-            className="grid size-6 shrink-0 place-items-center rounded bg-fg text-bg"
-          >
-            <svg viewBox="0 0 16 16" className="size-3" fill="currentColor">
-              <path d="M5 3.5v9l7-4.5-7-4.5Z" />
-            </svg>
-          </span>
+          {/* Decorative: the h1 beside it says the name, and a mark that
+              announced it too would have a screen reader read it twice. */}
+          <SorantMark aria-hidden="true" className="size-7 shrink-0 text-fg" />
           <h1 className="text-[13px] font-medium tracking-[-0.01em] text-fg">
-            Soran’t
+            {/* Live text rather than the drawn wordmark, so it stays Geist and
+                stays selectable. The apostrophe carries the accent — the one
+                piece of colour in the header, and the thing the name turns on. */}
+            Soran<span className="text-accent">’</span>t
           </h1>
           {/* Secondary label: the first thing to go when space is tight. */}
           <span className="hidden text-[13px] text-fg-subtle sm:inline">

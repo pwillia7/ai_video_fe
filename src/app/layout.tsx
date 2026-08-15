@@ -1,11 +1,23 @@
 import type { Metadata, Viewport } from "next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
+import { siteUrl } from "@/lib/env";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Soran’t",
   description: "Generate video on a local ComfyUI instance.",
+  /*
+    What the Open Graph image's URL is resolved against. The image itself is
+    `opengraph-image.png` beside this file, which Next finds on its own — but an
+    OG URL has to be absolute, and without this it resolves to localhost on
+    every build, warning as it goes. See `siteUrl`, which reads the deployment
+    rather than naming a domain this repo cannot know.
+
+    The icons are not here for the same reason: `favicon.ico`, `icon.svg` and
+    `apple-icon.png` are found by filename and need no declaration.
+  */
+  metadataBase: siteUrl(),
 };
 
 export const viewport: Viewport = {

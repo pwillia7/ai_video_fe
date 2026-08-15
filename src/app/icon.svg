@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Soran’t">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0A0A0A"/>
+  <g transform="translate(3 3) scale(.90625)">
+    
+      <defs></defs>
+      <!-- rear translucent 'open door' / second frame -->
+      <path d="M21 13 L36 17 V47 L21 51 Q18 50 18 46 V18 Q18 14 21 13Z"
+            fill="#6E9CFF" opacity="0.72"/>
+      <!-- middle overlap -->
+      <path d="M26 11.5 L39 15.5 V48.5 L26 52.5 Q23 51.5 23 47.5V16.5Q23 12.5 26 11.5Z"
+            fill="#4D82FF" opacity="0.78"/>
+      <!-- film frame -->
+      <path d="M34 10 H50 Q56 10 56 16 V48 Q56 54 50 54 H34 Q28 54 28 48 V16 Q28 10 34 10Z"
+            fill="#2F6BFF" />
+      
+          <rect x="47" y="17" width="6" height="7" rx="2" fill="#0A0A0A"/>
+          <rect x="47" y="28.5" width="6" height="7" rx="2" fill="#0A0A0A"/>
+          <rect x="47" y="40" width="6" height="7" rx="2" fill="#0A0A0A"/>
+        
+      <!-- play -->
+      <path d="M11 20.5 Q11 18.2 13 19.45 L35.5 30.6 Q38.2 32 35.5 33.4 L13 44.55 Q11 45.8 11 43.5Z"
+            fill="#FFFFFF"/>
+    
+  </g>
+</svg>

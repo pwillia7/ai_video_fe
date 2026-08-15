@@ -26,6 +26,26 @@ export function appAccessToken(): string | undefined {
   return token ? token : undefined;
 }
 
+/**
+ * Where this deployment answers, for the metadata that has to be an absolute
+ * URL — the Open Graph image is the only one so far.
+ *
+ * Found rather than configured, because there is no one right answer to write
+ * down: this app is deployed by whoever cloned it, to their own project. Vercel
+ * supplies the production domain in `VERCEL_PROJECT_PRODUCTION_URL` and the
+ * per-deployment one in `VERCEL_URL`, and the production domain is preferred so
+ * a link shared from a preview still points at the real site's image.
+ *
+ * Falls back to localhost, which is what Next assumes anyway and is correct for
+ * `next dev` — the difference is that this way it says so without a warning at
+ * every build.
+ */
+export function siteUrl(): URL {
+  const host =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+  return new URL(host ? `https://${host}` : "http://localhost:3000");
+}
+
 export function generationTimeoutMs(): number {
   const raw = Number(process.env.GENERATION_TIMEOUT_SECONDS ?? 1800);
   return (Number.isFinite(raw) && raw > 0 ? raw : 1800) * 1000;
