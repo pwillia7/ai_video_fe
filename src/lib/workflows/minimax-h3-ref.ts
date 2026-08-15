@@ -16,7 +16,10 @@ import {
   leadingReferences,
   literalPromptParam,
   promptParam,
+  promptTarget,
   referenceFacets,
+  referenceLyrics,
+  referenceLyricsText,
   referenceSlot,
   referenceTrack,
   samplingParams,
@@ -83,6 +86,7 @@ const TRIM_PARAM = "reference_trim";
 const TRIM_SECONDS_PARAM = "reference_trim_seconds";
 const TRIM_START_PARAM = "reference_trim_start";
 const TRACK_SECONDS_PARAM = "reference_track_seconds";
+const LYRICS_PARAM = "reference_lyrics";
 
 /** What the trim select offers, and what each answer means in seconds. */
 const TRIM_WHOLE = "whole";
@@ -451,6 +455,19 @@ const graph: ComfyGraph = {
 const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   referenceFacets(REF_NODES.length),
   referenceTrack(AUDIO_PARAM),
+  referenceLyrics(AUDIO_PARAM, LYRICS_PARAM),
+]);
+
+/**
+ * The prompt text, which on this graph is written by two controls.
+ *
+ * The words of an attached track go into the prompt itself rather than only
+ * into the director's brief, because the prompt is what reaches H3 either way —
+ * see `promptTarget`. One target object, shared by both, so the two cannot
+ * disagree about what they are writing.
+ */
+const promptText = promptTarget(ids, [
+  referenceLyricsText(AUDIO_PARAM, LYRICS_PARAM),
 ]);
 
 const bypass = directorBypassFor(ids);
@@ -560,6 +577,28 @@ const params: ParamDef[] = [
     ],
   },
   {
+    id: LYRICS_PARAM,
+    label: "Words in the track",
+    type: "textarea",
+    rows: 8,
+    default: "",
+    placeholder: "[Verse]\nthe words as they are sung",
+    maxLength: 6000,
+    help: "Optional, and the single biggest thing you can do for a run with a track. Nothing here can hear the file, so without this the model writes its own words over yours. Section tags are read as structure, not sung.",
+    group: "References",
+    // Only a question about a track that is there. What was typed is kept and
+    // comes back with the next one, the same as every other revealed control.
+    revealedBy: AUDIO_PARAM,
+    targets: [
+      // The model reads this even with the rewrite switched off, which is the
+      // reason it is a prompt target and not only a director one.
+      promptText,
+      // And the director is told what the block at the end of that prompt is,
+      // and what to do with it. See referenceLyrics.
+      director,
+    ],
+  },
+  {
     id: "ref_image_size",
     label: "Reference handling",
     type: "select",
@@ -577,6 +616,7 @@ const params: ParamDef[] = [
     "<Picture 1> is a superhero, mid-fight, in the ruins of a city.",
     "One line is enough. Name your references as <Picture 1>, <Picture 2> and so on, in upload order.",
     6,
+    promptText,
   ),
   literalPromptParam(),
 

@@ -106,6 +106,12 @@ export function promptParam(
   defaultPrompt: string,
   help: string,
   rows = 10,
+  /**
+   * The target this writes, for a graph where something else writes it too.
+   * Built here for every graph where nothing does — see `promptTarget`, and
+   * minimax-h3-ref.ts for the one that passes its own.
+   */
+  target: ParamTarget = promptTarget(ids),
 ): ParamDef {
   return {
     id: "prompt",
@@ -117,8 +123,70 @@ export function promptParam(
     maxLength: 8000,
     help,
     group: "Prompt",
-    targets: [{ node: ids.prompt.node, input: ids.prompt.input }],
+    targets: [target],
   };
+}
+
+/**
+ * A block appended to the text the model is given, derived from the whole
+ * submission. Returns "" when it has nothing to add, which is how one opts out.
+ *
+ * The same shape as `DirectorAppendix` and deliberately not the same type: that
+ * one writes instructions *about* the video for a model that is being asked to
+ * write a prompt, this one is part of the prompt itself and is read by the video
+ * model. A block that ended up on the wrong one of the two would be addressed to
+ * the wrong reader.
+ */
+export type PromptAppendix = (values: Record<string, ParamValue>) => string;
+
+/**
+ * The one target every control that adds to the prompt text writes.
+ *
+ * The same rule as `directorTarget`, for the same reason: a target write is an
+ * assignment, so contributors cannot each append their own piece — the last one
+ * would win with only its own. Every one of them writes the whole text instead,
+ * assembled from the complete submission, which makes the order they run in
+ * irrelevant.
+ *
+ * This is the text the *video model* reads, not the director's brief, and that
+ * is what makes it the place a track's words belong. With the director on, this
+ * is what it is asked to expand; with **Send my prompt as written** on, the
+ * director is not in the graph at all and this string is handed to H3 unchanged
+ * — so anything that only reached the model through the rewrite would silently
+ * vanish for exactly the people who chose to write the format themselves.
+ */
+export function promptTarget(
+  ids: Pick<MinimaxNodeIds, "prompt">,
+  appendices: PromptAppendix[] = [],
+): ParamTarget {
+  return {
+    node: ids.prompt.node,
+    input: ids.prompt.input,
+    transform: (_value, values) => assemblePrompt(values, appendices),
+  };
+}
+
+/**
+ * What the user typed, then whatever the submission adds to it.
+ *
+ * The prompt is found by id rather than taken from the `value` the transform is
+ * handed, on the same grounds as `lengthBlock`: every contributor writes this
+ * target, so `value` is whichever control is being written at the time. Reading
+ * the same id however this is reached is what makes them agree.
+ *
+ * With no appendix it returns exactly what was typed, whitespace and all —
+ * byte-identical to the plain write this replaced on every graph that has none.
+ */
+function assemblePrompt(
+  values: Record<string, ParamValue>,
+  appendices: PromptAppendix[],
+): string {
+  const text = String(values.prompt ?? "");
+  const blocks = appendices
+    .map((appendix) => appendix(values).trim())
+    .filter(Boolean);
+  if (blocks.length === 0) return text;
+  return [text.trim(), ...blocks].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -718,6 +786,92 @@ So write non_diegetic_music as deference rather than as a specification: say tha
 overall_soundscape is still yours to write, and it is the diegetic sound — what is audible in the scene itself. Keep it to that, and keep it sparse enough to sit under a track rather than compete with one.
 
 What is on screen is where your attention belongs. Nothing about the attached track changes it unless the user's own text says it does — but if they have asked for movement on the beat, a performance, or anything else timed to the music, write that into the action.`;
+  };
+}
+
+/** The heading the words are appended under, named in both places that use it. */
+const LYRICS_HEADING = "THE WORDS IN THE REFERENCE TRACK";
+
+/**
+ * The words performed in an attached track, as the user typed them out.
+ *
+ * Only when there is a track to have words: the control that holds them is
+ * revealed by the track, but a value someone typed and then removed the track
+ * from is still in the submission, and a lyric sheet for a song this run is not
+ * being given is words the model would perform over silence.
+ */
+function trackLyrics(
+  values: Record<string, ParamValue>,
+  trackParam: string,
+  lyricsParam: string,
+): string {
+  if (!String(values[trackParam] ?? "").trim()) return "";
+  return String(values[lyricsParam] ?? "").trim();
+}
+
+/**
+ * The words themselves, appended to the prompt the video model reads.
+ *
+ * They go here rather than only into the director's instructions because this
+ * is the one path that survives **Send my prompt as written**: with the rewrite
+ * off there is no director to carry them, and the model would be handed a
+ * reference track it has to sing over with no idea what the words are. The
+ * director gets them the same way — its brief is this text — and
+ * `referenceLyrics` below is what tells it what to do with them.
+ *
+ * Verbatim, under a heading, and nothing else done to them. Wrapping them in
+ * `<d>` tags here would be this app inventing a language tag it has not been
+ * told, which the grammar is explicit that the text has to agree with.
+ */
+export function referenceLyricsText(
+  trackParam: string,
+  lyricsParam: string,
+): PromptAppendix {
+  return (values) => {
+    const lyrics = trackLyrics(values, trackParam, lyricsParam);
+    if (!lyrics) return "";
+
+    return `${LYRICS_HEADING}
+
+These words are performed in the attached track, in this order:
+
+${lyrics}`;
+  };
+}
+
+/**
+ * What to do with those words, for the director.
+ *
+ * `referenceTrack` says the director has not heard the track and must not
+ * invent a score for it. This is the other half: it has not heard the track, but
+ * it has been told what is *said* in it, and that is the one thing about the
+ * audio it can state exactly. The model is generating a soundtrack over a
+ * reference it was handed — asked to do that with no words, it invents its own,
+ * and what comes back is a vocal that does not match the record.
+ *
+ * The rules here are all about not paraphrasing. Every one of them is a way the
+ * output stops matching the track it is supposed to sit under.
+ */
+export function referenceLyrics(
+  trackParam: string,
+  lyricsParam: string,
+): DirectorAppendix {
+  return (values) => {
+    if (!trackLyrics(values, trackParam, lyricsParam)) return "";
+
+    return `THE WORDS OF THE TRACK ARE KNOWN
+
+The user has typed out what is performed in the attached track — its lyrics, or its script — and those words are at the end of their prompt under ${LYRICS_HEADING}. You still have not heard the track. What you have is the text of it, and it is exact.
+
+Put those words into detailed_description as what is performed, inside <d> tags, with the language tag that matches the language they are actually written in. Copy them character for character. Do not translate, paraphrase, correct, tidy, complete or extend them, and do not write a single word of your own for this performance: the model is being handed the recording and the words at the same time, and text that disagrees with the recording asks it for two different vocals at once.
+
+Bracketed section tags — [Verse], [Chorus], [Intro], [Instrumental] and the like — are structure rather than words. Keep them out of the <d> tags and out of anyone's mouth. They tell you where the song changes, which is worth knowing when you decide where to cut.
+
+Use only as many of the words as fit the length of this video, in the order they are given and starting from the first line. A clip of a few seconds carries a line or two. Do not speed anyone up, and do not cram a whole lyric sheet into a short clip — the rest of the song is simply not in this video.
+
+Give the performance a speaker ID like any other voice. If someone on screen is singing or speaking them, that is who carries them, and the performance belongs in the action as well as in the tag — mouth, breath, effort, timing. If nobody on screen is performing, the words are still heard: write them as an off-screen vocal rather than dropping them.
+
+None of this makes the video about the words. What is on screen is still the user's prompt and the references — this settles what is heard over it.`;
   };
 }
 

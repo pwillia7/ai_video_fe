@@ -1067,12 +1067,52 @@ Three further things are deliberately *not* true of it:
   — which then asks the model for a second piece of music over the one it was
   handed. The director never hears the track: the rewrite stage is shown images
   and nothing else.
+- **Nothing here can hear it, so the words have to be typed.** That is
+  **Words in the track**, revealed by the track and empty by default. Without it
+  the model is handed a recording and asked to generate audio over it with no
+  idea what is being sung, so it writes its own words — which is the usual
+  reason a vocal comes back not matching the song it was built around.
+
+  It writes *the prompt*, not only the director's brief, which is the whole
+  point of where it is wired. The rewrite is optional — **Send my prompt as
+  written** deletes the OpenAI node outright — so anything that reached H3 only
+  through the director would silently vanish for exactly the people who chose to
+  write the format by hand. So `promptTarget` in `minimax-common.ts` is the
+  prompt's equivalent of `directorTarget`: several controls write the same node
+  input, and each of them assembles the whole string, because a target write is
+  an assignment and the last one to run would otherwise win with half an answer.
+  The words land under a `THE WORDS IN THE REFERENCE TRACK` heading after
+  whatever was typed, verbatim. They are not wrapped in `<d>` tags here — the
+  grammar requires the language tag to agree with the text, and this app has not
+  been told which language it is looking at.
+
+  The director gets a second block, `referenceLyrics`, saying what that heading
+  is and what to do under it: copy the words character for character into
+  `detailed_description` inside `<d>` tags with a language tag that matches, in
+  order, only as many as fit the video's length, never translated or tidied or
+  extended. Bracketed section tags are named as structure rather than words, so
+  a lyric sheet straight out of the music workflow goes in as it stands without
+  anyone singing `[Chorus]`. Whoever performs them gets a speaker ID; with
+  nobody on screen performing, they are written as an off-screen vocal rather
+  than dropped.
+
+  With no track attached the block is not written at all, however much is in the
+  box — a lyric sheet for a song this run is not being given is words the model
+  would perform over silence.
 - **Nothing is carried across.** The music workflow shares two param ids with
   this one and means something different by both: its `prompt` describes a
   record rather than a scene, and its `duration` counts minutes where this one
   counts seconds. A carried value is written into the destination's form
   *unclamped*, so that second one would arrive out of range and be rejected at
   submit.
+
+  The lyrics are not carried either, tempting as it looks now that both
+  workflows have a box for words. With **Write the lyrics for me** on, the music
+  run's `lyrics` value is whatever was sitting in the hidden box while a second
+  director wrote the words that were actually sung — `finalize` rewires the node
+  to the lyricist, so what was performed never passes through that param at all.
+  Carrying it would paste a lyric sheet the track does not sing, confidently,
+  into the one field whose whole value is being exact.
 
 Uploading a track by hand works too, and is capped at 4 MB like any other
 upload — which a few minutes of mp3 will exceed. The button has no such limit,

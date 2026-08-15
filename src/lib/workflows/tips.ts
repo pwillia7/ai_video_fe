@@ -91,6 +91,10 @@ const REFERENCE_TRACK: TipSection = {
     "The soundtrack that comes back is the model's own. The attached track steers it rather than being copied into the output, so treat it as a brief for the score and not as the score.",
     "The director is told a track is attached and stops writing a score of its own. Without that it invents one, and the model is then asked for a second piece of music over the one it was handed.",
     "It cannot hear the track — the director is shown pictures and nothing else — so if you want the action timed to the music, say so in the prompt. Anything on the beat has to come from you.",
+    "Words in the track is the exception, and it is worth filling in. Nothing in this app can hear the file, so unless you type out the lyrics or the script, the model invents its own words to sing over a recording it was handed — which is the usual reason a vocal comes back not matching the song.",
+    "Paste the words for the part you are actually sending, and in order. The director is told to copy them exactly, to write only as many as fit the video's length, and never to translate or tidy them.",
+    "Section tags — [Verse], [Chorus], [Instrumental] — are read as structure and kept out of anyone's mouth, so a lyric sheet from the music workflow can go straight in as it stands.",
+    "They are appended to your prompt rather than tucked into the rewrite, so they still reach the model with Send my prompt as written on. That is also where to look if you want to see exactly what was sent.",
     "Uploading a track by hand is capped at 4 MB, which a few minutes of mp3 will exceed. The button has no such limit: it copies the file between ComfyUI's own directories and never sends it through the browser.",
   ],
 };
