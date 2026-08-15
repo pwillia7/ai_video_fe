@@ -24,6 +24,11 @@ straight back in — a finished clip with **Remix** or **Extend**, a finished
 song with **Create video**, which loads it into reference to video as a
 reference track alongside whatever pictures you attach.
 
+Every workflow rewrites your prompt through an LLM into the format the model
+was trained on, and every workflow has a switch to skip that and send what you
+typed, character for character — which also queues a graph with no OpenAI node
+in it, if you have no key to give one.
+
 It is a front end and nothing else: no model weights, no inference, no
 database. Everything expensive happens on your ComfyUI machine.
 
@@ -548,6 +553,20 @@ a track means no Spectrum without a second rule saying so. The declaration is
 model swap it belongs with, and `check:workflows` rejects a name the workflow
 does not offer.
 
+**There is no sigma-shift node here, and that is the same as running the
+model's own.** ComfyUI's `MiniMaxH3SigmaShift` — shown in the node menu as
+*ModelSamplingMiniMaxH3* — sets the video and audio flow shifts the sampler
+schedules against. None of these graphs has one, and neither does ComfyUI's own
+`video_minimax_h3_r2v` template they came from. Its defaults, `shift_video:
+12.0` and `shift_audio: 3.0`, are exactly the `sampling_settings` H3's entry in
+`comfy/supported_models.py` already carries, so at those values the node sets
+what the sampler was going to use anyway. Every run here is at 12/3, at four
+steps and at every other count, and there is nothing to switch off. Adding one
+would only be worth it to run *different* shifts, and it would be a node in the
+stored graph rather than a switch — so its four-step rule would be an unwiring,
+the way `directorBypass` unwires the rewrite, and not the `suppresses` above,
+which speaks for nodes that are only there when a switch puts them there.
+
 That is also why `applyParams` coerces before it splices, and why the response
 reports the patches a run actually got: the history names the modes a generation
 used and the estimate is learned per combination of them, so recording a switch
@@ -578,8 +597,18 @@ happens to pair well with this sampler; it is the step count the sampler exists
 for. Making it a thing to turn on would only be an opportunity to get the pair
 wrong, so the form says what happened rather than asking: a short accented line
 appears under the steps slider at 4 and goes away at every other value. Nothing
-else in the UI changes, and nothing is remembered between runs — the control is
-the whole state.
+is remembered between runs — the control is the whole state.
+
+**On Reference to Video, four steps is a whole form of the graph rather than one
+node.** The same trigger also loads the bf16 diffusion model and text encoder in
+place of the quantised pair, and refuses the Spectrum switch — which is the
+ComfyUI export that actually works there, node for node. All three hang off the
+one `stepSampler` declaration, so there is one trigger and one note rather than
+three rules that could disagree about which four-step graph this is; `models`
+and `suppresses` are covered under [the reference workflow](#create-video-from-a-finished-track)
+and [the patches](#the-patches). It is also why a reference track pins the steps
+control to 4: that is the only form of the graph a track survives, and pinning
+the number is what makes the rest of it follow.
 
 It fires on the value alone rather than on the value *and* Turbo, even though
 four steps is only really useful with the LoRA applied. "Four steps uses the
@@ -598,7 +627,9 @@ wrong sampler and coming back a worse video rather than an error.
 
 ### The prompt is rewritten before the model sees it
 
-Every graph runs what you type through an LLM first. A
+Every graph runs what you type through an LLM first, unless you turn that off —
+see [sending a prompt unrewritten](#sending-a-prompt-unrewritten), which is the
+whole of the escape hatch and is off by default. A
 `PrimitiveStringMultiline` node holds the raw input, an `OAIAPI_ChatCompletion`
 node expands it into the model's own format, and only that output reaches the
 generation node. The image and reference workflows also hand their uploads to
@@ -1282,21 +1313,32 @@ pnpm check:workflows
 It resolves every `target` against the graph and fails on anything stale, so a
 bad mapping surfaces immediately instead of sending a subtly wrong job to the
 GPU. The same check runs on `/api/workflows` and again before every submit. It
-also catches four couplings that are invisible in a diff: that turbo's LoRA
-lands on a model it belongs on; that each patch still finds something to sit in
-front of once the switches above it have moved the wiring; that the 4-step
-sampler has exactly one `KSamplerSelect` to stand in for and that 4 is still
-inside the steps range in both modes; and that a graph driving a prompt director
-declares a `duration` or `source_seconds` param — the length block is found by
-param id, so renaming one would otherwise drop it from the instruction and the
-only symptom would be shot cut times landing past the end of the video.
+also catches the couplings that are invisible in a diff:
+
+- that turbo's LoRA lands on a model it belongs on;
+- that each patch still finds something to sit in front of once the switches
+  above it have moved the wiring;
+- that the 4-step sampler has exactly one `KSamplerSelect` to stand in for, that
+  4 is still inside the steps range in both modes, that the loaders its weights
+  swap into exist and take the input named, and that a switch it refuses is one
+  the workflow actually offers;
+- that a pin names a control that exists and holds a value that control accepts
+  in both modes;
+- that the director bypass names a node something reads, that the prompt node it
+  stands in is the one that director takes its `prompt` from, and that the pass
+  leaves no link pointing at a node it deleted;
+- and that a graph driving a prompt director declares a `duration` or
+  `source_seconds` param — the length block is found by param id, so renaming
+  one would otherwise drop it from the instruction and the only symptom would be
+  shot cut times landing past the end of the video.
 
 Param types available: `text`, `textarea`, `number`, `slider`, `select`,
-`toggle`, `seed`, `image`, `video`, and `measured` for a value the browser reads
-off a loaded clip rather than the user setting it. `group` sets the section
-heading and `advanced: true` tucks a control behind that group's disclosure.
+`toggle`, `seed`, `image`, `video`, `audio`, and `measured` for a value the
+browser reads off a loaded clip rather than the user setting it. `group` sets
+the section heading and `advanced: true` tucks a control behind that group's
+disclosure.
 
-Three more fields on a param, each of which exists for one of the workflows
+Four more fields on a param, each of which exists for one of the workflows
 above:
 
 - **`revealedBy`** keeps a control out of the form until the named param has a
@@ -1306,12 +1348,31 @@ above:
   lyricist, so it appears only when neither is supplying words. Both are
   presentation only. A hidden control still submits its stored value; what stops
   it reaching ComfyUI is `finalize`.
+- **`pinnedBy`** is the third of that family and the only one that is *not*
+  presentation only: while the named param is set, the control shows the pinned
+  value, takes no input, and submits that value whatever was stored under it —
+  `applyParams` writes it over the submission after coercion, so a number left
+  over from an earlier run cannot get past what the form is showing. Reference
+  to Video's steps control is pinned to 4 by its reference track, because that
+  is the only step count the graph takes one at. The stored value is untouched
+  and comes back when the pin lifts.
 - **`makes`** is the noun the Generate button uses — `"video"` unless you say
   `"music"`.
 
+On the workflow itself, past `graph` and `params`: `turbo`, `patches` and
+`stepSampler` are the modes described [above](#turbo-sageattention-and-spectrum-are-modes-not-more-workflows);
+`clipTarget` makes it the destination of one of the hand-off buttons; and
+**`directorBypass`** names the rewrite stage a *Send my prompt as written*
+switch takes out, which is the [section on that](#sending-a-prompt-unrewritten).
+It is the one place a param may declare no `targets` at all, since its whole
+effect is that a node stops being in the graph.
+
 **`finalize` is for structural changes params cannot make.** Params write values
-into inputs that already exist; `finalize` runs last, on the cloned graph, with
-the resolved values, and can delete nodes and inputs or swap a value for a link.
+into inputs that already exist; `finalize` runs on the cloned graph, with the
+resolved values, and can delete nodes and inputs or swap a value for a link. It
+is last but one: the director bypass runs after it, because that pass prunes
+whatever was only ever shown to the rewrite and `finalize` is still writing to
+some of those nodes on its way past.
 Both non-obvious cases in this repo are there: reference slots removing their
 loaders when unused, and the music graph pointing `lyrics` at the lyricist's
 output instead of at a string. The visibility rules above and `finalize` are
@@ -1623,12 +1684,13 @@ are independent, and ComfyUI stays directly reachable regardless of the former.
   (Vercel Blob) and a decision about retention.
 - **A music track's length is not something you set.** The slider is a ceiling
   and the model ends the song where it decides to, so takes vary between runs of
-  the same prompt. [Length is a ceiling](#length-is-a-ceiling-and-the-sampler-decides-the-rest)
+  the same prompt. [Length is a target](#length-is-a-target-and-the-sampler-decides-the-rest)
   covers why and which controls actually move it.
 - **The lyricist and the caption director are one API call each.** A music run
   with *Write the lyrics for me* on makes two, and if the host cannot reach the
-  API the run fails at that node — as it does on every video workflow, since
-  none of these graphs wires a bypass around the rewrite.
+  API the run fails at that node — on every workflow, unless *Send my prompt as
+  written* has taken the rewrite out of the graph, which is the bypass and the
+  only one. The lyricist has no such switch: it is already opt-in.
 
 ## License
 

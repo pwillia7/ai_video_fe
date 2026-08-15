@@ -34,9 +34,14 @@ afternoon.
   graphs verbatim plus a declaration of which node inputs the UI may drive.
   Never hand-edit a graph to change a value the UI should own — add a `param`
   with a `target` instead.
-- **`pnpm check:workflows`** validates every param target against its graph and
-  needs nothing but this repo. Run it after touching anything under
-  `src/lib/workflows/`.
+- **A rule that changes the graph is declared, not written ad hoc.** A
+  workflow's `stepSampler` says what it *is* at one step count — which sampler,
+  which weights, which switches it refuses; `pinnedBy` holds a control at a
+  value another control forces; `directorBypass` unwires the prompt rewrite.
+  Each is validated, so a stale one fails a check rather than a render.
+- **`pnpm check:workflows`** validates every param target against its graph, and
+  every declaration above against it too. Needs nothing but this repo. Run it
+  after touching anything under `src/lib/workflows/`.
 - **`pnpm check:nodes`** asks a real ComfyUI whether the classes and model files
   the graphs name are installed. Needs `COMFY_URL`.
 - **`pnpm typecheck`** before calling anything done. There is no lint script —
