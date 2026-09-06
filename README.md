@@ -218,6 +218,8 @@ LoRA comes from its own pack, and the three Music 3 files from
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video graphs |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video graphs |
 | [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow |
+| `vh5tape-comfyui.safetensors` | `models/loras/` | the VHS tape switch — text/image to video, Extend |
+| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | the VHS tape switch, which cannot run on the quantised `fl2va` base |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |
@@ -521,8 +523,8 @@ rather than finishing a run that looks subtly wrong.
 
 #### The patches
 
-Under the Turbo switch are two more. **All five video workflows offer both, and
-both start on:**
+Under the Turbo switch are three more. **All five video workflows offer the first
+two, and both start on:**
 
 - **SageAttention** splices KJNodes' `PathchSageAttentionKJ`, running attention
   on quantised kernels instead of the default. The class name's misspelling is
@@ -532,12 +534,49 @@ both start on:**
 - **Spectrum** splices `SpectrumApplyMiniMaxH3`, which forecasts sampler steps
   from the ones already taken instead of computing every one in full.
 
+**VHS tape** is the third, on the three `fl2va` graphs only — text to video,
+image to video and Extend — and it starts **off**, because it is a look rather
+than a way of running the model. It splices ComfyUI core's
+`LoraLoaderModelOnly`, holding `vh5tape-comfyui.safetensors`, directly behind
+the turbo LoRA. It needs no node pack, only the file in `models/loras/`.
+
+Two things about it are unlike any other switch here.
+
+**It changes the checkpoint.** MiniMax-H3 LoRAs are made for fp16/fp8 bases, and
+the `fl2va` graphs ship on `minimax_h3_fl2va_pruned_int8_convrot` — the base the
+official ComfyUI H3 tutorial defaults to, and a *rotated* one. A LoRA loads into
+a rotated base with no error at all and then produces warped faces, melting limbs
+and objects that vanish mid-shot, which is worse than a failure because the run
+finishes. So the switch points the `UNETLoader` at `minimax_h3_fl2va_bf16` for
+as long as it is on, and puts it straight back when it is off. That makes a VHS
+take cost noticeably more than a plain one; the learned estimate accounts for it
+on its own, since `modeKey` buckets by which switches were on. The same applies
+to `*_nvfp4` and `*_w4a8` — the patch declares the bases it will accept, so a
+`base` outside that list fails `check:workflows` rather than a render.
+
+**It has a strength.** The two LoRAs perturb the same weights and their
+strengths add, and 4-step turbo has very little headroom, so stacked on Turbo
+this one wants **0.4–0.6** rather than the ~1 it would take alone. The slider
+defaults to 0.5, since stacked is what a default install does. The other half of
+that trade is only said, not enforced: 4-step turbo softens the tape grain the
+LoRA exists to produce, and the look is at its best at roughly **20–25 steps
+with Turbo off**. That is a judgement about a shot, not a rule about the graph.
+
+The strength is not a param — the input it writes belongs to a node that is not
+in the stored graph, the same reason Low VRAM is not one — so it rides in the
+run's modes, is remembered once for the whole app rather than per workflow, and
+is recorded on the finished job. Two VHS takes at 0.4 and 0.8 are otherwise the
+same workflow with the same switches on, and the history would have nothing to
+tell them apart; the run detail names it under **Run**, and **Reuse settings**
+puts it back.
+
 These are plain on/offs rather than Turbo's two-position control, because off
 really is their absence: the node is only in the graph when the switch is on, so
-turning all three off gets you back to a graph that needs none of these packs —
-which is the thing to try first if a fresh install fails on every workflow. Both
-are described in `src/lib/workflows/patches.ts` as a list rather than as named
-fields, since they differ only in which node they carry.
+turning them all off gets you back to a graph that needs none of these packs —
+which is the thing to try first if a fresh install fails on every workflow. All
+three are described in `src/lib/workflows/patches.ts` as a list rather than as
+named fields, since they differ only in which node they carry and in the two
+things `PatchDef` grew for the LoRA: `base` and `strength`.
 
 They live behind a collapsed **Model** heading with Low VRAM, closed by default,
 because none of them is a per-shot decision — they answer questions about the

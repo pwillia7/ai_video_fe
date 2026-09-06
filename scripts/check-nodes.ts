@@ -60,8 +60,10 @@ const MODEL_INPUTS: Record<string, string> = {
   VAELoader: "vae_name",
   UNETLoader: "unet_name",
   CLIPLoader: "clip_name",
-  // Not in any stored graph — it is spliced in for turbo. See below.
+  // Neither of these is in any stored graph — both are spliced in by a switch.
+  // See below.
   MiniMaxH3TurboLoRA: "lora_name",
+  LoraLoaderModelOnly: "lora_name",
 };
 
 interface Need {
@@ -75,10 +77,15 @@ function collect() {
 
   for (const workflow of WORKFLOWS) {
     // Each mode's graph as well as the stored one. Both are modes rather than
-    // second workflows, so the nodes they splice in — and the LoRA file turbo
-    // names — appear in no graph on disk, and they are exactly the pieces most
-    // likely to be missing, since they are the only ones that need a custom
-    // pack.
+    // second workflows, so the nodes they splice in — and the LoRA files turbo
+    // and the style switch name — appear in no graph on disk, and they are
+    // exactly the pieces most likely to be missing, since they are the ones
+    // that need a custom pack or a separate download.
+    //
+    // A patch that swaps the base carries its checkpoint the same way: the
+    // patched graph loads the bf16 weights the LoRA needs, so this asks whether
+    // that file is there rather than only about the quantised one the stored
+    // graph names. See `base` on PatchDef.
     //
     // The two are checked separately rather than stacked: what is being asked
     // is whether each class and file exists, and neither node's presence

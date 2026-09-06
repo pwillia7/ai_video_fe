@@ -56,6 +56,8 @@ interface GenerateResponse {
   resolved: Record<string, ParamValue>;
   /** The switches the run actually got, which can be fewer than were asked for. */
   patches?: string[];
+  /** What each of those was applied at, for the switches that carry a strength. */
+  strengths?: Record<string, number>;
   estimatedSeconds: number | null;
 }
 
@@ -351,6 +353,7 @@ export function useJobs(): JobsController {
             turbo,
             patches: asked,
             lowVram: Boolean(options?.lowVram),
+            strengths: options?.strengths,
           }),
         });
 
@@ -358,6 +361,10 @@ export function useJobs(): JobsController {
         // refuse a switch, and recording the request would put this generation
         // in the wrong bucket for the estimate and name a mode it did not use.
         const patches = response.patches ?? asked;
+        // Same rule: what was written onto the spliced nodes, not what the form
+        // was showing. Two takes that differ only by a LoRA strength are exactly
+        // the pair the history has to be able to tell apart.
+        const strengths = response.strengths;
 
         const job: Job = {
           promptId: response.promptId,
@@ -372,6 +379,7 @@ export function useJobs(): JobsController {
           prompt: String(values.prompt ?? ""),
           turbo,
           patches,
+          strengths,
           derivedFrom: options?.derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),

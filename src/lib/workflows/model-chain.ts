@@ -4,13 +4,13 @@ import type { ComfyGraph, ComfyNode } from "@/lib/comfy";
  * The stretch of graph between the diffusion model and the sampler, and the
  * nodes this app splices into it.
  *
- * Three switches now put a node there — Turbo's distilled LoRA, the SageAttention
- * patch and Spectrum's forecaster — and none of them is in any stored graph. All
- * work the same way: take the model from whatever currently produces it, and
- * make everything that read that model read this node instead. Keeping the
- * mechanics here rather than once per switch is what makes them composable,
- * because the hard part is not the splice, it is that they stack in a particular
- * order.
+ * Four switches now put a node there — Turbo's distilled LoRA, a style LoRA,
+ * the SageAttention patch and Spectrum's forecaster — and none of them is in any
+ * stored graph. All work the same way: take the model from whatever currently
+ * produces it, and make everything that read that model read this node instead.
+ * Keeping the mechanics here rather than once per switch is what makes them
+ * composable, because the hard part is not the splice, it is that they stack in
+ * a particular order.
  *
  * The consumers are found rather than declared. In every graph here they are
  * BasicScheduler and BasicGuider, but naming them per workflow would be a list
@@ -32,11 +32,18 @@ export const MODEL_LOADER = "UNETLoader";
  * and the sampler.
  *
  * The order is the point of this array, and it is the ComfyUI export's:
- * `UNETLoader → MiniMaxH3TurboLoRA → PathchSageAttentionKJ →
- * SpectrumApplyMiniMaxH3 → BasicScheduler`/`BasicGuider`. Turbo's LoRA attaches
- * to the raw diffusion model, the attention patch swaps the kernel on whatever
- * weights are in play by then, and Spectrum wraps whatever model is actually
+ * `UNETLoader → MiniMaxH3TurboLoRA → LoraLoaderModelOnly →
+ * PathchSageAttentionKJ → SpectrumApplyMiniMaxH3 → BasicScheduler`/`BasicGuider`.
+ * Turbo's LoRA attaches to the raw diffusion model, a style LoRA stacks onto
+ * whatever weights that produced, the attention patch swaps the kernel on
+ * whatever is in play by then, and Spectrum wraps whatever model is actually
  * going to be sampled.
+ *
+ * `style` sits behind `turbo` because that is how the two are meant to be read:
+ * the distillation is a property of the checkpoint, and a look is applied to the
+ * checkpoint you are running. Both are LoRAs and both perturb the same weights,
+ * so their strengths add — which is the whole reason a style LoRA stacked on
+ * turbo wants a lower one than it does alone.
  *
  * Getting any of it out of order would fail nothing. It would just sample
  * something subtly other than what the nodes were meant to produce — a LoRA
@@ -49,7 +56,7 @@ export const MODEL_LOADER = "UNETLoader";
  * Not numbers, unlike the "105:" ids the subgraph exports carry, and for the
  * same reason those work: ComfyUI's API format keys nodes by string.
  */
-export const SPLICE_ORDER = ["turbo", "sage", "spectrum"] as const;
+export const SPLICE_ORDER = ["turbo", "style", "sage", "spectrum"] as const;
 
 export type SpliceId = (typeof SPLICE_ORDER)[number];
 

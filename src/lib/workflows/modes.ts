@@ -19,6 +19,15 @@ export interface RunModes {
    * whatever the workflow currently offers.
    */
   patches?: string[];
+  /**
+   * Per-patch strength, keyed by patch id, for the patches that offer one.
+   *
+   * Here rather than among the params because the input it writes belongs to a
+   * node that is not in the stored graph — see `strength` on PatchDef. Ids that
+   * name no patch, or a patch with no strength, are ignored: a stored value
+   * outliving the switch it belonged to should do nothing, not fail a run.
+   */
+  strengths?: Record<string, number>;
 }
 
 /**

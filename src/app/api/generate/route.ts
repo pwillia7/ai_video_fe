@@ -25,6 +25,7 @@ export async function POST(request: Request) {
       turbo?: boolean;
       lowVram?: boolean;
       patches?: string[];
+      strengths?: Record<string, number>;
     };
 
     if (!body.workflowId) {
@@ -52,6 +53,15 @@ export async function POST(request: Request) {
     // LoRA node, which a standard run never splices in, so there is nothing
     // for it to be wrong about.
     const lowVram = turbo && body.lowVram === true;
+    // Numbers only, and only for switches this workflow has. Clamping to each
+    // control's own range is `applyPatch`'s job, since the range lives with the
+    // patch that declares it.
+    const strengths: Record<string, number> = {};
+    for (const [id, value] of Object.entries(body.strengths ?? {})) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        strengths[id] = value;
+      }
+    }
 
     const problems = validateWorkflow(workflow);
     if (problems.length > 0) {
@@ -77,12 +87,17 @@ export async function POST(request: Request) {
     // `applied` is what the run actually got: the step count can refuse a
     // switch that was asked for, and the answer has to reach the client or the
     // history would name a mode the graph did not have. See `suppresses`.
-    const { graph, resolved, patches: applied } = applyParams(
-      workflow,
-      body.params ?? {},
-      allowedValues,
-      { turbo, lowVram, patches },
-    );
+    const {
+      graph,
+      resolved,
+      patches: applied,
+      strengths: appliedStrengths,
+    } = applyParams(workflow, body.params ?? {}, allowedValues, {
+      turbo,
+      lowVram,
+      patches,
+      strengths,
+    });
 
     const clientId = crypto.randomUUID();
     const result = await queuePrompt(graph, clientId);
@@ -93,6 +108,10 @@ export async function POST(request: Request) {
       clientId,
       resolved,
       patches: applied,
+      // What each switch was actually applied at, for the same reason `applied`
+      // is sent back rather than assumed: a strength submitted for a switch the
+      // step count refused was never written into the graph.
+      strengths: appliedStrengths,
       // Only ever a starting point: the client replaces it with this machine's
       // own median for this workflow and these modes as soon as it has one, so
       // the fact that neither number describes both switches at once costs a

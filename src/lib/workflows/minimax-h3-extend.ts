@@ -8,6 +8,7 @@ import {
   durationParam,
   EXTEND_DIRECTOR,
   h3Patches,
+  h3VhsLora,
   h3StepSampler,
   h3Turbo,
   literalPromptParam,
@@ -346,7 +347,11 @@ export const minimaxH3Extend: WorkflowDef = {
   params: hideDirectorOnly(params, bypass),
   directorBypass: bypass,
   turbo: h3Turbo(220),
-  patches: h3Patches(),
+  // The VHS LoRA first, matching the order they stack in: it is a LoRA on the
+  // model, and the other two wrap whatever weights are in play by then. Only
+  // the fl2va graphs offer it — see h3VhsLora, and the ref2va bases it is not
+  // made for.
+  patches: [h3VhsLora(), ...h3Patches()],
   stepSampler: h3StepSampler(),
   /**
    * No `carry`, unlike Remix. The prompt that made the source describes the

@@ -148,6 +148,21 @@ export function SettingsModal({
       <Section heading="Run">
         <dl className="flex flex-col">
           <Row label="Workflow" value={workflow?.name ?? job.workflowName} />
+          {/* One row per switch that had a strength, since the run's name says
+              which switches were on but not how far. The label is resolved off
+              the workflow and falls back to the raw id, on the same grounds as
+              a param the current definition no longer declares: a stale name
+              beats dropping the answer someone opened the modal for. */}
+          {Object.entries(job.strengths ?? {}).map(([id, value]) => (
+            <Row
+              key={id}
+              label={
+                workflow?.patches.find((patch) => patch.id === id)?.strength
+                  ?.label ?? id
+              }
+              value={value.toFixed(2)}
+            />
+          ))}
           <Row label="Started" value={formatWhen(job.submittedAt)} />
           {rendered !== null ? (
             <Row label="Render time" value={formatDuration(rendered)} />

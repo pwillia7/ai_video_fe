@@ -53,6 +53,18 @@ export interface Job {
    * way.
    */
   patches?: string[];
+  /**
+   * What each switch that carries a strength was applied at, by patch id.
+   *
+   * Recorded for the same reason `patches` is, and it matters more here: two
+   * VHS takes at 0.4 and 0.8 are the same workflow with the same switches on,
+   * and without this the history has nothing that tells them apart. Absent on
+   * a run that had no such switch, and on every job stored before this existed.
+   *
+   * Not in `modeKey`. The learned estimate buckets by which nodes were in the
+   * graph, and a LoRA costs the same to apply at any strength.
+   */
+  strengths?: Record<string, number>;
   hasAudio: boolean;
   /**
    * Marked by the user as worth keeping. Purely an organising flag — it sorts

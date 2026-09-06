@@ -529,6 +529,94 @@ export function h3Patches(): PatchDef[] {
 }
 
 /**
+ * The bases a MiniMax-H3 LoRA may be applied to, as filename prefixes.
+ *
+ * The distinction is not quantisation but *basis*. `bf16` and the scaled fp8
+ * checkpoints hold their weights the way the LoRA was trained against them;
+ * `_int8_convrot`, `_nvfp4` and `_w4a8` hold a rotated or otherwise transformed
+ * version of the same weights. A LoRA loads into a rotated base without any
+ * error and then produces warped faces, melting limbs and objects that vanish
+ * mid-shot — which is worse than a failure, because the run finishes.
+ *
+ * This is about MiniMax-H3 LoRAs in general rather than about the VHS one. The
+ * stored graphs all load `_pruned_int8_convrot`, which is what the official
+ * ComfyUI H3 tutorial defaults to, so any LoRA added here has to bring its own
+ * base with it — see `PatchBase`.
+ */
+const H3_LORA_BASES = ["minimax_h3_fl2va_bf16", "minimax_h3_fl2va_pruned_fp8_scaled"];
+
+/**
+ * The VHS tape look: one `LoraLoaderModelOnly` stacked behind the turbo LoRA.
+ *
+ * A patch rather than a mode of its own, because it is one node on a switch and
+ * nothing else about the run changes shape — the step range is turbo's business,
+ * not this LoRA's. It is the first patch here to need either of the two things
+ * `PatchDef` grew for it, and it needs both:
+ *
+ * **A base.** The stored graphs load `minimax_h3_fl2va_pruned_int8_convrot`,
+ * which is exactly the rotated basis this LoRA cannot be applied to. So the
+ * switch swaps the loader to `minimax_h3_fl2va_bf16` for as long as it is on and
+ * puts it straight back when it is off. That makes a VHS run cost noticeably
+ * more than a plain one — bf16 is the full-precision checkpoint — which is
+ * accounted for on its own, because `modeKey` buckets the learned estimates by
+ * which patches were on.
+ *
+ * **A strength.** Turbo is on by default, and the two LoRAs perturb the same
+ * weights, so their strengths add: at 4-step turbo there is very little headroom
+ * and this one wants 0.4–0.6 rather than the ~1 it would take alone. The default
+ * below is the stacked number, since stacked is what a default install does.
+ *
+ * The other half of that trade is not enforced, only said: 4-step turbo softens
+ * the tape grain this LoRA exists to produce, and the look is at its best at
+ * roughly 20–25 full-precision steps with turbo off. That is a judgement about a
+ * shot rather than a rule about the graph, so it belongs in the help text where
+ * someone can act on it, not in a pin that overrides their step count.
+ *
+ * `LoraLoaderModelOnly` is ComfyUI core, unlike the turbo LoRA's own loader, so
+ * this switch needs no node pack — only the file in `models/loras/`.
+ */
+export function h3VhsLora(): PatchDef {
+  return {
+    id: "style",
+    label: "VHS tape",
+    node: {
+      class_type: "LoraLoaderModelOnly",
+      inputs: {
+        lora_name: "vh5tape-comfyui.safetensors",
+        // Overwritten by the strength control below. Named here so the node is
+        // a complete one on its own, the way every other spliced node is.
+        strength_model: 0.5,
+      },
+      _meta: { title: "VHS Tape LoRA" },
+    },
+    modelInput: "model",
+    base: {
+      value: "minimax_h3_fl2va_bf16.safetensors",
+      allowed: H3_LORA_BASES,
+    },
+    strength: {
+      input: "strength_model",
+      label: "VHS strength",
+      // The stacked number, because Turbo is on by default. Alone it will take
+      // about twice this.
+      default: 0.5,
+      min: 0,
+      max: 1.2,
+      step: 0.05,
+      help: "0.4–0.6 stacked on Turbo, where the two LoRAs' perturbations add. Nearer 1 with Turbo off.",
+    },
+    /**
+     * Off by default. It is a look rather than a way of running the model — the
+     * other two patches ship on because a run is better with them whatever the
+     * shot is, and this one is only right when the shot wants it. It also moves
+     * the graph onto the full-precision checkpoint, which is not a cost to hand
+     * someone who never asked for the look.
+     */
+    help: "Stacks a VHS tape LoRA on the diffusion model and moves the graph onto the bf16 base it needs. Best at 20–25 steps with Turbo off; Turbo's 4-step sampler softens the grain.",
+  };
+}
+
+/**
  * The SageAttention patch: KJNodes' `PathchSageAttentionKJ`, swapping the
  * attention implementation the model runs on.
  *

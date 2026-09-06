@@ -363,6 +363,21 @@ const TURBO: TipSection = {
  * Keyed by patch id, and in the order the switches stack.
  */
 const PATCHES: Record<string, TipSection> = {
+  // First, matching the chain: the LoRA goes on the diffusion model, and the
+  // two below wrap whatever weights are in play by then.
+  style: {
+    heading: "VHS tape is on",
+    items: [
+      "A second LoRA is stacked on the diffusion model, behind the turbo one, giving the take the look of tape — soft grain, bloomed highlights, the colour bleeding a little at the edges.",
+      "It also moves the graph onto a different checkpoint, and that is the part that matters. MiniMax-H3 LoRAs are made for fp16/fp8 weights, and these graphs otherwise run a quantised base that stores the same weights in a rotated form. A LoRA loads into one of those without complaining and then produces warped faces and melting limbs — so the switch loads the bf16 model for as long as it is on, and puts the quantised one back when it is off.",
+      "Which means a VHS take costs meaningfully more than a plain one, in time and in VRAM. That is the switch, not your settings. The estimate learns it separately, so the first take in this combination paces itself off a guess and every one after it off your own machine.",
+      "Strength lives under the switch, and 0.4–0.6 is the range with Turbo on. Both LoRAs perturb the same weights and their effects add, and a four-step turbo run has very little headroom left — push it past that and the tape look starts eating the shot rather than sitting on it.",
+      "With Turbo off it will take nearly 1. That is also where the look is best: turbo's four-step sampler smooths out the grain this LoRA exists to produce, so if the tape texture is the point, turn Turbo off and give it 20–25 steps. It costs several times as long, and it is a different picture rather than a slightly better one.",
+      "The strength is remembered once for the whole app, like Low VRAM, because it is about this LoRA rather than about any one workflow. It is recorded on the finished take too — the run detail names it, and Reuse settings puts it back — since two takes at 0.4 and 0.8 are otherwise indistinguishable in the history.",
+      "Only the three workflows on the `fl2va` model offer it: text to video, image to video and Extend. Reference to Video and Remix run a different checkpoint that this LoRA was not made for.",
+      "Unlike Turbo, SageAttention and Spectrum, this needs no node pack — the loader is a ComfyUI built-in. It does need two files: the LoRA itself in `models/loras/`, and the bf16 diffusion model. `pnpm check:nodes` asks about both.",
+    ],
+  },
   sage: {
     heading: "SageAttention is on",
     items: [

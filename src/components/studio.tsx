@@ -32,12 +32,14 @@ import {
   clampValues,
   hydrateAll,
   hydratePatches,
+  hydrateStrengths,
   hydrateTurbo,
   mergeWithDefaults,
   readStoredLowVram,
   writeStoredLowVram,
   writeStoredParams,
   writeStoredPatches,
+  writeStoredStrengths,
   writeStoredTurbo,
 } from "@/lib/param-storage";
 import { workflowLabel } from "@/lib/workflows/modes";
@@ -205,6 +207,14 @@ function Workbench({
    */
   const [lowVram, setLowVram] = useState(readStoredLowVram);
 
+  /**
+   * How strong each switch that carries a strength is set. Keyed by patch id
+   * and shared across workflows, because the VHS LoRA is the same LoRA on every
+   * graph offering it — a strength found by eye on one is the answer on the
+   * rest. Read lazily for the same reason as the modes above.
+   */
+  const [strengths, setStrengths] = useState(() => hydrateStrengths(workflows));
+
   // Values are kept per workflow so switching to compare settings and coming
   // back does not throw away what you typed, and persisted so a reload does
   // not either.
@@ -228,6 +238,10 @@ function Workbench({
     writeStoredLowVram(lowVram);
   }, [lowVram]);
 
+  useEffect(() => {
+    writeStoredStrengths(strengths);
+  }, [strengths]);
+
   // A clock that only ticks while something is running, so elapsed times
   // advance smoothly between poll results without re-rendering an idle page.
   const [now, setNow] = useState(() => Date.now());
@@ -250,8 +264,8 @@ function Workbench({
     [patchesByWorkflow, selectedId],
   );
   const modes = useMemo(
-    () => ({ turbo: turboOn, patches: patchesOn }),
-    [turboOn, patchesOn],
+    () => ({ turbo: turboOn, patches: patchesOn, strengths }),
+    [turboOn, patchesOn, strengths],
   );
 
   /**
@@ -292,8 +306,9 @@ function Workbench({
         const patch = selected?.patches.find((candidate) => candidate.id === id);
         return !patch || !patchSuppressed(patch, runValues);
       }),
+      strengths,
     }),
-    [turboOn, patchesOn, selected, runValues],
+    [turboOn, patchesOn, selected, runValues, strengths],
   );
 
   /**
@@ -342,6 +357,15 @@ function Workbench({
     },
     [picked, selectedId],
   );
+
+  /**
+   * Not per workflow, unlike the switch itself: what the number answers is how
+   * strong this LoRA should be, which is the same question on every graph that
+   * offers it. See `strengths`.
+   */
+  const setStrength = useCallback((id: string, value: number) => {
+    setStrengths((previous) => ({ ...previous, [id]: value }));
+  }, []);
 
   const setValue = useCallback(
     (id: string, value: ParamValue) => {
@@ -556,6 +580,18 @@ function Workbench({
           .filter((patch) => job.patches?.includes(patch.id))
           .map((patch) => patch.id),
       }));
+      // And how far each of them was turned up. Restored only for switches the
+      // workflow still offers a strength on, and dropped otherwise, exactly as
+      // the switch list above is — a number kept for a control the form no
+      // longer shows would quietly change the next run.
+      setStrengths((previous) => {
+        const next = { ...previous };
+        for (const patch of target.patches) {
+          const was = job.strengths?.[patch.id];
+          if (patch.strength && typeof was === "number") next[patch.id] = was;
+        }
+        return next;
+      });
       setSelectedId(target.id);
 
       // Same reason as the clip hand-off: on mobile the form sits above the
@@ -801,6 +837,8 @@ function Workbench({
                   turboOn={turboOn}
                   lowVram={lowVram}
                   onLowVramChange={setLowVram}
+                  strengths={strengths}
+                  onStrengthChange={setStrength}
                 />
 
                 {clipNotice &&

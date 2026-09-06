@@ -6,7 +6,12 @@ import {
 } from "@/lib/workflows/director";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import type { RunModes } from "@/lib/workflows/modes";
-import { applyPatch, enabledPatches } from "@/lib/workflows/patches";
+import {
+  applyPatch,
+  enabledPatches,
+  patchBaseProblems,
+  resolveStrength,
+} from "@/lib/workflows/patches";
 import type { SpliceId } from "@/lib/workflows/model-chain";
 import {
   applyStepSampler,
@@ -184,6 +189,13 @@ export interface AppliedParams {
    * the estimate is learned per combination of them.
    */
   patches: string[];
+  /**
+   * The strength each of those switches was actually applied at, for the ones
+   * that have a strength. Recorded for the same reason `patches` is: two takes
+   * that differ only by a LoRA strength are exactly the pair someone needs the
+   * history to tell apart.
+   */
+  strengths: Record<string, number>;
 }
 
 /**
@@ -284,7 +296,7 @@ export function applyParams(
     (mode.patches ?? []).filter((id) => !refused.includes(id as SpliceId)),
   );
   for (const patch of patches) {
-    applyPatch(graph, patch);
+    applyPatch(graph, patch, mode.strengths?.[patch.id]);
   }
 
   for (const param of params) {
@@ -330,7 +342,22 @@ export function applyParams(
     applyBypass(graph, workflow.directorBypass);
   }
 
-  return { graph, resolved, patches: patches.map((patch) => patch.id) };
+  return {
+    graph,
+    resolved,
+    patches: patches.map((patch) => patch.id),
+    // What was actually written onto the spliced nodes, not what was asked for
+    // — the rule `patches` already follows. A strength submitted for a switch
+    // the run did not have would otherwise be recorded on a take that shows no
+    // sign of it, and send someone off to compare two identical clips.
+    strengths: Object.fromEntries(
+      patches.flatMap((patch) =>
+        patch.strength
+          ? [[patch.id, resolveStrength(patch.strength, mode.strengths?.[patch.id])]]
+          : [],
+      ),
+    ),
+  };
 }
 
 /**
@@ -555,6 +582,7 @@ function patchProblems(workflow: WorkflowDef): string[] {
 
   for (const patch of patches) {
     attempt(patch.label, " on its own", (graph) => applyPatch(graph, patch));
+    problems.push(...patchBaseProblems(patch, workflow.graph));
   }
 
   attempt("The switches", " together", (graph) => {

@@ -46,6 +46,15 @@ const PATCHES_KEY = `sorant-patches-v${DEFAULTS_VERSION}`;
  * LoRA the fast way", which is the same answer on every graph.
  */
 const LOW_VRAM_KEY = "sorant-low-vram";
+/**
+ * How strong each switch that has a strength is set, by patch id.
+ *
+ * One number per switch for the whole app rather than one per workflow, the way
+ * Low VRAM is stored: the VHS LoRA is the same LoRA on all three graphs that
+ * offer it, and a strength found by eye on one of them is the answer on the
+ * others too. Keyed by patch id rather than by workflow for the same reason.
+ */
+const STRENGTHS_KEY = "sorant-patch-strengths";
 
 export type StoredModes = Record<string, boolean>;
 
@@ -64,6 +73,35 @@ export function writeStoredLowVram(lowVram: boolean): void {
     // As below — a storage failure costs the preference, nothing more.
   }
 }
+
+/**
+ * The stored strength for each switch that has one, falling back to what the
+ * patch declares and dropping anything stored against a switch no workflow
+ * offers any more.
+ *
+ * Out-of-range numbers are kept rather than dropped, and clamped where they are
+ * applied — `applyPatch` owns the range, and a value saved under an older one
+ * should land at the nearest legal setting rather than silently reset.
+ */
+export function hydrateStrengths(
+  workflows: WorkflowSummary[],
+): Record<string, number> {
+  const stored = read<number>(STRENGTHS_KEY);
+  const strengths: Record<string, number> = {};
+  for (const workflow of workflows) {
+    for (const patch of workflow.patches) {
+      if (!patch.strength) continue;
+      strengths[patch.id] =
+        typeof stored[patch.id] === "number" && Number.isFinite(stored[patch.id])
+          ? stored[patch.id]
+          : patch.strength.default;
+    }
+  }
+  return strengths;
+}
+
+export const writeStoredStrengths = (strengths: Record<string, number>) =>
+  write(STRENGTHS_KEY, strengths);
 
 function read<T>(key: string): Record<string, T> {
   try {

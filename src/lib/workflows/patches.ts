@@ -1,16 +1,70 @@
 import type { ComfyGraph, ComfyNode } from "@/lib/comfy";
-import { spliceModel, type SpliceId } from "./model-chain";
+import {
+  MODEL_LOADER,
+  modelLoaderIn,
+  spliceModel,
+  type SpliceId,
+} from "./model-chain";
 import type { ParamValue } from "./types";
+
+/**
+ * What the one diffusion-model loader loads while a patch is applied.
+ *
+ * For a LoRA whose stored graph is on weights it was not made for. MiniMax-H3
+ * LoRAs are built against fp16/fp8 bases, and the rotated and quantised
+ * checkpoints — `*_int8_convrot`, `*_nvfp4`, `*_w4a8` — store their weights in a
+ * different basis: the LoRA loads into one without any error at all and then
+ * produces warped faces and melting limbs. So the swap is not a tuning choice,
+ * it is the difference between the switch working and the switch quietly ruining
+ * every take made with it on.
+ *
+ * The loader is found rather than named, unlike `StepModel`'s node id. There is
+ * exactly one `UNETLoader` in these graphs — `spliceModel` depends on that
+ * already, and refuses the patch outright if it is not true — so an id here
+ * would be one more thing to keep in step with a re-export, for no gain.
+ *
+ * Only the diffusion model. The text encoder is not where a model-only LoRA
+ * applies, so the graph's `CLIPLoader` is left alone whatever it is quantised to.
+ */
+export interface PatchBase {
+  /** The file the loader names while the switch is on. */
+  value: string;
+  /**
+   * Filename prefixes this patch is known to work on. `value` has to start with
+   * one of them, which is what turns "someone pointed this at a rotated
+   * checkpoint" into a failed `check:workflows` rather than a render that
+   * finishes looking subtly wrong.
+   */
+  allowed: string[];
+}
+
+/**
+ * A numeric input on the spliced node, offered as a control of its own.
+ *
+ * Written onto the node at splice time rather than reaching it as a param,
+ * because the node is not in the stored graph — the same reason turbo's
+ * `lowVram` works this way. See `PatchDef`.
+ */
+export interface PatchStrength {
+  /** The input on the spliced node. Must be one the node already has. */
+  input: string;
+  label: string;
+  default: number;
+  min: number;
+  max: number;
+  step: number;
+  help: string;
+}
 
 /**
  * A patch: one node put in the model's path, and a switch to put it there.
  *
- * The SageAttention patch and the Spectrum forecaster are both exactly this —
- * a node from a ComfyUI export, wired between the model and the sampler, with
- * nothing for the user to set beyond whether it is there at all. Written once
- * as a list rather than twice as named fields because they differ only in which
- * node they carry, and because a third would otherwise mean a third copy of the
- * storage key, the state, the label and the switch.
+ * The SageAttention patch, the Spectrum forecaster and the VHS style LoRA are
+ * all exactly this — a node from a ComfyUI export, wired between the model and
+ * the sampler, on a switch. Written once as a list rather than three times as
+ * named fields because they differ only in which node they carry, and because a
+ * fourth would otherwise mean a fourth copy of the storage key, the state, the
+ * label and the switch.
  *
  * Turbo is deliberately not one of these. It moves the step control's range and
  * carries a switch of its own, which is a different enough shape that folding it
@@ -18,8 +72,20 @@ import type { ParamValue } from "./types";
  *
  * A patch's node settings are whatever its ComfyUI export carries, and are not
  * exposed. They are the node pack's tuning of its own method rather than
- * anything about the shot; if one turns out to be worth setting per run, it
- * becomes a param with a target like anything else.
+ * anything about the shot.
+ *
+ * `strength` is the exception, and it is declared rather than reached by a param
+ * `target` for the same reason turbo's low-VRAM switch is: the node it belongs
+ * to is not in the stored graph, so there is nothing for a target to point at
+ * until the splice has run, and while the switch is off there never is. A style
+ * LoRA needs one — how much of a look to apply is the shot's question, not the
+ * node pack's — so it travels with the run's modes rather than with the
+ * workflow's params.
+ *
+ * `base` is the other addition, and it exists because a LoRA is trained against
+ * particular weights. A patch that says nothing about the base leaves the graph
+ * loading whatever it always did; one that names a base swaps the loader for as
+ * long as the switch is on.
  *
  * The node is only in the graph when the switch is on, so "off" is its absence
  * rather than the node present and told to do nothing. That is what lets a run
@@ -51,16 +117,25 @@ export interface PatchDef {
   estimatedSeconds?: number;
   /** Where the switch starts before anyone has touched it. See DEFAULTS_VERSION. */
   defaultOn?: boolean;
+  /** Set when this patch's node needs weights the stored graph does not load. */
+  base?: PatchBase;
+  /** Set when one of the node's inputs is the user's to set. */
+  strength?: PatchStrength;
   /** One line under the switch. */
   help: string;
 }
 
 /**
- * What the browser is allowed to see. `node` and `modelInput` are withheld for
- * the same reason the graph is: they are server-side wiring the form has no use
- * for.
+ * What the browser is allowed to see. `node`, `modelInput` and `base` are
+ * withheld for the same reason the graph is: they name local model files and
+ * server-side wiring the form has no use for. `strength` keeps its wording and
+ * loses its `input`, exactly as a param keeps its label and loses its `targets`.
  */
-export type ClientPatch = Omit<PatchDef, "node" | "modelInput"> & {
+export type ClientPatch = Omit<
+  PatchDef,
+  "node" | "modelInput" | "base" | "strength"
+> & {
+  strength?: Omit<PatchStrength, "input">;
   /**
    * The value of another control at which this switch is refused, and the line
    * that says so — see `suppresses` on StepSampler, which is where the rule
@@ -74,8 +149,16 @@ export type ClientPatch = Omit<PatchDef, "node" | "modelInput"> & {
 };
 
 export function toClientPatch(patch: PatchDef): ClientPatch {
-  const { node: _node, modelInput: _modelInput, ...rest } = patch;
-  return rest;
+  const {
+    node: _node,
+    modelInput: _modelInput,
+    base: _base,
+    strength,
+    ...rest
+  } = patch;
+  if (!strength) return rest;
+  const { input: _input, ...clientStrength } = strength;
+  return { ...rest, strength: clientStrength };
 }
 
 /**
@@ -94,19 +177,111 @@ export function patchSuppressed(
   return rule !== undefined && values[rule.param] === rule.value;
 }
 
-/** Splice the patch in, in place. Call it on a clone — `applyParams` does. */
-export function applyPatch(graph: ComfyGraph, patch: PatchDef): void {
+/**
+ * Splice the patch in, in place, and swap the base it needs. Call it on a clone
+ * — `applyParams` does.
+ *
+ * `strength` is the value the run carries for this patch, and is ignored by a
+ * patch that declares none. Out-of-range numbers are clamped rather than
+ * refused: the control cannot produce one, so anything outside the range came
+ * from a hand-written request or a stored value from an older range, and
+ * neither is worth failing a render over.
+ */
+export function applyPatch(
+  graph: ComfyGraph,
+  patch: PatchDef,
+  strength?: number,
+): void {
+  if (patch.strength && !(patch.strength.input in patch.node.inputs)) {
+    throw new Error(
+      `${patch.label} offers a strength on "${patch.strength.input}", which ` +
+        `${patch.node.class_type} does not accept.`,
+    );
+  }
+
   spliceModel(graph, {
     id: patch.id,
     label: patch.label,
     node: patch.node,
     modelInput: patch.modelInput,
+    inputs: patch.strength
+      ? { [patch.strength.input]: resolveStrength(patch.strength, strength) }
+      : undefined,
   });
+
+  applyPatchBase(graph, patch);
+}
+
+/** The strength this run uses: the submitted one clamped, or the default. */
+export function resolveStrength(
+  spec: PatchStrength,
+  submitted: number | undefined,
+): number {
+  if (submitted === undefined || !Number.isFinite(submitted)) {
+    return spec.default;
+  }
+  return Math.min(spec.max, Math.max(spec.min, submitted));
+}
+
+/**
+ * Point the loader at the weights this patch needs, in place.
+ *
+ * Throws rather than carrying on, for the same reason the step sampler's model
+ * swap does: a graph that quietly declined would load the base the LoRA was not
+ * made for and finish, which is the failure this whole declaration exists to
+ * prevent.
+ */
+function applyPatchBase(graph: ComfyGraph, patch: PatchDef): void {
+  if (!patch.base) return;
+  const loader = modelLoaderIn(graph);
+  if (!loader) {
+    throw new Error(
+      `${patch.label} loads ${patch.base.value}, but this graph has no single diffusion-model loader to put it in.`,
+    );
+  }
+  graph[loader].inputs.unet_name = patch.base.value;
+}
+
+/**
+ * What is wrong with a patch's base, if anything. Read by `check:workflows`.
+ *
+ * The splice check proves the node can be wired in. This asks the separate
+ * question of whether the weights underneath it are ones the LoRA belongs on —
+ * the same distinction `turboProblems` draws with `requiresModel`, and for the
+ * same reason: attaching to the wrong base fails nothing at all.
+ */
+export function patchBaseProblems(
+  patch: PatchDef,
+  graph: ComfyGraph,
+): string[] {
+  const base = patch.base;
+  if (!base) return [];
+
+  const problems: string[] = [];
+  const loader = modelLoaderIn(graph);
+  if (!loader) {
+    problems.push(
+      `${patch.label} loads ${base.value}, but this graph has no single ${MODEL_LOADER} to load it into.`,
+    );
+    return problems;
+  }
+  if (!("unet_name" in graph[loader].inputs)) {
+    problems.push(
+      `${patch.label} loads ${base.value} into node ${loader}, which does not accept "unet_name".`,
+    );
+  }
+  if (!base.allowed.some((prefix) => base.value.startsWith(prefix))) {
+    problems.push(
+      `${patch.label} goes on ${base.allowed.map((prefix) => `${prefix}*`).join(" or ")}, but it loads ${base.value}.`,
+    );
+  }
+  return problems;
 }
 
 /**
  * The graph this patch would actually queue. Only used by `check:nodes`, which
- * has to ask ComfyUI about classes no stored graph names.
+ * has to ask ComfyUI about classes no stored graph names — and, for a patch
+ * with a `base`, about a model file no stored graph names either.
  */
 export function patchGraph(graph: ComfyGraph, patch: PatchDef): ComfyGraph {
   const clone = structuredClone(graph);
