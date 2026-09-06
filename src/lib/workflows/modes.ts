@@ -43,6 +43,11 @@ export interface RunModes {
    * alternate, are ignored.
    */
   alternateBase?: Record<string, boolean>;
+  /**
+   * Which graded trigger phrase each LoRA is set to, by entry id — see
+   * `PatchPrompt`. Ids naming nothing are ignored.
+   */
+  tier?: Record<string, string>;
 }
 
 /**

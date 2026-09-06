@@ -590,15 +590,54 @@ const H3_CONTENT_LORAS: PatchChoice[] = [
     strength: {
       input: "strength_model",
       label: "Strength",
-      // The stacked number, because Turbo is on by default. Alone it will take
-      // about twice this.
+      // The stacked number, because Turbo is on by default. The author's scale:
+      // 1.0 is full effect, 0.7–0.9 softens a heavy prompt, 0.4–0.6 is what to
+      // use stacked on a distilled LoRA, and ~1.5 is "barely-watchable tape".
       default: 0.5,
       min: 0,
-      max: 1.2,
+      max: 1.5,
       step: 0.05,
-      help: "0.4–0.6 stacked on Turbo, where the two LoRAs' perturbations add. Nearer 1 with Turbo off.",
+      help: "0.4–0.6 stacked on Turbo, where the two LoRAs' perturbations add. 1 is full effect with Turbo off; past that it heads for barely-watchable tape.",
     },
-    help: "The look of tape — soft grain, bloomed highlights, colour bleeding at the edges. Best at 20–25 steps with Turbo off; Turbo's 4-step sampler softens the grain.",
+    /**
+     * The trigger, and the graded phrases that follow it. Both verbatim from
+     * the LoRA's model card, which specifies the order as trigger first, damage
+     * tier second, scene third — which is what the join node produces.
+     *
+     * <https://huggingface.co/KennethFal/vh5tape-vhs-lora-minimax-h3>
+     */
+    prompt: {
+      trigger: "vh5tape",
+      label: "Tape damage",
+      help: "How worn the tape reads. Written into the prompt in front of what you typed, which is what the LoRA was trained to answer to.",
+      /**
+       * Medium rather than the first offered. Turbo's four-step sampler already
+       * softens the grain and the stacked strength is half, so starting at
+       * Light would stack three things that all pull the same way and show
+       * almost nothing — which reads as "the LoRA does not work" rather than as
+       * a setting.
+       */
+      defaultTier: "medium",
+      tiers: [
+        {
+          id: "light",
+          label: "Light",
+          phrase: "lightly worn VHS tape with slight analog noise",
+        },
+        {
+          id: "medium",
+          label: "Medium",
+          phrase: "worn VHS tape recording with visible tape damage",
+        },
+        {
+          id: "heavy",
+          label: "Heavy",
+          phrase:
+            "badly damaged VHS tape with heavy tracking errors and distortion",
+        },
+      ],
+    },
+    help: "The look of tape — soft grain, bloomed highlights, colour bleeding at the edges. Best at 4:3 and near 1 megapixel, at 20–25 steps with Turbo off; Turbo's 4-step sampler softens the grain, and very low resolutions are unstable.",
   },
 ];
 

@@ -45,6 +45,8 @@ export function ModelOptions({
   onAlternateBaseChange,
   lora,
   onLoraChange,
+  tier,
+  onTierChange,
 }: {
   patches: ClientPatch[];
   /** Ids of the patches currently switched on. */
@@ -71,6 +73,9 @@ export function ModelOptions({
   /** Which LoRA each switch that offers a list is set to, by patch id. */
   lora: Record<string, string>;
   onLoraChange: (patchId: string, choiceId: string) => void;
+  /** Which graded trigger phrase each LoRA is set to, by entry id. */
+  tier: Record<string, string>;
+  onTierChange: (choiceId: string, tierId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -107,6 +112,20 @@ export function ModelOptions({
         choices: checked ? patch.choices : undefined,
         chosen,
         onChoose: (next: string) => onLoraChange(patch.id, next),
+        // The trigger tier, where the LoRA has one. Above the base and the
+        // strength because it is about the shot rather than the machine.
+        tier:
+          checked && chosen?.prompt?.tiers?.length
+            ? {
+                spec: chosen.prompt,
+                tiers: chosen.prompt.tiers,
+                value:
+                  tier[chosen.id] ??
+                  chosen.prompt.defaultTier ??
+                  chosen.prompt.tiers[0].id,
+                onChange: (next: string) => onTierChange(chosen.id, next),
+              }
+            : undefined,
         baseAlternate:
           checked && chosen?.baseAlternate
             ? {
@@ -138,6 +157,7 @@ export function ModelOptions({
             choices: undefined,
             chosen: undefined,
             onChoose: undefined,
+            tier: undefined,
             baseAlternate: undefined,
             strength: undefined,
           },
@@ -226,6 +246,35 @@ export function ModelOptions({
                     className="mt-2 text-[12px] leading-relaxed text-fg-muted"
                   >
                     {row.chosen.help}
+                  </p>
+                </div>
+              ) : null}
+
+              {row.tier ? (
+                <div className="mt-3">
+                  <label
+                    htmlFor={`model-${row.key}-tier`}
+                    className="text-[12px] text-fg-muted"
+                  >
+                    {row.tier.spec.label ?? "Tier"}
+                  </label>
+                  <div className="mt-2">
+                    <Select
+                      id={`model-${row.key}-tier`}
+                      value={row.tier.value}
+                      onChange={row.tier.onChange}
+                      options={row.tier.tiers.map((t) => ({
+                        value: t.id,
+                        label: t.label,
+                      }))}
+                      describedBy={`model-${row.key}-tier-help`}
+                    />
+                  </div>
+                  <p
+                    id={`model-${row.key}-tier-help`}
+                    className="mt-2 text-[12px] leading-relaxed text-fg-muted"
+                  >
+                    {row.tier.spec.help ?? ""}
                   </p>
                 </div>
               ) : null}

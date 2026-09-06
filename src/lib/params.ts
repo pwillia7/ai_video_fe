@@ -3,6 +3,7 @@ import {
   applyBypass,
   bypassApplies,
   bypassProblems,
+  promptConsumer,
 } from "@/lib/workflows/director";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import type { RunModes } from "@/lib/workflows/modes";
@@ -10,6 +11,7 @@ import {
   applyPatch,
   enabledPatches,
   patchBaseProblems,
+  patchChoice,
   type AppliedPatch,
 } from "@/lib/workflows/patches";
 import type { SpliceId } from "@/lib/workflows/model-chain";
@@ -304,12 +306,25 @@ export function applyParams(
   // own numbers rather than inherit the last one's, whose range may not even
   // contain them.
   const loras: Record<string, AppliedPatch> = {};
+  // Where a trigger would go, worked out once from the same link the bypass
+  // rewires. Undefined on a graph with no director, which refuses a LoRA that
+  // needs one rather than applying its weights with nothing to activate them.
+  const promptInput = workflow.directorBypass
+    ? (promptConsumer(graph, workflow.directorBypass) ?? undefined)
+    : undefined;
   for (const patch of patches) {
-    const chosen = mode.lora?.[patch.id];
+    // Resolved here rather than read straight off the request, because the
+    // per-entry settings below are keyed by the entry that will actually run.
+    // Keying them off the *requested* id instead would drop every one of them
+    // whenever the id was absent or stale — which is the common case, since a
+    // request need not name a LoRA at all to get the default one.
+    const chosen = patchChoice(patch, mode.lora?.[patch.id])?.id;
     loras[patch.id] = applyPatch(graph, patch, {
       choice: chosen,
       strength: chosen ? mode.strengths?.[chosen] : undefined,
       alternateBase: chosen ? mode.alternateBase?.[chosen] : undefined,
+      tier: chosen ? mode.tier?.[chosen] : undefined,
+      promptInput,
     });
   }
 
@@ -592,14 +607,22 @@ function patchProblems(workflow: WorkflowDef): string[] {
     }
   };
 
+  // The same place a run would put a trigger, so the checks below fail for a
+  // graph that genuinely has nowhere to put one rather than for not being told.
+  const promptInput = workflow.directorBypass
+    ? (promptConsumer(workflow.graph, workflow.directorBypass) ?? undefined)
+    : undefined;
+
   for (const patch of patches) {
-    attempt(patch.label, " on its own", (graph) => applyPatch(graph, patch));
+    attempt(patch.label, " on its own", (graph) =>
+      applyPatch(graph, patch, { promptInput }),
+    );
     problems.push(...patchBaseProblems(patch, workflow.graph));
   }
 
   attempt("The switches", " together", (graph) => {
     if (workflow.turbo) applyTurbo(graph, workflow.turbo);
-    for (const patch of patches) applyPatch(graph, patch);
+    for (const patch of patches) applyPatch(graph, patch, { promptInput });
   });
 
   return problems;

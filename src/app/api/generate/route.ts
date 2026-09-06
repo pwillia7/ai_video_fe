@@ -26,6 +26,7 @@ export async function POST(request: Request) {
       lowVram?: boolean;
       patches?: string[];
       lora?: Record<string, string>;
+      tier?: Record<string, string>;
       strengths?: Record<string, number>;
       alternateBase?: Record<string, boolean>;
     };
@@ -70,6 +71,10 @@ export async function POST(request: Request) {
     for (const [id, value] of Object.entries(body.lora ?? {})) {
       if (typeof value === "string" && value) lora[id] = value;
     }
+    const tier: Record<string, string> = {};
+    for (const [id, value] of Object.entries(body.tier ?? {})) {
+      if (typeof value === "string" && value) tier[id] = value;
+    }
     // Booleans only. Which file each side means is this side's business — the
     // browser is never given either filename. See `PatchBaseAlternate`.
     const alternateBase: Record<string, boolean> = {};
@@ -111,6 +116,7 @@ export async function POST(request: Request) {
       lowVram,
       patches,
       lora,
+      tier,
       strengths,
       alternateBase,
     });

@@ -33,6 +33,7 @@ import {
   hydrateAll,
   hydrateAlternateBase,
   hydrateLora,
+  hydrateTier,
   hydratePatches,
   hydrateStrengths,
   hydrateTurbo,
@@ -42,6 +43,7 @@ import {
   writeStoredParams,
   writeStoredAlternateBase,
   writeStoredLora,
+  writeStoredTier,
   writeStoredPatches,
   writeStoredStrengths,
   writeStoredTurbo,
@@ -223,6 +225,9 @@ function Workbench({
    */
   const [lora, setLora] = useState(() => hydrateLora(workflows));
 
+  /** Which graded trigger phrase each LoRA is set to, by entry id. */
+  const [tier, setTier] = useState(() => hydrateTier(workflows));
+
   const [strengths, setStrengths] = useState(() => hydrateStrengths(workflows));
 
   /**
@@ -262,6 +267,10 @@ function Workbench({
   }, [lora]);
 
   useEffect(() => {
+    writeStoredTier(tier);
+  }, [tier]);
+
+  useEffect(() => {
     writeStoredStrengths(strengths);
   }, [strengths]);
 
@@ -295,10 +304,11 @@ function Workbench({
       turbo: turboOn,
       patches: patchesOn,
       lora,
+      tier,
       strengths,
       alternateBase,
     }),
-    [turboOn, patchesOn, lora, strengths, alternateBase],
+    [turboOn, patchesOn, lora, tier, strengths, alternateBase],
   );
 
   /**
@@ -340,10 +350,20 @@ function Workbench({
         return !patch || !patchSuppressed(patch, runValues);
       }),
       lora,
+      tier,
       strengths,
       alternateBase,
     }),
-    [turboOn, patchesOn, selected, runValues, lora, strengths, alternateBase],
+    [
+      turboOn,
+      patchesOn,
+      selected,
+      runValues,
+      lora,
+      tier,
+      strengths,
+      alternateBase,
+    ],
   );
 
   /**
@@ -407,9 +427,13 @@ function Workbench({
     setAlternateBase((previous) => ({ ...previous, [id]: on }));
   }, []);
 
-  /** Which LoRA a switch is set to. Keyed by the switch, unlike the two above. */
+  /** Which LoRA a switch is set to. Keyed by the switch, unlike the rest. */
   const setLoraFor = useCallback((patchId: string, choiceId: string) => {
     setLora((previous) => ({ ...previous, [patchId]: choiceId }));
+  }, []);
+
+  const setTierFor = useCallback((choiceId: string, tierId: string) => {
+    setTier((previous) => ({ ...previous, [choiceId]: tierId }));
   }, []);
 
   const setValue = useCallback(
@@ -652,6 +676,20 @@ function Workbench({
           );
           if (option?.strength && typeof applied?.strength === "number") {
             next[option.id] = applied.strength;
+          }
+        }
+        return next;
+      });
+      setTier((previous) => {
+        const next = { ...previous };
+        for (const patch of target.patches) {
+          const applied = job.loras?.[patch.id];
+          const option = patch.choices?.options.find(
+            (candidate) => candidate.id === applied?.choice,
+          );
+          const was = applied?.prompt?.tier;
+          if (was && option?.prompt?.tiers?.some((t) => t.id === was)) {
+            next[option.id] = was;
           }
         }
         return next;
@@ -922,6 +960,8 @@ function Workbench({
                   onAlternateBaseChange={setAlternateBaseFor}
                   lora={lora}
                   onLoraChange={setLoraFor}
+                  tier={tier}
+                  onTierChange={setTierFor}
                 />
 
                 {clipNotice &&

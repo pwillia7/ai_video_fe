@@ -577,15 +577,27 @@ smaller and much easier on VRAM for some quality. Both are non-rotated, so
 neither side can produce the failure above; it is a straight quality-for-memory
 trade, and the option to take if bf16 will not fit or has not been downloaded.
 
-**It has a strength.** For VHS tape the two LoRAs perturb the same weights and
-their strengths add, and 4-step turbo has very little headroom, so it wants
-**0.4–0.6** stacked rather than the ~1 it would take alone; the slider defaults
-to 0.5, since stacked is what a default install does. The other half of that
-trade is only said, not enforced: 4-step turbo softens the tape grain the LoRA
-exists to produce, and the look is at its best at roughly **20–25 steps with
-Turbo off**. That is a judgement about a shot, not a rule about the graph.
+**It has a trigger, and the LoRA is inert without it.** `vh5tape` has to be the
+first thing in the prompt, followed by a damage-tier phrase, then the scene —
+that is what the LoRA was trained to answer to. The weights apply either way, so
+a run without the trigger looks like it worked and is merely a slightly
+different take, which is the worst kind of wrong. So the switch splices a
+`StringConcatenate` (ComfyUI core, no pack) between whatever produces the prompt
+and the node that consumes it, putting the trigger in front deterministically.
 
-Neither the strength nor the base choice is a param — the inputs they write
+Deterministically, and not by asking the prompt director: the director is a
+language model rewriting a sentence, and "begin your output with exactly this" is
+a request it can decline, reword, or bury mid-sentence. A join node cannot. It
+also means the trigger survives **Send my prompt as written** — bypass rewires
+the *producer* feeding the join, so the join and its consumer are untouched.
+
+**Tape damage** picks the graded phrase, verbatim from the model card: Light,
+Medium or Heavy. It defaults to Medium rather than the first offered, because
+Turbo's four-step sampler already softens the grain and the stacked strength is
+half — starting at Light would stack three things pulling the same way and show
+almost nothing, which reads as "the LoRA is broken" rather than as a setting.
+
+**It has a strength.** For VHS tape the two LoRAs perturb the same weights andNeither the strength nor the base choice is a param — the inputs they write
 belong to a node that is not in the stored graph, the same reason Low VRAM is not
 one — so both ride in the run's modes. Both are keyed by the *entry's* id rather
 than the switch's, so each LoRA remembers its own settings and switching between

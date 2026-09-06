@@ -66,6 +66,12 @@ const STRENGTHS_KEY = "sorant-patch-strengths";
  * about the machine rather than about any one workflow.
  */
 const ALTERNATE_BASE_KEY = "sorant-patch-alternate-base";
+/**
+ * Which graded trigger phrase each LoRA is set to, by entry id. Unlike the two
+ * above this is about the shot rather than the machine — but it is stored the
+ * same way, because it belongs to the LoRA and there is one of it per LoRA.
+ */
+const TIER_KEY = "sorant-patch-tier";
 
 export type StoredModes = Record<string, boolean>;
 
@@ -163,6 +169,30 @@ export function hydrateAlternateBase(
 
 export const writeStoredAlternateBase = (chosen: Record<string, boolean>) =>
   write(ALTERNATE_BASE_KEY, chosen);
+
+/**
+ * The stored tier for each LoRA that has one, falling back to what the entry
+ * declares and dropping an id its list no longer has.
+ */
+export function hydrateTier(
+  workflows: WorkflowSummary[],
+): Record<string, string> {
+  const stored = read<string>(TIER_KEY);
+  const tiers: Record<string, string> = {};
+  for (const option of offeredChoices(workflows)) {
+    const offered = option.prompt?.tiers;
+    if (!offered?.length) continue;
+    const saved = stored[option.id];
+    tiers[option.id] = offered.some((tier) => tier.id === saved)
+      ? saved
+      : (offered.find((tier) => tier.id === option.prompt?.defaultTier)?.id ??
+        offered[0].id);
+  }
+  return tiers;
+}
+
+export const writeStoredTier = (tiers: Record<string, string>) =>
+  write(TIER_KEY, tiers);
 
 function read<T>(key: string): Record<string, T> {
   try {

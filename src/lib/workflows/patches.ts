@@ -81,6 +81,65 @@ export interface PatchStrength {
 }
 
 /**
+ * The node that puts a LoRA's trigger in front of the prompt.
+ *
+ * ComfyUI core, so this costs no node pack — the same property that makes
+ * `LoraLoaderModelOnly` the right loader.
+ */
+const PROMPT_JOIN = "StringConcatenate";
+
+/** Node id for the spliced-in prompt join. Must not collide with a graph's own. */
+const PROMPT_NODE_ID = "style-prompt";
+
+/**
+ * One step on a LoRA's own scale, offered as a dropdown under it.
+ *
+ * For a LoRA whose training gives it graded phrases rather than one trigger —
+ * the VHS one is trained on light/medium/heavy tape damage, and the phrase is
+ * what selects between them. The strength slider is a different question: that
+ * scales how hard the weights push, this says which thing they push toward.
+ */
+export interface PatchPromptTier {
+  /** Stable id: stored, sent, and recorded. */
+  id: string;
+  label: string;
+  /** The phrase itself, verbatim from the LoRA's own documentation. */
+  phrase: string;
+}
+
+/**
+ * What a LoRA needs written into the prompt to do anything at all.
+ *
+ * **A LoRA with a trigger is inert without it.** The weights are applied either
+ * way, so a run with the switch on and no trigger looks like it worked and is
+ * merely a slightly different take — which is the worst kind of wrong, and the
+ * reason this is declared next to the file rather than left to whoever writes
+ * the prompt.
+ *
+ * The text goes in front of whatever reaches the model, deterministically,
+ * rather than being asked of the prompt director. The director is a language
+ * model rewriting a sentence, and "begin your output with exactly this" is a
+ * request it can decline, reword, or bury mid-sentence. A join node cannot.
+ * That also makes the trigger survive the director being bypassed entirely.
+ */
+export interface PatchPrompt {
+  /** The trigger word, first thing the model sees. */
+  trigger: string;
+  /** How the tier control is labelled. Absent `tiers`, no control is shown. */
+  label?: string;
+  help?: string;
+  /** Graded phrases, in the order they are offered. */
+  tiers?: PatchPromptTier[];
+  /**
+   * Which tier a fresh install selects. Declared rather than taken as the first
+   * offered, because the list is ordered by intensity — which is how someone
+   * reads a graded scale — and the useful default is not usually an end of it.
+   * An id naming no tier falls back to the first.
+   */
+  defaultTier?: string;
+}
+
+/**
  * A curated LoRA the switch can load, and everything that is true of that one
  * LoRA rather than of the switch carrying it.
  *
@@ -105,6 +164,8 @@ export interface PatchChoice {
   base?: PatchBase;
   /** Set where this LoRA's strength is the user's to set. */
   strength?: PatchStrength;
+  /** Set where this LoRA has a trigger word it is inert without. */
+  prompt?: PatchPrompt;
   /** One line under the dropdown, describing this LoRA rather than the switch. */
   help: string;
 }
@@ -217,6 +278,8 @@ export type ClientPatchChoice = Omit<
   PatchChoice,
   "file" | "base" | "strength"
 > & {
+  // `prompt` is not stripped: it is words that go in the prompt, which the form
+  // has to show and which give nothing away about the machine.
   strength?: Omit<PatchStrength, "input">;
   /**
    * The base switch's wording, minus the filename it selects — the same trade
@@ -296,6 +359,19 @@ export interface PatchOptions {
   strength?: number;
   /** Load the entry's alternate base. Ignored where it offers none. */
   alternateBase?: boolean;
+  /** Id of the tier in the entry's `prompt`. Falls back to the first offered. */
+  tier?: string;
+  /**
+   * Where the prompt reaches the model: the node input the trigger has to land
+   * in front of.
+   *
+   * Passed in rather than found here, because only the workflow knows it — it
+   * is the same link `directorBypass` rewires, and `promptConsumer` derives it
+   * from that rather than from a second declaration that could drift. Without
+   * it a LoRA that declares a trigger is refused, since applying its weights
+   * with no trigger is the silent-no-op this whole field exists to prevent.
+   */
+  promptInput?: { node: string; input: string };
 }
 
 /** What a run actually got from one patch, once the choice is resolved. */
@@ -306,6 +382,8 @@ export interface AppliedPatch {
   file?: string;
   /** The strength it was applied at, where the entry has one. */
   strength?: number;
+  /** The text put in front of the prompt, and which tier it came from. */
+  prompt?: { text: string; tier?: string };
   /** The checkpoint put under it, and which side of the base switch that was. */
   base?: { file: string; alternate: boolean };
 }
@@ -363,6 +441,16 @@ export function applyPatch(
     inputs: Object.keys(inputs).length > 0 ? inputs : undefined,
   });
 
+  if (choice?.prompt) {
+    applied.prompt = applyPatchPrompt(
+      graph,
+      patch.label,
+      choice.prompt,
+      options.tier,
+      options.promptInput,
+    );
+  }
+
   if (choice?.base) {
     // Resolved rather than echoed: an entry offering no alternate loads its
     // default whatever the switch was left on, so recording the request would
@@ -398,6 +486,86 @@ export function resolveStrength(
     return spec.default;
   }
   return Math.min(spec.max, Math.max(spec.min, submitted));
+}
+
+/** The tier a run is using: the one it named, or the first offered. */
+export function patchTier(
+  prompt: PatchPrompt,
+  chosen: string | undefined,
+): PatchPromptTier | undefined {
+  const tiers = prompt.tiers;
+  if (!tiers?.length) return undefined;
+  return (
+    tiers.find((tier) => tier.id === chosen) ??
+    tiers.find((tier) => tier.id === prompt.defaultTier) ??
+    tiers[0]
+  );
+}
+
+/** The text this LoRA puts in front of the prompt. */
+export function patchPromptText(
+  prompt: PatchPrompt,
+  chosen: string | undefined,
+): string {
+  const tier = patchTier(prompt, chosen);
+  return tier ? `${prompt.trigger}, ${tier.phrase}` : prompt.trigger;
+}
+
+/**
+ * Put the LoRA's trigger in front of the prompt, in place, and say what it was.
+ *
+ * Splices a join node between whatever currently produces the prompt and the
+ * node that consumes it, so the trigger is first whatever else happens to the
+ * text — including the prompt director being bypassed, which rewires the
+ * *producer* and leaves this join and its consumer untouched. That is why this
+ * runs before `applyBypass` rather than after: bypass rewrites links out of the
+ * director, and the join's own input is one of them.
+ *
+ * Throws where the consumer is unknown or missing. A LoRA with a trigger and no
+ * trigger applied is a run that looks like it worked, which is worse than one
+ * that failed.
+ */
+function applyPatchPrompt(
+  graph: ComfyGraph,
+  label: string,
+  prompt: PatchPrompt,
+  tier: string | undefined,
+  promptInput: { node: string; input: string } | undefined,
+): { text: string; tier?: string } {
+  if (!promptInput) {
+    throw new Error(
+      `${label} needs a trigger in the prompt, but this workflow does not say where the prompt reaches the model.`,
+    );
+  }
+  const consumer = graph[promptInput.node];
+  if (!consumer || !(promptInput.input in consumer.inputs)) {
+    throw new Error(
+      `${label} writes its trigger into node ${promptInput.node}.${promptInput.input}, which ${
+        consumer ? `${consumer.class_type} does not accept` : "this graph does not have"
+      }.`,
+    );
+  }
+  if (graph[PROMPT_NODE_ID]) {
+    throw new Error(
+      `${label} needs node id "${PROMPT_NODE_ID}", which is taken.`,
+    );
+  }
+
+  const text = patchPromptText(prompt, tier);
+  graph[PROMPT_NODE_ID] = {
+    class_type: PROMPT_JOIN,
+    inputs: {
+      string_a: text,
+      // Whatever fed the model before — the director's rewrite, or the raw
+      // prompt once bypass has rewired it.
+      string_b: consumer.inputs[promptInput.input],
+      delimiter: ", ",
+    },
+    _meta: { title: "LoRA trigger" },
+  };
+  consumer.inputs[promptInput.input] = [PROMPT_NODE_ID, 0];
+
+  return { text, tier: patchTier(prompt, tier)?.id };
 }
 
 /**
@@ -456,6 +624,20 @@ export function patchBaseProblems(
     seen.add(option.id);
   }
 
+  for (const option of choices.options) {
+    if (!option.prompt) continue;
+    if (option.prompt.tiers && option.prompt.tiers.length === 0) {
+      problems.push(`${option.label} offers a tier list with nothing in it.`);
+    }
+    const tierIds = new Set<string>();
+    for (const tier of option.prompt.tiers ?? []) {
+      if (tierIds.has(tier.id)) {
+        problems.push(`${option.label} offers two tiers with the id "${tier.id}".`);
+      }
+      tierIds.add(tier.id);
+    }
+  }
+
   const loader = modelLoaderIn(graph);
   for (const option of choices.options) {
     const base = option.base;
@@ -500,6 +682,7 @@ export function patchBaseProblems(
 export function patchVariants(
   graph: ComfyGraph,
   patch: PatchDef,
+  promptInput?: { node: string; input: string },
 ): Array<{ suffix: string; graph: ComfyGraph; optional: boolean }> {
   const options = patch.choices?.options;
   if (!options?.length) {
@@ -513,13 +696,17 @@ export function patchVariants(
     // on a correctly set-up machine and train everyone to ignore it.
     variants.push({
       suffix: `, ${option.label.toLowerCase()}`,
-      graph: patchGraph(graph, patch, { choice: option.id }),
+      graph: patchGraph(graph, patch, { choice: option.id, promptInput }),
       optional: true,
     });
     if (option.base?.alternate) {
       variants.push({
         suffix: `, ${option.label.toLowerCase()}, ${option.base.alternate.label.toLowerCase()}`,
-        graph: patchGraph(graph, patch, { choice: option.id, alternateBase: true }),
+        graph: patchGraph(graph, patch, {
+          choice: option.id,
+          alternateBase: true,
+          promptInput,
+        }),
         optional: true,
       });
     }

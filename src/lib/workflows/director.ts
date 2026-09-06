@@ -126,6 +126,29 @@ export function applyBypass(graph: ComfyGraph, spec: DirectorBypass): void {
   }
 }
 
+/**
+ * Where the prompt reaches the model: the node input the director's output
+ * lands in.
+ *
+ * Derived from the bypass declaration rather than declared again, because it is
+ * the same link — `applyBypass` rewires exactly this to the raw prompt node, so
+ * a second declaration could drift and put a LoRA's trigger somewhere the model
+ * never reads. Null where the graph has no single such consumer, which is what
+ * refuses a trigger rather than putting it nowhere.
+ */
+export function promptConsumer(
+  graph: ComfyGraph,
+  spec: DirectorBypass,
+): { node: string; input: string } | null {
+  const found: Array<{ node: string; input: string }> = [];
+  for (const [id, node] of Object.entries(graph)) {
+    for (const [input, value] of Object.entries(node.inputs)) {
+      if (isLinkFrom(value, spec.node)) found.push({ node: id, input });
+    }
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
 /** The graph this would queue. Used by `check:workflows` and the probes. */
 export function bypassedGraph(
   graph: ComfyGraph,

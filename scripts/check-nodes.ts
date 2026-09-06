@@ -23,6 +23,7 @@ import {
 } from "../src/lib/comfy";
 import { WORKFLOWS } from "../src/lib/workflows";
 import { patchVariants } from "../src/lib/workflows/patches";
+import { promptConsumer } from "../src/lib/workflows/director";
 import { stepSamplerGraph } from "../src/lib/workflows/step-sampler";
 import { turboGraph } from "../src/lib/workflows/turbo";
 
@@ -121,7 +122,10 @@ function collect() {
       // Every form the switch can take: one per LoRA it offers, and one more
       // per LoRA that offers a second checkpoint. A switch carrying a list
       // reports each of them optional — see `optional` on Need.
-      for (const variant of patchVariants(workflow.graph, patch)) {
+      const promptInput = workflow.directorBypass
+        ? (promptConsumer(workflow.graph, workflow.directorBypass) ?? undefined)
+        : undefined;
+      for (const variant of patchVariants(workflow.graph, patch, promptInput)) {
         graphs.push({
           label: `${workflow.id} (${patch.id}${variant.suffix})`,
           graph: variant.graph,

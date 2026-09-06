@@ -354,6 +354,7 @@ export function useJobs(): JobsController {
             patches: asked,
             lowVram: Boolean(options?.lowVram),
             lora: options?.lora,
+            tier: options?.tier,
             strengths: options?.strengths,
             alternateBase: options?.alternateBase,
           }),

@@ -168,6 +168,18 @@ export function SettingsModal({
                 label={patch?.choices?.label ?? "LoRA"}
                 value={option?.label ?? applied.choice ?? "—"}
               />,
+              // The text that actually went in front of the prompt. Shown in
+              // full rather than as the tier's name: it is what the model was
+              // given, and it is the part of a VHS take that explains the take.
+              ...(applied.prompt
+                ? [
+                    <Row
+                      key={`lora-${id}-trigger`}
+                      label={option?.prompt?.label ?? "Trigger"}
+                      value={applied.prompt.text}
+                    />,
+                  ]
+                : []),
               ...(applied.strength !== undefined
                 ? [
                     <Row

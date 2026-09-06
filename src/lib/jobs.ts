@@ -75,6 +75,8 @@ export interface Job {
       choice?: string;
       file?: string;
       strength?: number;
+      /** The trigger text put in front of the prompt, and which tier it was. */
+      prompt?: { text: string; tier?: string };
       base?: { file: string; alternate: boolean };
     }
   >;
