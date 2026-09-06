@@ -54,31 +54,30 @@ export interface Job {
    */
   patches?: string[];
   /**
-   * What each switch that carries a strength was applied at, by patch id.
+   * What each content-LoRA switch actually applied, by patch id: which entry,
+   * which file, at what strength, on which checkpoint.
    *
-   * Recorded for the same reason `patches` is, and it matters more here: two
-   * VHS takes at 0.4 and 0.8 are the same workflow with the same switches on,
-   * and without this the history has nothing that tells them apart. Absent on
-   * a run that had no such switch, and on every job stored before this existed.
+   * Recorded for the same reason `patches` is, and it matters more: two takes
+   * with the same switches on can differ by which LoRA, how strong, and which
+   * checkpoint, none of which the run's name shows. `file` and `base.file` are
+   * what the run detail displays, since a filename keeps meaning the same after
+   * the list behind the switch changes; `choice` and `base.alternate` are what
+   * Reuse settings puts back, because the browser never sees a filename and
+   * cannot work the controls out of one.
    *
-   * Not in `modeKey`. The learned estimate buckets by which nodes were in the
-   * graph, and a LoRA costs the same to apply at any strength.
+   * Not in `modeKey`: which LoRA and which checkpoint do change what a run
+   * costs, but splitting an already-narrow bucket by them would buy a worse
+   * estimate than pooling them.
    */
-  strengths?: Record<string, number>;
-  /**
-   * The checkpoint each switch that swaps one actually loaded, by patch id.
-   *
-   * `file` is what the run detail shows, since the filename is what explains a
-   * difference between two takes and keeps meaning the same after the
-   * declaration behind the switch changes. `alternate` is what Reuse settings
-   * puts back, because the browser never sees either filename and cannot work
-   * the switch out of `file` itself.
-   *
-   * Not in `modeKey`: the two bases do differ in what a run costs, but
-   * splitting an already-narrow bucket by them would buy a worse estimate than
-   * pooling them.
-   */
-  bases?: Record<string, { file: string; alternate: boolean }>;
+  loras?: Record<
+    string,
+    {
+      choice?: string;
+      file?: string;
+      strength?: number;
+      base?: { file: string; alternate: boolean };
+    }
+  >;
   hasAudio: boolean;
   /**
    * Marked by the user as worth keeping. Purely an organising flag — it sorts

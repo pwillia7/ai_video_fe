@@ -56,10 +56,8 @@ interface GenerateResponse {
   resolved: Record<string, ParamValue>;
   /** The switches the run actually got, which can be fewer than were asked for. */
   patches?: string[];
-  /** What each of those was applied at, for the switches that carry a strength. */
-  strengths?: Record<string, number>;
-  /** The checkpoint each switch that swaps one actually loaded, and which side. */
-  bases?: Record<string, { file: string; alternate: boolean }>;
+  /** Which LoRA each content switch applied, and at what. */
+  loras?: Job["loras"];
   estimatedSeconds: number | null;
 }
 
@@ -355,6 +353,7 @@ export function useJobs(): JobsController {
             turbo,
             patches: asked,
             lowVram: Boolean(options?.lowVram),
+            lora: options?.lora,
             strengths: options?.strengths,
             alternateBase: options?.alternateBase,
           }),
@@ -367,8 +366,7 @@ export function useJobs(): JobsController {
         // Same rule: what was written onto the spliced nodes, not what the form
         // was showing. Two takes that differ only by a LoRA strength are exactly
         // the pair the history has to be able to tell apart.
-        const strengths = response.strengths;
-        const bases = response.bases;
+        const loras = response.loras;
 
         const job: Job = {
           promptId: response.promptId,
@@ -383,8 +381,7 @@ export function useJobs(): JobsController {
           prompt: String(values.prompt ?? ""),
           turbo,
           patches,
-          strengths,
-          bases,
+          loras,
           derivedFrom: options?.derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),

@@ -148,34 +148,47 @@ export function SettingsModal({
       <Section heading="Run">
         <dl className="flex flex-col">
           <Row label="Workflow" value={workflow?.name ?? job.workflowName} />
-          {/* One row per switch that had a strength, since the run's name says
-              which switches were on but not how far. The label is resolved off
-              the workflow and falls back to the raw id, on the same grounds as
-              a param the current definition no longer declares: a stale name
-              beats dropping the answer someone opened the modal for. */}
-          {/* The checkpoint a switch put under its LoRA, where it swapped one.
-              Shown as the filename it was recorded as, since that is the thing
-              that explains a difference between two takes. */}
-          {Object.entries(job.bases ?? {}).map(([id, base]) => (
-            <Row
-              key={`base-${id}`}
-              label={`${
-                workflow?.patches.find((patch) => patch.id === id)?.label ?? id
-              } base`}
-              value={base.file}
-              mono
-            />
-          ))}
-          {Object.entries(job.strengths ?? {}).map(([id, value]) => (
-            <Row
-              key={id}
-              label={
-                workflow?.patches.find((patch) => patch.id === id)?.strength
-                  ?.label ?? id
-              }
-              value={value.toFixed(2)}
-            />
-          ))}
+          {/* What each content switch actually applied. The run's name says
+              which switches were on; only this says which LoRA, how strong, and
+              on which weights — the three things two otherwise-identical takes
+              differ by. Labels are resolved off the workflow and fall back to
+              the recorded ids, on the same grounds as a param the current
+              definition no longer declares: a stale name beats dropping the
+              answer someone opened the modal for. */}
+          {Object.entries(job.loras ?? {}).flatMap(([id, applied]) => {
+            const patch = workflow?.patches.find(
+              (candidate) => candidate.id === id,
+            );
+            const option = patch?.choices?.options.find(
+              (candidate) => candidate.id === applied.choice,
+            );
+            return [
+              <Row
+                key={`lora-${id}`}
+                label={patch?.choices?.label ?? "LoRA"}
+                value={option?.label ?? applied.choice ?? "—"}
+              />,
+              ...(applied.strength !== undefined
+                ? [
+                    <Row
+                      key={`lora-${id}-strength`}
+                      label={option?.strength?.label ?? "Strength"}
+                      value={applied.strength.toFixed(2)}
+                    />,
+                  ]
+                : []),
+              ...(applied.base
+                ? [
+                    <Row
+                      key={`lora-${id}-base`}
+                      label="Base"
+                      value={applied.base.file}
+                      mono
+                    />,
+                  ]
+                : []),
+            ];
+          })}
           <Row label="Started" value={formatWhen(job.submittedAt)} />
           {rendered !== null ? (
             <Row label="Render time" value={formatDuration(rendered)} />

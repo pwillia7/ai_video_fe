@@ -8,7 +8,7 @@ import {
   durationParam,
   TEXT_DIRECTOR,
   h3Patches,
-  h3VhsLora,
+  h3ContentLora,
   h3StepSampler,
   h3Turbo,
   literalPromptParam,
@@ -279,10 +279,10 @@ export const minimaxH3: WorkflowDef = {
   params: hideDirectorOnly(params, bypass),
   directorBypass: bypass,
   turbo: h3Turbo(130),
-  // The VHS LoRA first, matching the order they stack in: it is a LoRA on the
-  // model, and the other two wrap whatever weights are in play by then. Only
-  // the fl2va graphs offer it — see h3VhsLora, and the ref2va bases it is not
-  // made for.
-  patches: [h3VhsLora(), ...h3Patches()],
+  // The content LoRA first, matching the order they stack in: it is a LoRA on
+  // the model, and the other two wrap whatever weights are in play by then.
+  // Only the fl2va graphs offer it — see h3ContentLora, and the ref2va bases
+  // its LoRAs are not made for.
+  patches: [h3ContentLora(), ...h3Patches()],
   stepSampler: h3StepSampler(),
 };

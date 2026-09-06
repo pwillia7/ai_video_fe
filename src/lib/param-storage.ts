@@ -47,17 +47,21 @@ const PATCHES_KEY = `sorant-patches-v${DEFAULTS_VERSION}`;
  */
 const LOW_VRAM_KEY = "sorant-low-vram";
 /**
- * How strong each switch that has a strength is set, by patch id.
+ * Which LoRA each content switch is set to, by patch id.
  *
- * One number per switch for the whole app rather than one per workflow, the way
- * Low VRAM is stored: the VHS LoRA is the same LoRA on all three graphs that
- * offer it, and a strength found by eye on one of them is the answer on the
- * others too. Keyed by patch id rather than by workflow for the same reason.
+ * One choice for the whole app rather than one per workflow, like the two below:
+ * the list is the same list on every graph that offers it, and a LoRA you are
+ * working with is the one you are working with whichever workflow you reach for.
+ */
+const LORA_KEY = "sorant-patch-lora";
+/**
+ * How strong each LoRA is set, keyed by the *entry's* id — see `strengths` on
+ * RunModes for why it is not keyed by the switch.
  */
 const STRENGTHS_KEY = "sorant-patch-strengths";
 /**
- * Which switches are set to their alternate base, by patch id. Stored the same
- * way and for the same reason as the strengths above and Low VRAM below: which
+ * Which LoRAs are set to their alternate base, by entry id. Stored the same way
+ * and for the same reason as the strengths above and Low VRAM below: which
  * checkpoint fits on this card, and which one has been downloaded, are facts
  * about the machine rather than about any one workflow.
  */
@@ -81,10 +85,42 @@ export function writeStoredLowVram(lowVram: boolean): void {
   }
 }
 
+/** Every LoRA every workflow offers, flattened. The list is shared. */
+function offeredChoices(workflows: WorkflowSummary[]) {
+  return workflows.flatMap((workflow) =>
+    workflow.patches.flatMap((patch) => patch.choices?.options ?? []),
+  );
+}
+
 /**
- * The stored strength for each switch that has one, falling back to what the
- * patch declares and dropping anything stored against a switch no workflow
- * offers any more.
+ * The stored LoRA for each switch that offers a list, falling back to the first
+ * offered and dropping an id the list no longer has — a renamed or removed
+ * entry would otherwise be sent on the next run.
+ */
+export function hydrateLora(
+  workflows: WorkflowSummary[],
+): Record<string, string> {
+  const stored = read<string>(LORA_KEY);
+  const chosen: Record<string, string> = {};
+  for (const workflow of workflows) {
+    for (const patch of workflow.patches) {
+      const options = patch.choices?.options;
+      if (!options?.length) continue;
+      const saved = stored[patch.id];
+      chosen[patch.id] = options.some((option) => option.id === saved)
+        ? saved
+        : options[0].id;
+    }
+  }
+  return chosen;
+}
+
+export const writeStoredLora = (chosen: Record<string, string>) =>
+  write(LORA_KEY, chosen);
+
+/**
+ * The stored strength for each LoRA that has one, falling back to what the
+ * entry declares and dropping anything stored against a LoRA no longer offered.
  *
  * Out-of-range numbers are kept rather than dropped, and clamped where they are
  * applied — `applyPatch` owns the range, and a value saved under an older one
@@ -95,14 +131,12 @@ export function hydrateStrengths(
 ): Record<string, number> {
   const stored = read<number>(STRENGTHS_KEY);
   const strengths: Record<string, number> = {};
-  for (const workflow of workflows) {
-    for (const patch of workflow.patches) {
-      if (!patch.strength) continue;
-      strengths[patch.id] =
-        typeof stored[patch.id] === "number" && Number.isFinite(stored[patch.id])
-          ? stored[patch.id]
-          : patch.strength.default;
-    }
+  for (const option of offeredChoices(workflows)) {
+    if (!option.strength) continue;
+    strengths[option.id] =
+      typeof stored[option.id] === "number" && Number.isFinite(stored[option.id])
+        ? stored[option.id]
+        : option.strength.default;
   }
   return strengths;
 }
@@ -111,8 +145,8 @@ export const writeStoredStrengths = (strengths: Record<string, number>) =>
   write(STRENGTHS_KEY, strengths);
 
 /**
- * The stored base choice for each switch that offers one, defaulting to the
- * recommended base and dropping anything stored against a switch that no longer
+ * The stored base choice for each LoRA that offers one, defaulting to the
+ * recommended base and dropping anything stored against a LoRA that no longer
  * offers a choice.
  */
 export function hydrateAlternateBase(
@@ -120,11 +154,9 @@ export function hydrateAlternateBase(
 ): Record<string, boolean> {
   const stored = read<boolean>(ALTERNATE_BASE_KEY);
   const chosen: Record<string, boolean> = {};
-  for (const workflow of workflows) {
-    for (const patch of workflow.patches) {
-      if (!patch.baseAlternate) continue;
-      chosen[patch.id] = stored[patch.id] === true;
-    }
+  for (const option of offeredChoices(workflows)) {
+    if (!option.baseAlternate) continue;
+    chosen[option.id] = stored[option.id] === true;
   }
   return chosen;
 }

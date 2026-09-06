@@ -22,7 +22,7 @@ import {
   type ComfyGraph,
 } from "../src/lib/comfy";
 import { WORKFLOWS } from "../src/lib/workflows";
-import { patchAlternateGraph, patchGraph } from "../src/lib/workflows/patches";
+import { patchVariants } from "../src/lib/workflows/patches";
 import { stepSamplerGraph } from "../src/lib/workflows/step-sampler";
 import { turboGraph } from "../src/lib/workflows/turbo";
 
@@ -118,19 +118,14 @@ function collect() {
       });
     }
     for (const patch of workflow.patches ?? []) {
-      graphs.push({
-        label: `${workflow.id} (${patch.id})`,
-        graph: patchGraph(workflow.graph, patch),
-      });
-      // And the other checkpoint, where the switch offers one. Optional,
-      // because it is the alternative to the base above rather than a second
-      // requirement — see `optional` on Need.
-      const alternate = patchAlternateGraph(workflow.graph, patch);
-      if (alternate) {
+      // Every form the switch can take: one per LoRA it offers, and one more
+      // per LoRA that offers a second checkpoint. A switch carrying a list
+      // reports each of them optional — see `optional` on Need.
+      for (const variant of patchVariants(workflow.graph, patch)) {
         graphs.push({
-          label: `${workflow.id} (${patch.id}, ${patch.base!.alternate!.label.toLowerCase()})`,
-          graph: alternate,
-          optional: true,
+          label: `${workflow.id} (${patch.id}${variant.suffix})`,
+          graph: variant.graph,
+          optional: variant.optional,
         });
       }
     }

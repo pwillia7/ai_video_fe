@@ -218,9 +218,9 @@ LoRA comes from its own pack, and the three Music 3 files from
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video graphs |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video graphs |
 | [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow |
-| `vh5tape-comfyui.safetensors` | `models/loras/` | the VHS tape switch — text/image to video, Extend |
-| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | the VHS tape switch, which cannot run on the rotated `fl2va` base |
-| `minimax_h3_fl2va_pruned_fp8_scaled.safetensors` | `models/diffusion_models/` | optional — the VHS switch's **Lighter base**, instead of bf16 |
+| `vh5tape-comfyui.safetensors` | `models/loras/` | optional — the **VHS tape** content LoRA (text/image to video, Extend) |
+| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | optional — what **VHS tape** runs on, since it cannot use the rotated `fl2va` base |
+| `minimax_h3_fl2va_pruned_fp8_scaled.safetensors` | `models/diffusion_models/` | optional — **VHS tape** on **Lighter base**, instead of bf16 |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |
@@ -535,62 +535,77 @@ two, and both start on:**
 - **Spectrum** splices `SpectrumApplyMiniMaxH3`, which forecasts sampler steps
   from the ones already taken instead of computing every one in full.
 
-**VHS tape** is the third, on the three `fl2va` graphs only — text to video,
-image to video and Extend — and it starts **off**, because it is a look rather
-than a way of running the model. It splices ComfyUI core's
-`LoraLoaderModelOnly`, holding `vh5tape-comfyui.safetensors`, directly behind
-the turbo LoRA. It needs no node pack, only the file in `models/loras/`.
+**Use additional content LoRA** is the third, on the three `fl2va` graphs only —
+text to video, image to video and Extend — and it starts **off**, because it is a
+look rather than a way of running the model. It splices ComfyUI core's
+`LoraLoaderModelOnly` directly behind the turbo LoRA, holding whichever LoRA is
+picked from the dropdown under it. It needs no node pack, only the files in
+`models/loras/`.
 
-Two things about it are unlike any other switch here.
+**The list is curated by hand**, in `H3_CONTENT_LORAS`. A `models/loras/`
+listing is mostly LoRAs for other model families — SDXL, Flux, Wan — every one of
+which would splice into an H3 graph without an error and produce nothing but
+noise, so the dropdown offers only what has actually been run on these graphs.
+Today that is one entry, **VHS tape**. Adding another is an entry in that array
+and nothing else: no new switch, no new storage key, no new checks.
+
+Each entry owns what is true of *that* LoRA rather than of the switch — the file,
+the checkpoint it needs, the strength it converges at. Hanging those off the
+switch would make the first LoRA's answers silently apply to every one added
+later. The switch owns only what they share: the loader class, which input the
+file goes in, and where in the model chain it sits.
+
+Two things follow from an entry's declaration.
 
 **It changes the checkpoint.** MiniMax-H3 LoRAs are made for fp16/fp8 bases, and
 the `fl2va` graphs ship on `minimax_h3_fl2va_pruned_int8_convrot` — the base the
 official ComfyUI H3 tutorial defaults to, and a *rotated* one. A LoRA loads into
 a rotated base with no error at all and then produces warped faces, melting limbs
 and objects that vanish mid-shot, which is worse than a failure because the run
-finishes. So the switch points the `UNETLoader` at a supported checkpoint for as
-long as it is on, and puts the rotated one straight back when it is off. That
-makes a VHS take cost noticeably more than a plain one; the learned estimate
-accounts for it on its own, since `modeKey` buckets by which switches were on.
-The same applies to `*_nvfp4` and `*_w4a8` — the patch declares the bases it will
-accept, and *both* sides of the switch below are checked against that list, so a
-base outside it fails `check:workflows` rather than a render.
+finishes. So the switch points the `UNETLoader` at a checkpoint the chosen LoRA
+supports for as long as it is on, and puts the rotated one straight back when it
+is off. That makes such a take cost noticeably more than a plain one; the learned
+estimate accounts for it on its own, since `modeKey` buckets by which switches
+were on. The same applies to `*_nvfp4` and `*_w4a8` — each entry declares the
+bases it accepts, and *both* sides of the **Lighter base** switch are checked
+against that list, so a base outside it fails `check:workflows` rather than a
+render.
 
-**Lighter base**, a switch under the switch, chooses which supported checkpoint
-that is. Off is `minimax_h3_fl2va_bf16`, the better one and the default; on is
-`minimax_h3_fl2va_pruned_fp8_scaled`, much smaller and much easier on VRAM for
-some quality. Both are non-rotated, so neither side can produce the failure
-above — this is a straight quality-for-memory trade, not a trap, and it is the
-option to take if bf16 will not fit on the card or has not been downloaded.
+**Lighter base** chooses which supported checkpoint that is. For VHS tape, off is
+`minimax_h3_fl2va_bf16` and on is `minimax_h3_fl2va_pruned_fp8_scaled` — much
+smaller and much easier on VRAM for some quality. Both are non-rotated, so
+neither side can produce the failure above; it is a straight quality-for-memory
+trade, and the option to take if bf16 will not fit or has not been downloaded.
 
-It is a boolean rather than a menu of checkpoints because the browser is never
-handed the model filenames — `base` is withheld from `ClientPatch` for the same
-reason the graph is — so the switch travels as a boolean and the server resolves
-which file it means. Like Low VRAM and the strength, it is remembered once for
-the whole app: which checkpoint fits this card, and which one is on the disk, are
-facts about the machine rather than about a workflow. The finished job records
-the filename that ran *and* which side of the switch it was, so the run detail
-can show the former and **Reuse settings** can restore the latter.
+**It has a strength.** For VHS tape the two LoRAs perturb the same weights and
+their strengths add, and 4-step turbo has very little headroom, so it wants
+**0.4–0.6** stacked rather than the ~1 it would take alone; the slider defaults
+to 0.5, since stacked is what a default install does. The other half of that
+trade is only said, not enforced: 4-step turbo softens the tape grain the LoRA
+exists to produce, and the look is at its best at roughly **20–25 steps with
+Turbo off**. That is a judgement about a shot, not a rule about the graph.
 
-`pnpm check:nodes` reports the default base as required and the lighter one as
-**optional** — you download the side you use, and a check that demanded both
-would be permanently red on a correctly set-up machine.
+Neither the strength nor the base choice is a param — the inputs they write
+belong to a node that is not in the stored graph, the same reason Low VRAM is not
+one — so both ride in the run's modes. Both are keyed by the *entry's* id rather
+than the switch's, so each LoRA remembers its own settings and switching between
+them does not carry a number into a range that may not contain it. Which LoRA is
+selected is keyed by the switch, and all three are remembered once for the whole
+app rather than per workflow.
 
-**It has a strength.** The two LoRAs perturb the same weights and their
-strengths add, and 4-step turbo has very little headroom, so stacked on Turbo
-this one wants **0.4–0.6** rather than the ~1 it would take alone. The slider
-defaults to 0.5, since stacked is what a default install does. The other half of
-that trade is only said, not enforced: 4-step turbo softens the tape grain the
-LoRA exists to produce, and the look is at its best at roughly **20–25 steps
-with Turbo off**. That is a judgement about a shot, not a rule about the graph.
+The browser is never given a model filename: each entry's `file`, and both sides
+of its `base`, are stripped on the way out for the same reason the graph is. The
+controls travel as ids and booleans, and the server resolves which files they
+mean. The finished job records the id *and* the filename — the run detail shows
+the filename, since that is what explains a difference between two takes and
+keeps meaning the same after the list changes, and **Reuse settings** restores
+from the ids, since the browser cannot work a control back out of a filename it
+never saw.
 
-The strength is not a param — the input it writes belongs to a node that is not
-in the stored graph, the same reason Low VRAM is not one — so it rides in the
-run's modes, is remembered once for the whole app rather than per workflow, and
-is recorded on the finished job. Two VHS takes at 0.4 and 0.8 are otherwise the
-same workflow with the same switches on, and the history would have nothing to
-tell them apart; the run detail names it under **Run**, and **Reuse settings**
-puts it back.
+`pnpm check:nodes` reports every LoRA in the list, and every checkpoint it can
+run on, as **optional** — the switch is off by default, the list is meant to
+grow, and nobody downloads all of it, so demanding them would leave the check red
+on a correctly set-up machine.
 
 These are plain on/offs rather than Turbo's two-position control, because off
 really is their absence: the node is only in the graph when the switch is on, so

@@ -9,9 +9,8 @@ import type { RunModes } from "@/lib/workflows/modes";
 import {
   applyPatch,
   enabledPatches,
-  patchBaseFile,
   patchBaseProblems,
-  resolveStrength,
+  type AppliedPatch,
 } from "@/lib/workflows/patches";
 import type { SpliceId } from "@/lib/workflows/model-chain";
 import {
@@ -191,25 +190,16 @@ export interface AppliedParams {
    */
   patches: string[];
   /**
-   * The strength each of those switches was actually applied at, for the ones
-   * that have a strength. Recorded for the same reason `patches` is: two takes
-   * that differ only by a LoRA strength are exactly the pair someone needs the
-   * history to tell apart.
-   */
-  strengths: Record<string, number>;
-  /**
-   * The checkpoint each switch that swaps one actually loaded, by patch id.
-   * Recorded for the same reason as `strengths`: it is a difference between two
-   * takes that nothing else in the history would show.
+   * What each switch that carries a LoRA list actually applied, by patch id:
+   * which entry, which file, at what strength, on which checkpoint.
    *
-   * Both halves together rather than as two maps, because they answer for two
-   * different readers and must not be able to disagree. `file` is what a person
-   * needs — it is the thing that explains why two takes differ, and it keeps
-   * meaning the same after the declaration behind the switch changes. `alternate`
-   * is what Reuse settings needs, since the browser is never given either
-   * filename and so cannot work the switch back out of `file` on its own.
+   * One record per switch rather than three parallel maps, because they answer
+   * for different readers and must not be able to disagree. It is reported
+   * rather than assumed for the same reason `patches` is: an id that no longer
+   * names an entry resolves to the default, so what ran is not always what was
+   * asked for.
    */
-  bases: Record<string, { file: string; alternate: boolean }>;
+  loras: Record<string, AppliedPatch>;
 }
 
 /**
@@ -309,10 +299,17 @@ export function applyParams(
     workflow.patches,
     (mode.patches ?? []).filter((id) => !refused.includes(id as SpliceId)),
   );
+  // Keyed by the entry's id rather than the switch's, because the strength and
+  // the checkpoint belong to the LoRA: switching to another one should find its
+  // own numbers rather than inherit the last one's, whose range may not even
+  // contain them.
+  const loras: Record<string, AppliedPatch> = {};
   for (const patch of patches) {
-    applyPatch(graph, patch, {
-      strength: mode.strengths?.[patch.id],
-      alternateBase: mode.alternateBase?.[patch.id],
+    const chosen = mode.lora?.[patch.id];
+    loras[patch.id] = applyPatch(graph, patch, {
+      choice: chosen,
+      strength: chosen ? mode.strengths?.[chosen] : undefined,
+      alternateBase: chosen ? mode.alternateBase?.[chosen] : undefined,
     });
   }
 
@@ -367,31 +364,10 @@ export function applyParams(
     // — the rule `patches` already follows. A strength submitted for a switch
     // the run did not have would otherwise be recorded on a take that shows no
     // sign of it, and send someone off to compare two identical clips.
-    strengths: Object.fromEntries(
-      patches.flatMap((patch) =>
-        patch.strength
-          ? [[patch.id, resolveStrength(patch.strength, mode.strengths?.[patch.id])]]
-          : [],
-      ),
-    ),
-    // The checkpoint each switch actually put under its LoRA. Recorded by
-    // filename rather than as the boolean that chose it, because what explains
-    // a difference between two takes is which weights were sampled — and a
-    // boolean would stop meaning anything the moment the declaration changed
-    // which file it selects.
-    bases: Object.fromEntries(
-      patches.flatMap((patch) => {
-        if (!patch.base) return [];
-        // Resolved rather than echoed: a run that asked for the alternate on a
-        // patch offering none loaded the default, and recording the request
-        // would name a checkpoint the run never touched.
-        const alternate =
-          mode.alternateBase?.[patch.id] === true &&
-          patch.base.alternate !== undefined;
-        return [
-          [patch.id, { file: patchBaseFile(patch.base, alternate), alternate }],
-        ];
-      }),
+    // Only the switches that actually carry a list; the plain ones report an
+    // empty record, which is nothing worth storing on a job.
+    loras: Object.fromEntries(
+      Object.entries(loras).filter(([, applied]) => applied.choice !== undefined),
     ),
   };
 }

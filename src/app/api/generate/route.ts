@@ -25,6 +25,7 @@ export async function POST(request: Request) {
       turbo?: boolean;
       lowVram?: boolean;
       patches?: string[];
+      lora?: Record<string, string>;
       strengths?: Record<string, number>;
       alternateBase?: Record<string, boolean>;
     };
@@ -63,6 +64,12 @@ export async function POST(request: Request) {
         strengths[id] = value;
       }
     }
+    // Ids only, resolved against the workflow's own list on the way past — an
+    // id naming no entry falls back to the default rather than failing.
+    const lora: Record<string, string> = {};
+    for (const [id, value] of Object.entries(body.lora ?? {})) {
+      if (typeof value === "string" && value) lora[id] = value;
+    }
     // Booleans only. Which file each side means is this side's business — the
     // browser is never given either filename. See `PatchBaseAlternate`.
     const alternateBase: Record<string, boolean> = {};
@@ -98,12 +105,12 @@ export async function POST(request: Request) {
       graph,
       resolved,
       patches: applied,
-      strengths: appliedStrengths,
-      bases: appliedBases,
+      loras: appliedLoras,
     } = applyParams(workflow, body.params ?? {}, allowedValues, {
       turbo,
       lowVram,
       patches,
+      lora,
       strengths,
       alternateBase,
     });
@@ -117,14 +124,10 @@ export async function POST(request: Request) {
       clientId,
       resolved,
       patches: applied,
-      // What each switch was actually applied at, for the same reason `applied`
-      // is sent back rather than assumed: a strength submitted for a switch the
-      // step count refused was never written into the graph.
-      strengths: appliedStrengths,
-      // And which checkpoint each of them put under its LoRA, on the same
-      // terms: a base switch is ignored on a patch that offers no alternate,
-      // so what ran is not always what was asked for.
-      bases: appliedBases,
+      // Which LoRA each switch actually applied, and at what — sent back for
+      // the same reason `applied` is rather than being assumed from the
+      // request: an id that no longer names an entry resolved to the default.
+      loras: appliedLoras,
       // Only ever a starting point: the client replaces it with this machine's
       // own median for this workflow and these modes as soon as it has one, so
       // the fact that neither number describes both switches at once costs a

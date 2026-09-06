@@ -20,20 +20,27 @@ export interface RunModes {
    */
   patches?: string[];
   /**
-   * Per-patch strength, keyed by patch id, for the patches that offer one.
+   * Which LoRA each switch that offers a list is set to, by patch id — the
+   * entry's id, not its file. The browser is never given the model filenames,
+   * so the id is the whole of what it can say. See `PatchChoice`.
+   */
+  lora?: Record<string, string>;
+  /**
+   * How strong each LoRA is applied, keyed by the *entry's* id rather than the
+   * switch's.
    *
-   * Here rather than among the params because the input it writes belongs to a
-   * node that is not in the stored graph — see `strength` on PatchDef. Ids that
-   * name no patch, or a patch with no strength, are ignored: a stored value
-   * outliving the switch it belonged to should do nothing, not fail a run.
+   * By entry because the number belongs to the LoRA: each converges somewhere
+   * different, and their ranges differ, so switching LoRAs should find that
+   * one's own setting rather than inherit a number the new range may not even
+   * contain. Ids naming nothing are ignored.
    */
   strengths?: Record<string, number>;
   /**
-   * Which switches were asked to load their alternate base, by patch id.
+   * Which LoRAs were asked to load their alternate base, by entry id.
    *
-   * A boolean rather than a filename because the browser is not given the model
-   * files either side of the switch — see `PatchBaseAlternate`. Ids naming no
-   * patch, or a patch that offers no alternate, are ignored.
+   * A boolean rather than a filename, for the same reason as `lora` above —
+   * see `PatchBaseAlternate`. Ids naming no entry, or an entry offering no
+   * alternate, are ignored.
    */
   alternateBase?: Record<string, boolean>;
 }

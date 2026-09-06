@@ -1,6 +1,6 @@
 import type { DirectorBypass } from "./director";
 import type { SpliceId } from "./model-chain";
-import type { PatchDef } from "./patches";
+import type { PatchChoice, PatchDef } from "./patches";
 import type { StepModel, StepSampler } from "./step-sampler";
 import type { TurboSpec } from "./turbo";
 import type {
@@ -538,61 +538,33 @@ export function h3Patches(): PatchDef[] {
  * error and then produces warped faces, melting limbs and objects that vanish
  * mid-shot — which is worse than a failure, because the run finishes.
  *
- * This is about MiniMax-H3 LoRAs in general rather than about the VHS one. The
- * stored graphs all load `_pruned_int8_convrot`, which is what the official
- * ComfyUI H3 tutorial defaults to, so any LoRA added here has to bring its own
- * base with it — see `PatchBase`.
+ * This is about MiniMax-H3 LoRAs in general rather than about any one of them.
+ * The stored graphs all load `_pruned_int8_convrot`, which is what the official
+ * ComfyUI H3 tutorial defaults to, so every LoRA offered here has to bring its
+ * own base with it — see `PatchBase`.
  */
 const H3_LORA_BASES = ["minimax_h3_fl2va_bf16", "minimax_h3_fl2va_pruned_fp8_scaled"];
 
 /**
- * The VHS tape look: one `LoraLoaderModelOnly` stacked behind the turbo LoRA.
+ * The LoRAs the content switch offers, in the order they are shown. The first
+ * is what a fresh install selects.
  *
- * A patch rather than a mode of its own, because it is one node on a switch and
- * nothing else about the run changes shape — the step range is turbo's business,
- * not this LoRA's. It is the first patch here to need either of the two things
- * `PatchDef` grew for it, and it needs both:
+ * Curated by hand rather than read off the ComfyUI install. A `models/loras/`
+ * listing is mostly LoRAs for other model families — SDXL, Flux, Wan — every one
+ * of which would splice into an H3 graph without an error and produce nothing
+ * but noise. What earns an entry here is that someone has run it on these graphs
+ * and knows which base it needs and where its strength lands.
  *
- * **A base.** The stored graphs load `minimax_h3_fl2va_pruned_int8_convrot`,
- * which is exactly the rotated basis this LoRA cannot be applied to. So the
- * switch swaps the loader for as long as it is on and puts it straight back
- * when it is off. That makes a VHS run cost noticeably more than a plain one —
- * the default is the full-precision checkpoint — which is accounted for on its
- * own, because `modeKey` buckets the learned estimates by which patches were on.
- *
- * Which of the two supported checkpoints it swaps to is a switch under the
- * switch, since that is a question about the card and about what has been
- * downloaded rather than about the shot. See `alternate` below.
- *
- * **A strength.** Turbo is on by default, and the two LoRAs perturb the same
- * weights, so their strengths add: at 4-step turbo there is very little headroom
- * and this one wants 0.4–0.6 rather than the ~1 it would take alone. The default
- * below is the stacked number, since stacked is what a default install does.
- *
- * The other half of that trade is not enforced, only said: 4-step turbo softens
- * the tape grain this LoRA exists to produce, and the look is at its best at
- * roughly 20–25 full-precision steps with turbo off. That is a judgement about a
- * shot rather than a rule about the graph, so it belongs in the help text where
- * someone can act on it, not in a pin that overrides their step count.
- *
- * `LoraLoaderModelOnly` is ComfyUI core, unlike the turbo LoRA's own loader, so
- * this switch needs no node pack — only the file in `models/loras/`.
+ * Adding one is an entry in this array and nothing else: no new switch, no new
+ * storage key, no new checks. `check:workflows` validates each entry's base
+ * against `H3_LORA_BASES`, and `check:nodes` asks the install about each one's
+ * file and checkpoint.
  */
-export function h3VhsLora(): PatchDef {
-  return {
-    id: "style",
+const H3_CONTENT_LORAS: PatchChoice[] = [
+  {
+    id: "vhs-tape",
     label: "VHS tape",
-    node: {
-      class_type: "LoraLoaderModelOnly",
-      inputs: {
-        lora_name: "vh5tape-comfyui.safetensors",
-        // Overwritten by the strength control below. Named here so the node is
-        // a complete one on its own, the way every other spliced node is.
-        strength_model: 0.5,
-      },
-      _meta: { title: "VHS Tape LoRA" },
-    },
-    modelInput: "model",
+    file: "vh5tape-comfyui.safetensors",
     base: {
       value: "minimax_h3_fl2va_bf16.safetensors",
       /**
@@ -617,7 +589,7 @@ export function h3VhsLora(): PatchDef {
     },
     strength: {
       input: "strength_model",
-      label: "VHS strength",
+      label: "Strength",
       // The stacked number, because Turbo is on by default. Alone it will take
       // about twice this.
       default: 0.5,
@@ -626,14 +598,55 @@ export function h3VhsLora(): PatchDef {
       step: 0.05,
       help: "0.4–0.6 stacked on Turbo, where the two LoRAs' perturbations add. Nearer 1 with Turbo off.",
     },
-    /**
-     * Off by default. It is a look rather than a way of running the model — the
-     * other two patches ship on because a run is better with them whatever the
-     * shot is, and this one is only right when the shot wants it. It also moves
-     * the graph onto the full-precision checkpoint, which is not a cost to hand
-     * someone who never asked for the look.
-     */
-    help: "Stacks a VHS tape LoRA on the diffusion model, and moves the graph onto a base the LoRA can actually run on — bf16 unless you pick the lighter one. Best at 20–25 steps with Turbo off; Turbo's 4-step sampler softens the grain.",
+    help: "The look of tape — soft grain, bloomed highlights, colour bleeding at the edges. Best at 20–25 steps with Turbo off; Turbo's 4-step sampler softens the grain.",
+  },
+];
+
+/**
+ * The content-LoRA switch: one `LoraLoaderModelOnly` stacked behind the turbo
+ * LoRA, holding whichever LoRA is picked from the list above.
+ *
+ * A patch rather than a mode of its own, because it is one node on a switch and
+ * nothing else about the run changes shape — the step range is turbo's business,
+ * not this LoRA's.
+ *
+ * What the switch owns is only what is true of every LoRA in the list: the
+ * loader class, which input the file goes in, and where in the model chain it
+ * sits. Everything that varies — the file, the checkpoint it needs, the strength
+ * it converges at — belongs to the entry. Hanging those off the switch would
+ * make the first LoRA's answers silently apply to every one added later.
+ *
+ * `LoraLoaderModelOnly` is ComfyUI core, unlike the turbo LoRA's own loader, so
+ * this switch needs no node pack — only the files in `models/loras/`.
+ *
+ * Off by default. These are looks rather than ways of running the model: the
+ * other two patches ship on because a run is better with them whatever the shot
+ * is, and one of these is only right when the shot wants it. Each also moves the
+ * graph onto a heavier checkpoint, which is not a cost to hand someone who never
+ * asked for the look.
+ */
+export function h3ContentLora(): PatchDef {
+  return {
+    id: "style",
+    label: "Use additional content LoRA",
+    node: {
+      class_type: "LoraLoaderModelOnly",
+      inputs: {
+        // Both are placeholders, overwritten by the chosen entry and its own
+        // strength control. Named here so the node is a complete one on its
+        // own, the way every other spliced node is.
+        lora_name: "",
+        strength_model: 1,
+      },
+      _meta: { title: "Content LoRA" },
+    },
+    modelInput: "model",
+    choices: {
+      fileInput: "lora_name",
+      label: "LoRA",
+      options: H3_CONTENT_LORAS,
+    },
+    help: "Applies one more LoRA on top of the diffusion model, and moves the graph onto a checkpoint that LoRA can actually run on.",
   };
 }
 

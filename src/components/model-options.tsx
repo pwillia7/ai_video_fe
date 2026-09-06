@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Disclosure } from "@/components/param-form";
-import { Slider, Toggle } from "@/components/ui/inputs";
+import { Select, Slider, Toggle } from "@/components/ui/inputs";
 import { patchSuppressed, type ClientPatch } from "@/lib/workflows/patches";
 import type { ClientTurbo } from "@/lib/workflows/turbo";
 import type { ParamValue } from "@/lib/workflows/types";
@@ -43,6 +43,8 @@ export function ModelOptions({
   onStrengthChange,
   alternateBase,
   onAlternateBaseChange,
+  lora,
+  onLoraChange,
 }: {
   patches: ClientPatch[];
   /** Ids of the patches currently switched on. */
@@ -63,8 +65,12 @@ export function ModelOptions({
   strengths: Record<string, number>;
   onStrengthChange: (id: string, value: number) => void;
   /** Which switches are on their alternate base, by patch id. */
+  /** Which LoRAs are on their alternate base, by entry id. */
   alternateBase: Record<string, boolean>;
   onAlternateBaseChange: (id: string, on: boolean) => void;
+  /** Which LoRA each switch that offers a list is set to, by patch id. */
+  lora: Record<string, string>;
+  onLoraChange: (patchId: string, choiceId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -80,6 +86,13 @@ export function ModelOptions({
       // back when the control that refuses it moves.
       const refused = patchSuppressed(patch, values);
       const checked = !refused && on.includes(patch.id);
+      // What the dropdown is on, resolved the way the server resolves it: an id
+      // the list no longer has falls back to the first offered, so the controls
+      // below describe the LoRA that would actually run.
+      const options = patch.choices?.options;
+      const chosen = options?.length
+        ? (options.find((option) => option.id === lora[patch.id]) ?? options[0])
+        : undefined;
       return {
         key: patch.id,
         label: patch.label,
@@ -87,27 +100,28 @@ export function ModelOptions({
         checked,
         refused,
         onChange: (next: boolean) => onPatchChange(patch.id, next),
-        // Only while the switch is on: off, the graph loads whatever it always
-        // did, so a base choice would be selecting between two checkpoints
-        // neither of which the run uses — the same rule Low VRAM follows
-        // against turbo, and the strength below follows against this.
+        // Everything below belongs to the chosen LoRA rather than to the
+        // switch, and appears only while the switch is on: off, there is no
+        // node in the graph for any of it to be about — the same rule Low VRAM
+        // follows against turbo.
+        choices: checked ? patch.choices : undefined,
+        chosen,
+        onChoose: (next: string) => onLoraChange(patch.id, next),
         baseAlternate:
-          checked && patch.baseAlternate
+          checked && chosen?.baseAlternate
             ? {
-                spec: patch.baseAlternate,
-                checked: alternateBase[patch.id] === true,
+                spec: chosen.baseAlternate,
+                checked: alternateBase[chosen.id] === true,
                 onChange: (next: boolean) =>
-                  onAlternateBaseChange(patch.id, next),
+                  onAlternateBaseChange(chosen.id, next),
               }
             : undefined,
-        // Only while the switch is on: off, the node this writes to is not in
-        // the graph, so a slider would be setting an input on nothing.
         strength:
-          checked && patch.strength
+          checked && chosen?.strength
             ? {
-                spec: patch.strength,
-                value: strengths[patch.id] ?? patch.strength.default,
-                onChange: (next: number) => onStrengthChange(patch.id, next),
+                spec: chosen.strength,
+                value: strengths[chosen.id] ?? chosen.strength.default,
+                onChange: (next: number) => onStrengthChange(chosen.id, next),
               }
             : undefined,
       };
@@ -121,6 +135,9 @@ export function ModelOptions({
             checked: lowVram,
             refused: false,
             onChange: onLowVramChange,
+            choices: undefined,
+            chosen: undefined,
+            onChoose: undefined,
             baseAlternate: undefined,
             strength: undefined,
           },
@@ -181,6 +198,37 @@ export function ModelOptions({
               >
                 {row.help}
               </p>
+
+              {/* First of the three, because it decides what the other two are
+                  even about: both belong to the LoRA, not to the switch. */}
+              {row.choices && row.chosen && row.onChoose ? (
+                <div className="mt-3">
+                  <label
+                    htmlFor={`model-${row.key}-choice`}
+                    className="text-[12px] text-fg-muted"
+                  >
+                    {row.choices.label}
+                  </label>
+                  <div className="mt-2">
+                    <Select
+                      id={`model-${row.key}-choice`}
+                      value={row.chosen.id}
+                      onChange={row.onChoose}
+                      options={row.choices.options.map((option) => ({
+                        value: option.id,
+                        label: option.label,
+                      }))}
+                      describedBy={`model-${row.key}-choice-help`}
+                    />
+                  </div>
+                  <p
+                    id={`model-${row.key}-choice-help`}
+                    className="mt-2 text-[12px] leading-relaxed text-fg-muted"
+                  >
+                    {row.chosen.help}
+                  </p>
+                </div>
+              ) : null}
 
               {/* Before the strength, because it decides which weights the
                   strength is applied to. */}

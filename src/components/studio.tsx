@@ -32,6 +32,7 @@ import {
   clampValues,
   hydrateAll,
   hydrateAlternateBase,
+  hydrateLora,
   hydratePatches,
   hydrateStrengths,
   hydrateTurbo,
@@ -40,6 +41,7 @@ import {
   writeStoredLowVram,
   writeStoredParams,
   writeStoredAlternateBase,
+  writeStoredLora,
   writeStoredPatches,
   writeStoredStrengths,
   writeStoredTurbo,
@@ -215,6 +217,12 @@ function Workbench({
    * graph offering it — a strength found by eye on one is the answer on the
    * rest. Read lazily for the same reason as the modes above.
    */
+  /**
+   * Which LoRA each content switch is set to. Shared across workflows like the
+   * two below: the list is the same list wherever it is offered.
+   */
+  const [lora, setLora] = useState(() => hydrateLora(workflows));
+
   const [strengths, setStrengths] = useState(() => hydrateStrengths(workflows));
 
   /**
@@ -250,6 +258,10 @@ function Workbench({
   }, [lowVram]);
 
   useEffect(() => {
+    writeStoredLora(lora);
+  }, [lora]);
+
+  useEffect(() => {
     writeStoredStrengths(strengths);
   }, [strengths]);
 
@@ -279,8 +291,14 @@ function Workbench({
     [patchesByWorkflow, selectedId],
   );
   const modes = useMemo(
-    () => ({ turbo: turboOn, patches: patchesOn, strengths, alternateBase }),
-    [turboOn, patchesOn, strengths, alternateBase],
+    () => ({
+      turbo: turboOn,
+      patches: patchesOn,
+      lora,
+      strengths,
+      alternateBase,
+    }),
+    [turboOn, patchesOn, lora, strengths, alternateBase],
   );
 
   /**
@@ -321,10 +339,11 @@ function Workbench({
         const patch = selected?.patches.find((candidate) => candidate.id === id);
         return !patch || !patchSuppressed(patch, runValues);
       }),
+      lora,
       strengths,
       alternateBase,
     }),
-    [turboOn, patchesOn, selected, runValues, strengths, alternateBase],
+    [turboOn, patchesOn, selected, runValues, lora, strengths, alternateBase],
   );
 
   /**
@@ -386,6 +405,11 @@ function Workbench({
   /** Not per workflow either, and for the same reason. See `alternateBase`. */
   const setAlternateBaseFor = useCallback((id: string, on: boolean) => {
     setAlternateBase((previous) => ({ ...previous, [id]: on }));
+  }, []);
+
+  /** Which LoRA a switch is set to. Keyed by the switch, unlike the two above. */
+  const setLoraFor = useCallback((patchId: string, choiceId: string) => {
+    setLora((previous) => ({ ...previous, [patchId]: choiceId }));
   }, []);
 
   const setValue = useCallback(
@@ -605,22 +629,45 @@ function Workbench({
       // workflow still offers a strength on, and dropped otherwise, exactly as
       // the switch list above is — a number kept for a control the form no
       // longer shows would quietly change the next run.
+      // Which LoRA each switch was on, and that LoRA's own settings. Restored
+      // only for entries the list still offers, exactly as the switches above
+      // are: an id the list has dropped would send the next run a choice the
+      // form never showed.
+      setLora((previous) => {
+        const next = { ...previous };
+        for (const patch of target.patches) {
+          const was = job.loras?.[patch.id]?.choice;
+          if (was && patch.choices?.options.some((o) => o.id === was)) {
+            next[patch.id] = was;
+          }
+        }
+        return next;
+      });
       setStrengths((previous) => {
         const next = { ...previous };
         for (const patch of target.patches) {
-          const was = job.strengths?.[patch.id];
-          if (patch.strength && typeof was === "number") next[patch.id] = was;
+          const applied = job.loras?.[patch.id];
+          const option = patch.choices?.options.find(
+            (candidate) => candidate.id === applied?.choice,
+          );
+          if (option?.strength && typeof applied?.strength === "number") {
+            next[option.id] = applied.strength;
+          }
         }
         return next;
       });
       // And which checkpoint it ran on — the switch, not the filename, since
-      // that is the half of the record this side can act on. Restored only for
-      // switches that still offer a choice, exactly as the strengths above are.
+      // that is the half of the record this side can act on.
       setAlternateBase((previous) => {
         const next = { ...previous };
         for (const patch of target.patches) {
-          const was = job.bases?.[patch.id];
-          if (patch.baseAlternate && was) next[patch.id] = was.alternate;
+          const applied = job.loras?.[patch.id];
+          const option = patch.choices?.options.find(
+            (candidate) => candidate.id === applied?.choice,
+          );
+          if (option?.baseAlternate && applied?.base) {
+            next[option.id] = applied.base.alternate;
+          }
         }
         return next;
       });
@@ -873,6 +920,8 @@ function Workbench({
                   onStrengthChange={setStrength}
                   alternateBase={alternateBase}
                   onAlternateBaseChange={setAlternateBaseFor}
+                  lora={lora}
+                  onLoraChange={setLoraFor}
                 />
 
                 {clipNotice &&
