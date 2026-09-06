@@ -384,6 +384,7 @@ function Control({
         >
           <ImageUpload
             id={id}
+            label={param.label}
             value={String(value ?? "")}
             onChange={(next) => onChange(param.id, next)}
             disabled={readOnly}

@@ -1,7 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Spinner } from "@/components/ui/button";
+import {
+  CameraCapture,
+  CameraIcon,
+  cameraAvailable,
+} from "@/components/ui/camera-capture";
 import { api, ApiError, withToken } from "@/lib/client";
 
 interface UploadResponse {
@@ -89,12 +94,15 @@ async function prepareForUpload(file: File): Promise<Prepared> {
  */
 export function ImageUpload({
   id,
+  label,
   value,
   onChange,
   disabled,
   describedBy,
 }: {
   id: string;
+  /** The param's own label, echoed in the camera modal's header. */
+  label?: string;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
@@ -105,6 +113,14 @@ export function ImageUpload({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  /**
+   * Resolved in an effect rather than at render: it reads `navigator`, which
+   * does not exist on the server, and a control that appeared only after
+   * hydration would be a mismatch.
+   */
+  const [canUseCamera, setCanUseCamera] = useState(false);
+  useEffect(() => setCanUseCamera(cameraAvailable()), []);
   /**
    * Read off the loaded image. Worth showing here because in this workflow the
    * output video inherits the image's dimensions.
@@ -247,6 +263,21 @@ export function ImageUpload({
                 </span>
               ) : null}
               <div className="ml-auto flex shrink-0 gap-2">
+                {/* Icon-only here, captioned in the empty state below. Three
+                    labelled buttons in a 320px column squeeze the filename
+                    beside them down to nothing, and the filename is the part
+                    that says which image this is. */}
+                {canUseCamera ? (
+                  <Button
+                    variant="quiet"
+                    size="xs"
+                    icon={<CameraIcon />}
+                    aria-label="Replace with a photo"
+                    title="Replace with a photo"
+                    disabled={disabled || uploading}
+                    onClick={() => setCameraOpen(true)}
+                  />
+                ) : null}
                 <Button
                   variant="quiet"
                   size="xs"
@@ -272,55 +303,83 @@ export function ImageUpload({
             </div>
           </div>
         ) : (
-          <button
-            type="button"
-            disabled={disabled || uploading}
-            onClick={() => inputRef.current?.click()}
-            className="flex w-full flex-col items-center justify-center gap-2 px-4 py-8
-              text-center transition-colors hover:bg-surface-hover disabled:pointer-events-none"
-          >
-            {uploading ? (
-              <>
-                <Spinner className="size-5 text-fg-muted" />
-                <span className="text-[13px] text-fg-muted">Uploading…</span>
-              </>
-            ) : (
-              <>
-                <svg
-                  viewBox="0 0 24 24"
-                  className="size-7 text-fg-subtle"
-                  fill="none"
-                  aria-hidden="true"
+          <>
+            <button
+              type="button"
+              disabled={disabled || uploading}
+              onClick={() => inputRef.current?.click()}
+              className="flex w-full flex-col items-center justify-center gap-2 px-4 py-8
+                text-center transition-colors hover:bg-surface-hover disabled:pointer-events-none"
+            >
+              {uploading ? (
+                <>
+                  <Spinner className="size-5 text-fg-muted" />
+                  <span className="text-[13px] text-fg-muted">Uploading…</span>
+                </>
+              ) : (
+                <>
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="size-7 text-fg-subtle"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="3"
+                      y="4"
+                      width="18"
+                      height="16"
+                      rx="2"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                    />
+                    <circle cx="8.5" cy="9.5" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+                    <path
+                      d="M4 17l5-4.5 4 3.5 3-2.5 4 3.5"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span className="text-[13px] font-medium text-fg">
+                    Drop an image or click to choose
+                  </span>
+                  <span className="text-[12px] text-fg-subtle">
+                    PNG, JPEG or WebP — anything oversized is resized to fit
+                  </span>
+                </>
+              )}
+            </button>
+
+            {canUseCamera ? (
+              <div
+                className="flex justify-center border-t border-border-default
+                  px-3 py-2"
+              >
+                <Button
+                  variant="quiet"
+                  size="xs"
+                  icon={<CameraIcon />}
+                  disabled={disabled || uploading}
+                  onClick={() => setCameraOpen(true)}
                 >
-                  <rect
-                    x="3"
-                    y="4"
-                    width="18"
-                    height="16"
-                    rx="2"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                  />
-                  <circle cx="8.5" cy="9.5" r="1.6" stroke="currentColor" strokeWidth="1.3" />
-                  <path
-                    d="M4 17l5-4.5 4 3.5 3-2.5 4 3.5"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <span className="text-[13px] font-medium text-fg">
-                  Drop an image or click to choose
-                </span>
-                <span className="text-[12px] text-fg-subtle">
-                  Becomes the first frame of the video
-                </span>
-              </>
-            )}
-          </button>
+                  Take a photo
+                </Button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
+
+      <CameraCapture
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        subtitle={label}
+        // Straight into the same handler a file picked off disk goes through,
+        // so the size guard, the upload and the preview are all one path.
+        onCapture={(file) => void upload(file)}
+      />
 
       {error ? (
         <p className="text-[12px] leading-snug text-danger">{error}</p>
