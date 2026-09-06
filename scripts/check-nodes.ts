@@ -17,6 +17,7 @@
 import { readFileSync } from "node:fs";
 import {
   enumValuesFor,
+  gatewayStatus,
   getNodeSchema,
   systemStats,
   type ComfyGraph,
@@ -24,6 +25,10 @@ import {
 import { WORKFLOWS } from "../src/lib/workflows";
 import { patchVariants } from "../src/lib/workflows/patches";
 import { promptConsumer } from "../src/lib/workflows/director";
+import {
+  REWRITE_CLASSES,
+  REWRITE_MODELS,
+} from "../src/lib/workflows/rewrite-model";
 import { stepSamplerGraph } from "../src/lib/workflows/step-sampler";
 import { turboGraph } from "../src/lib/workflows/turbo";
 
@@ -265,6 +270,52 @@ async function main() {
       missingModels.push(filename);
       console.log(`  NOT FOUND  ${filename}  — ${need.loader}.${need.input}, needed by ${used}`);
     }
+  }
+
+  // The rewrite model is a model file's opposite number: it lives on someone
+  // else's GPU, and what makes it present or absent is whether the gateway
+  // still lists it. The node builds its dropdown from that catalog and ComfyUI
+  // validates a queued combo against the list, so an id the picker offers and
+  // the node does not is a run rejected before it starts — which is exactly the
+  // kind of thing this script exists to find before a render does.
+  const staleModels: string[] = [];
+  const rewriteClass = REWRITE_CLASSES.find((name) => schemas.get(name));
+  if (rewriteClass) {
+    console.log("\nRewrite models");
+    const offered = enumValuesFor(schemas.get(rewriteClass) ?? null, "model");
+    if (offered === null) {
+      console.log(`  unknown  (could not read ${rewriteClass}.model)`);
+    } else {
+      for (const model of REWRITE_MODELS) {
+        if (offered.includes(model.id)) {
+          console.log(`  ok       ${model.label}`);
+        } else {
+          staleModels.push(model.id);
+          console.log(
+            `  NOT LISTED ${model.id}  — the gateway has stopped offering it`,
+          );
+        }
+      }
+    }
+
+    // And whether any of them can actually be called. A key is not something
+    // this repo can hold — it belongs to whoever is running the app — so all
+    // that can be checked is whether the machine has one.
+    const status = await gatewayStatus().catch(() => null);
+    if (status && status.credentials_configured !== true) {
+      console.log(
+        "  NO KEY   the gateway pack cannot see an API key, so every rewrite will fail.\n" +
+          "           Set AI_GATEWAY_API_KEY on the ComfyUI machine, or enter one from\n" +
+          "           the key button in the app header.",
+      );
+    }
+  }
+
+  if (staleModels.length > 0) {
+    console.log(
+      `\n${staleModels.length} offered model(s) are no longer in the gateway catalog. ` +
+        "Run `pnpm sync:models`.",
+    );
   }
 
   if (missingClasses.length === 0 && missingModels.length === 0) {

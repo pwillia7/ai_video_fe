@@ -40,6 +40,20 @@ export interface ParamTarget {
 export interface OptionsFrom {
   node: string;
   input: string;
+  /**
+   * What the live list does to the declared one.
+   *
+   * "replace" — the default, and what every sampler and format control wants:
+   * the install's list *is* the list, and `options` is only the fallback for
+   * when ComfyUI cannot be reached.
+   *
+   * "restrict" — keep the declared options, minus any the install does not
+   * offer. For a dropdown whose live list is far too long to show but is still
+   * the list a queued graph is validated against: the rewrite model picker
+   * curates ten out of the gateway's 250-odd, and needs each of those ten
+   * checked against the live catalog rather than swapped for it.
+   */
+  mode?: "replace" | "restrict";
 }
 
 interface ParamBase {

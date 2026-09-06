@@ -6,6 +6,7 @@ import {
   samplingParams,
   type MinimaxNodeIds,
 } from "../minimax-common";
+import { rewriteNode } from "../rewrite-model";
 
 /**
  * ARCHIVED — not registered in the workflow index, not reachable from the app.
@@ -193,29 +194,15 @@ const graph: ComfyGraph = {
   // REMIX_DIRECTOR reads the input as a change to an existing video rather
   // than a scene to invent, and writes out instructions to hold everything
   // else to the source — which is the whole point of the workflow.
-  "144": {
-    class_type: "OAIAPI_Client",
-    inputs: {
-      base_url: "https://api.openai.com/v1",
-      max_retries: 2,
-      timeout: 600,
-      api_key: "-",
-    },
-    _meta: { title: "OpenAI API - Client" },
-  },
-  "145": {
-    class_type: "OAIAPI_ChatCompletion",
-    inputs: {
-      model: "gpt-5.6-terra",
-      force_regen: false,
-      prompt: ["138", 0],
-      system_prompt: REMIX_DIRECTOR,
-      client: ["144", 0],
-      // The sampled frames, so the rewrite can see the clip it is editing.
-      images: ["156", 0],
-    },
-    _meta: { title: "OpenAI API - Chat Completion" },
-  },
+  //
+  // The images are the sampled frames, so the rewrite can see the clip it is
+  // editing.
+  "145": rewriteNode({
+    prompt: ["138", 0],
+    system: REMIX_DIRECTOR,
+    images: ["156", 0],
+    title: "AI Gateway - Rewrite Prompt",
+  }),
 
   "153": {
     class_type: "GetVideoComponents",

@@ -30,10 +30,11 @@ export interface MinimaxNodeIds {
    *  PrimitiveStringMultiline feeding it. */
   prompt: { node: string; input: string };
   /**
-   * The OAIAPI_ChatCompletion running the rewrite. Its `system_prompt` is a
-   * plain string input, which is what lets the length of the clip be written
-   * into the director's instructions the same way any other value is written
-   * into the graph.
+   * The gateway node running the rewrite — `VercelAIGatewayGenerateText`, or
+   * `VercelAIGatewayDescribeImage` on the graphs that show it a picture. Its
+   * `system_prompt` is a plain string input on both, which is what lets the
+   * length of the clip be written into the director's instructions the same way
+   * any other value is written into the graph. See rewrite-model.ts.
    */
   director: string;
   /** PrimitiveFloat holding the duration in seconds. */
@@ -213,7 +214,7 @@ export const LITERAL_PROMPT = "literal_prompt";
  */
 export function literalPromptParam({
   label = "Send my prompt as written",
-  help = "Skips the rewrite: the model gets exactly what is in the box, and no OpenAI node runs. You are writing the model's own format then, not a brief for it.",
+  help = "Skips the rewrite: the model gets exactly what is in the box, and nothing is sent to a language model. You are writing the model's own format then, not a brief for it.",
   group = "Prompt",
 }: { label?: string; help?: string; group?: string } = {}): ParamDef {
   return {

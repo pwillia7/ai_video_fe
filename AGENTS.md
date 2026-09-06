@@ -43,7 +43,15 @@ afternoon.
   every declaration above against it too. Needs nothing but this repo. Run it
   after touching anything under `src/lib/workflows/`.
 - **`pnpm check:nodes`** asks a real ComfyUI whether the classes and model files
-  the graphs name are installed. Needs `COMFY_URL`.
+  the graphs name are installed, whether every model the rewrite picker offers is
+  still in the gateway's catalog, and whether that machine has a gateway key at
+  all. Needs `COMFY_URL`.
+- **The prompt rewrite runs on the Vercel AI Gateway, and the model is a
+  control.** `pnpm sync:models` rebuilds the offered list from the gateway's live
+  catalog into `src/lib/workflows/generated/` — it also runs before `next build`.
+  The curation is `rewrite-catalog.ts`; never hand-edit the generated file, and
+  never hardcode a model id in a graph: the node validates it against the live
+  catalog, so a stale one is a rejected run.
 - **`pnpm typecheck`** before calling anything done. There is no lint script —
   `next lint` was removed in Next 16.
 - **Secrets never enter the repo.** `COMFY_URL`, `COMFY_API_TOKEN` and

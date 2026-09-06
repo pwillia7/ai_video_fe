@@ -5,7 +5,7 @@ import type { ParamDef, ParamValue } from "./types";
  * The prompt-rewrite stage, and the switch that takes it out of the run.
  *
  * Every graph here runs one: what the user types goes into a
- * `PrimitiveStringMultiline`, an `OAIAPI_ChatCompletion` expands it into the
+ * `PrimitiveStringMultiline`, a Vercel AI Gateway node expands it into the
  * structured format the model was trained on, and only that expansion reaches
  * the sampler. It is most of what makes a one-line prompt work at all, which is
  * why it is on by default and why the directors are as long as they are.
@@ -18,14 +18,14 @@ import type { ParamDef, ParamValue } from "./types";
  * **Not the same as leaving the director in with an empty instruction.** The
  * node would still make an API call, still cost the wait, and still return
  * something other than what was typed. The point is that the graph queued with
- * the switch on contains no OpenAI node at all: nothing to reach the network,
+ * the switch on contains no rewrite node at all: nothing to reach the network,
  * nothing to need a key, nothing to go wrong at the rewrite step.
  */
 export interface DirectorBypass {
   /** Id of the toggle that decides this. Its whole effect is this rewiring. */
   param: string;
   /**
-   * The `OAIAPI_ChatCompletion` whose output the raw prompt replaces.
+   * The rewrite node whose output the raw prompt replaces.
    *
    * One node rather than "every director in the graph": the music workflow has
    * a second one that writes lyrics, which is a separate switch of the user's
@@ -100,11 +100,11 @@ export function bypassApplies(
  *
  * What goes is worked out rather than listed. Everything that read the
  * director's output reads the prompt node instead, and then anything no longer
- * reachable from the graph's own output nodes is deleted: the director, the
- * `OAIAPI_Client` behind it, and whatever existed only to be shown to it — the
- * batched reference images, the frames sampled out of a source clip. A list per
- * graph would be six lists to keep right, and the failure would be a node left
- * behind holding an input that no longer exists.
+ * reachable from the graph's own output nodes is deleted: the director itself,
+ * and whatever existed only to be shown to it — the batched reference images,
+ * the frames sampled out of a source clip. A list per graph would be six lists
+ * to keep right, and the failure would be a node left behind holding an input
+ * that no longer exists.
  *
  * The roots are read *before* the rewiring, because the point of the pass is
  * that nodes stop being reachable: asked afterwards, the batch node nothing
@@ -205,9 +205,9 @@ export function bypassProblems(
   // sampler. Both are node ids in the same declaration and nothing else would
   // notice them being the wrong way round: the graph would queue, and the model
   // would be handed whatever that other node produces.
-  // Its `prompt` input specifically, not any input: the client node is linked
-  // to the director too, and standing that in for the rewrite would queue a
-  // graph that runs and hands the model whatever an API client node produces.
+  // Its `prompt` input specifically, not any input: a director that is shown a
+  // picture is linked to the image source too, and standing that in for the
+  // rewrite would queue a graph that runs and hands the video model a filename.
   if (!isLinkFrom(graph[spec.node].inputs.prompt, spec.prompt.node)) {
     problems.push(
       `The director bypass stands node ${spec.prompt.node} in for the rewrite, but ${graph[spec.node].class_type} (node ${spec.node}) does not take its \`prompt\` from there.`,

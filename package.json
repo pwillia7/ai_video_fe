@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "tsx scripts/sync-gateway-models.ts",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "check:workflows": "tsx scripts/check-workflows.ts",
-    "check:nodes": "tsx scripts/check-nodes.ts"
+    "check:nodes": "tsx scripts/check-nodes.ts",
+    "sync:models": "tsx scripts/sync-gateway-models.ts"
   },
   "dependencies": {
     "geist": "^1.7.2",

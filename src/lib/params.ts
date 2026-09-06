@@ -6,6 +6,11 @@ import {
   promptConsumer,
 } from "@/lib/workflows/director";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
+import {
+  REWRITE_CLASSES,
+  REWRITE_MODEL,
+  REWRITE_MODELS,
+} from "@/lib/workflows/rewrite-model";
 import type { RunModes } from "@/lib/workflows/modes";
 import {
   applyPatch,
@@ -445,6 +450,7 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
   problems.push(...stepSamplerBaseProblems(workflow));
   problems.push(...stepSamplerProblems(workflow));
   problems.push(...directorProblems(workflow));
+  problems.push(...rewriteModelProblems(workflow));
 
   return problems;
 }
@@ -674,6 +680,64 @@ function stepSamplerBaseProblems(workflow: WorkflowDef): string[] {
 }
 
 /**
+ * Whether every rewrite node in the graph is one the picker can actually reach,
+ * and is set to a model the picker offers.
+ *
+ * Both halves fail the same way if they are wrong, and it is a bad way. The
+ * gateway node's `model` is a live dropdown built from the gateway's own
+ * catalog, and ComfyUI validates a combo against that list before it runs
+ * anything — so a graph carrying a model id that is not in the offered list is
+ * a graph that is one retired model away from being rejected outright, with the
+ * user reading "value not in list" and no way to change it from the form.
+ *
+ * The second half catches the subtler one: a graph that grows a second rewrite
+ * node — the music workflow already has two — and does not add it to the
+ * picker's targets. That node would keep whatever model was baked in when it
+ * was written, while the form says something else is being used.
+ */
+function rewriteModelProblems(workflow: WorkflowDef): string[] {
+  const problems: string[] = [];
+  const offered = new Set(REWRITE_MODELS.map((model) => model.id));
+
+  const rewrites = Object.entries(workflow.graph).filter(([, node]) =>
+    REWRITE_CLASSES.includes(node.class_type),
+  );
+  if (rewrites.length === 0) return problems;
+
+  for (const [id, node] of rewrites) {
+    const model = node.inputs.model;
+    if (typeof model !== "string" || !offered.has(model)) {
+      problems.push(
+        `Rewrite node ${id} is set to "${String(model)}", which the model picker does not offer. Run \`pnpm sync:models\`.`,
+      );
+    }
+  }
+
+  const picker = workflow.params.find((param) => param.id === REWRITE_MODEL);
+  if (!picker) {
+    problems.push(
+      `Workflow runs ${rewrites.length} rewrite node(s) but declares no "${REWRITE_MODEL}" param, so the model cannot be changed from the form.`,
+    );
+    return problems;
+  }
+
+  const driven = new Set(
+    picker.targets
+      .filter((target) => target.input === "model")
+      .map((target) => target.node),
+  );
+  for (const [id] of rewrites) {
+    if (!driven.has(id)) {
+      problems.push(
+        `Rewrite node ${id} is not a target of "${REWRITE_MODEL}", so it would keep the model baked into the graph whatever the form says.`,
+      );
+    }
+  }
+
+  return problems;
+}
+
+/**
  * Whether a graph that runs a prompt director also tells it how long the video
  * is. The length block is found by param id — `duration` on a graph that sets
  * its own length, `source_seconds` on one that measures a source clip — so
@@ -685,7 +749,9 @@ function directorProblems(workflow: WorkflowDef): string[] {
     param.targets.some(
       (target) =>
         target.input === "system_prompt" &&
-        workflow.graph[target.node]?.class_type === "OAIAPI_ChatCompletion",
+        REWRITE_CLASSES.includes(
+          workflow.graph[target.node]?.class_type ?? "",
+        ),
     ),
   );
   if (!drivesDirector) return [];

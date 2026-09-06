@@ -26,8 +26,10 @@ reference track alongside whatever pictures you attach.
 
 Every workflow rewrites your prompt through an LLM into the format the model
 was trained on, and every workflow has a switch to skip that and send what you
-typed, character for character — which also queues a graph with no OpenAI node
-in it, if you have no key to give one.
+typed, character for character — which also queues a graph with no rewrite node
+in it, if you have no key to give one. Which model does the rewriting is a
+dropdown, free options included, because a model that refuses your shot fails
+the run rather than making a worse video.
 
 It is a front end and nothing else: no model weights, no inference, no
 database. Everything expensive happens on your ComfyUI machine.
@@ -93,7 +95,7 @@ The first three packs install from ComfyUI Manager by name:
 
 | Pack | Provides | Needed by |
 | --- | --- | --- |
-| [comfyui-openai-api](https://github.com/hekmon/comfyui-openai-api) (Manager: "OpenAI API") | `OAIAPI_Client`, `OAIAPI_ChatCompletion` | **every** workflow |
+| [comfyui-vercel-ai-gateway](https://github.com/pwillia7/comfyui-vercel-ai-gateway) (Manager: Install via Git URL) | `VercelAIGatewayGenerateText`, `VercelAIGatewayDescribeImage` | **every** workflow |
 | [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate`, `PathchSageAttentionKJ` | Remix, Extend, and the SageAttention switch everywhere |
 | [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA`, `MiniMaxH3TurboSampler` | the Turbo switch and 4 steps — every video workflow |
 | whichever pack you got `SpectrumApplyMiniMaxH3` from | `SpectrumApplyMiniMaxH3` | the Spectrum switch — every workflow |
@@ -117,9 +119,12 @@ above says "any workflow".
 requirement on this page `check:nodes` cannot see: it will report the node
 present and the run will still fail with the switch on.
 
-**The OpenAI pack is not optional.** Every graph runs what you type through an
-LLM before the video model sees it ([details](#the-prompt-is-rewritten-before-the-model-sees-it)),
-so without those nodes nothing generates at all.
+**The gateway pack is not optional.** Every graph runs what you type through a
+language model before the video model sees it
+([details](#the-prompt-is-rewritten-before-the-model-sees-it)), so without those
+nodes nothing generates at all. It is one API key for 250-odd models across
+every major provider, which is the point: the rewrite is where a run gets
+refused, and refusals are a property of the model rather than of the prompt.
 
 **Music needs no pack but that one.** Every other class in that graph —
 `MiniMaxMusic3TextEncode`, `EmptyMiniMaxMusic3LatentAudio`, `SaveAudioAdvanced`,
@@ -129,76 +134,69 @@ requirement. None of the switches apply to it either.
 
 Restart ComfyUI after installing.
 
-### The LLM key, and a one-line patch you have to apply
+### The rewrite key
 
-The rewrite stage needs an API key, and **this app deliberately never sends
-one**. The key lives on the ComfyUI host and never crosses the network from
-Vercel. Two steps make that work.
+The rewrite runs on the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway),
+and **this app never holds the key**. It lives on the ComfyUI host, where the
+call is actually made.
 
-**1. Put the key in ComfyUI's environment.** It has to be set in the shell that
-actually launches ComfyUI — setting it in a different terminal does nothing,
-which is an easy hour to lose.
+Create one at [vercel.com/dashboard](https://vercel.com/dashboard) → **AI
+Gateway** → **API Keys**. Every team gets $5 of credit a month, and two of the
+models in the picker cost nothing against it at all.
+
+Then give it to the machine, either way round:
+
+**From the app.** The key button in the header — it wears a warning colour until
+a key is set. What you type goes through this app's own API to your ComfyUI and
+is written to `custom_nodes/comfyui-vercel-ai-gateway/config.json`, which is
+gitignored. It is not stored here, not logged, and cannot be read back: the
+status route answers with a boolean. It is deliberately *not* written into the
+workflow either — a key set on a node's widget is copied into the queued prompt,
+and ComfyUI stamps the prompt into the metadata of every file a workflow saves,
+so it would travel inside any video you shared.
+
+**Or from the environment**, which wins over the file. It has to be set in the
+shell that actually launches ComfyUI — setting it in a different terminal does
+nothing, which is an easy hour to lose.
 
 ```bash
-export OPENAI_API_KEY=sk-...     # macOS / Linux, same shell as ComfyUI
+export AI_GATEWAY_API_KEY=vck_...     # macOS / Linux, same shell as ComfyUI
 python main.py
 ```
 
 ```powershell
-$env:OPENAI_API_KEY = "sk-..."   # Windows PowerShell
+$env:AI_GATEWAY_API_KEY = "vck_..."   # Windows PowerShell
 python main.py
 ```
 
 Running ComfyUI under systemd or a service manager? Use its own environment
 mechanism (`Environment=` in the unit file) rather than a login shell.
 
-**2. Patch the node pack to read it.** This is the part that will otherwise
-waste your afternoon. The graphs ship `api_key: "-"`, which is the pack's
-"no key needed" placeholder — but its `Client` node passes that string straight
-to the OpenAI library, and the library only falls back to `OPENAI_API_KEY` when
-the key is `None`. A literal `"-"` is not `None`, so the fallback never fires
-and you get a 401 from OpenAI partway through a job.
+`pnpm check:nodes` reports whether the pack can see a key at all, which is the
+one thing about the rewrite that can be checked without spending a render.
 
-In `custom_nodes/comfyui-openai-api/client.py`, add the `os` import at the top
-(upstream does not have it) and make `execute` fall through:
+### Choosing the rewrite model
 
-```python
-import os   # <- add this alongside the existing imports
+**Rewrite model**, under the prompt box on every workflow, picks which model
+expands what you type. It never touches the video — that is always MiniMax H3 —
+and it disappears from the form when the rewrite is switched off.
 
-    @classmethod
-    def execute(cls, base_url: str, max_retries: int, timeout: int, api_key: str | None = None) -> io.NodeOutput:
-        return io.NodeOutput(
-            OpenAI(
-                api_key=(
-                    api_key
-                    if api_key and api_key != "-"
-                    else os.environ.get("OPENAI_API_KEY")
-                ),
-                base_url=base_url,
-                max_retries=max_retries,
-                timeout=timeout
-            )
-        )
-```
+The list is ten models, one per provider family, each labelled with what it
+costs per million words out and marked **free** where it is free. It is built at
+build time from the gateway's own catalog by `pnpm sync:models`, so a provider's
+point release is picked up by re-running that rather than by editing a graph,
+and a retired model drops out of the list instead of failing a queued run. The
+curation — which families, and why those — is in
+`src/lib/workflows/rewrite-catalog.ts`.
 
-Restart ComfyUI. **Updating the pack overwrites this**, so if generations start
-failing after a ComfyUI Manager update, check here first.
+Every option accepts images, because four of the six graphs show the rewrite a
+picture (the upload, the last frame of the clip being extended, the reference
+sheet) and a text-only model wired into that position fails the run.
 
-### Which model the rewrite asks for
-
-Every graph requests `model: "gpt-5.6-terra"` — twice in the music one, which
-runs a second call for lyrics. If your account cannot reach
-that model the job fails at the rewrite step, which reads as a generic node
-error rather than anything about models. Change it to one your key can actually
-use — it appears once per file in `src/lib/workflows/`:
-
-```bash
-grep -rn 'model: "' src/lib/workflows/*.ts
-```
-
-Not using OpenAI at all? Point `base_url` at any OpenAI-compatible server
-(Ollama, vLLM, LM Studio) in the same files. Those usually need no key, in which
-case the stock `api_key: "-"` is correct and you can skip the patch above.
+**This is the control to reach for when a generation dies at the rewrite step
+for no clear reason.** That is usually a refusal, and a refusal is about the
+model, not about you: switch to another and try again. `pnpm check:nodes`
+verifies every offered id against the live dropdown on your own install.
 
 ### Models
 
@@ -351,7 +349,7 @@ what to install.
 
 Open <http://localhost:3000>. The header pill should read **Ready**. Then run
 one generation — **Text to Video** is the cheapest test, since it needs no
-upload. That proves the models load and the OpenAI key on your ComfyUI host
+upload. That proves the models load and the gateway key on your ComfyUI host
 works, which no static check can.
 
 ---
@@ -398,8 +396,9 @@ public forks.
 | Works locally, fails deployed | `COMFY_URL` is probably still `localhost` — or `$` got escaped in Vercel, where it should not be |
 | Valid token still rejected | ComfyUI started with `--enable-cors-header <specific-origin>` makes the bearer check unreachable. Drop the flag or set it to `*`. [Why](#if-a-correct-token-is-still-rejected) |
 | Generation fails naming a node class | `pnpm check:nodes` — a pack is missing |
-| Job dies partway with a 401 from OpenAI | `OPENAI_API_KEY` on the ComfyUI host, and [the `client.py` patch](#the-llm-key-and-a-one-line-patch-you-have-to-apply). A pack update reverts it |
-| Job dies at the rewrite step, no clear reason | [The model name](#which-model-the-rewrite-asks-for) — your key may not reach `gpt-5.6-terra` |
+| Job dies at the rewrite step saying there is no key | [The rewrite key](#the-rewrite-key) — set it from the header button, or `AI_GATEWAY_API_KEY` on the ComfyUI host |
+| Job dies at the rewrite step, no clear reason | Usually a refusal. Change **[Rewrite model](#choosing-the-rewrite-model)** and try again |
+| Rewrite fails saying the model is not in the list | The gateway retired it. `pnpm sync:models`, then commit the change |
 | A job shows as **Lost** | ComfyUI restarted and dropped its history |
 | A job failed saying contact was lost | The connection dropped mid-render, not the workflow. Check the pill, then resubmit — the run may still have finished on the box |
 
@@ -778,10 +777,13 @@ wrong sampler and coming back a worse video rather than an error.
 Every graph runs what you type through an LLM first, unless you turn that off —
 see [sending a prompt unrewritten](#sending-a-prompt-unrewritten), which is the
 whole of the escape hatch and is off by default. A
-`PrimitiveStringMultiline` node holds the raw input, an `OAIAPI_ChatCompletion`
+`PrimitiveStringMultiline` node holds the raw input, a `VercelAIGatewayGenerateText`
 node expands it into the model's own format, and only that output reaches the
-generation node. The image and reference workflows also hand their uploads to
-the rewrite, so it can describe what is actually in frame. Everything in this
+generation node. The image and reference workflows hand their uploads to the
+rewrite as well, so it can describe what is actually in frame — those use
+`VercelAIGatewayDescribeImage`, which is the same node with an `IMAGE` input.
+Both name their inputs `prompt` and `system_prompt` and return the text on
+output 0, which is what lets everything else here treat them as one thing. Everything in this
 section is about the five video graphs; the music one runs the same machinery
 against a different format, and is described under [Music](#music).
 
@@ -949,18 +951,22 @@ Two consequences:
 - **The prompt param targets the input node, not the video node.** On these
   graphs `MiniMaxH3ImageToVideo.prompt` is a link, not a value. Writing to it
   would be overwritten at execution time and the user's text would vanish.
-- **`api_key` is `"-"` in every export**, and that is deliberate: the key stays
-  on the ComfyUI host and never crosses the network from Vercel. It also means
-  the node pack needs [the small patch](#the-llm-key-and-a-one-line-patch-you-have-to-apply)
-  that makes `"-"` fall through to `OPENAI_API_KEY`, because upstream sends the
-  placeholder to OpenAI as if it were a real key. If the host cannot reach the
-  API the rewrite node fails and takes the whole job with it, unless the switch
-  below has taken the node out of the graph.
+- **No graph carries an `api_key`**, and that is deliberate: the node resolves
+  one from the ComfyUI host's environment or its own config file, so the key
+  never crosses the network from Vercel and never lands in the metadata ComfyUI
+  writes into saved files. If the host has no key the rewrite node fails and
+  takes the whole job with it, unless the switch below has taken the node out of
+  the graph. See [the rewrite key](#the-rewrite-key).
+- **`model` is a live dropdown, not free text.** The node builds it from the
+  gateway's catalog and ComfyUI validates a queued combo against that list, so a
+  model id in a graph is a thing that can stop existing. `rewriteModelProblems`
+  in `params.ts` fails `check:workflows` on an id the picker does not offer, and
+  `check:nodes` checks the offered ten against the live list on your install.
 
 ### Sending a prompt unrewritten
 
 **Send my prompt as written**, next to the prompt box on every workflow, queues
-a graph with no OpenAI node in it at all. The `PrimitiveStringMultiline` the
+a graph with no rewrite node in it at all. The `PrimitiveStringMultiline` the
 user typed into is linked straight to whatever was reading the director's
 output, and what the model gets is the box, character for character.
 
@@ -975,8 +981,7 @@ line prompt sent this way is a one line prompt.
 `director.ts` does the unwiring, and works out what to delete rather than being
 told. Everything reading the director's output is repointed at the prompt node,
 and then anything no longer reachable from the graph's own output nodes goes:
-the `OAIAPI_ChatCompletion`, the `OAIAPI_Client` behind it, and whatever existed
-only to be shown to it — Reference to Video's `BatchImagesNode`, Remix's
+the rewrite node, and whatever existed only to be shown to it — Reference to Video's `BatchImagesNode`, Remix's
 `VideoFrameSample` and `GetVideoComponents`. Image to Video's upload stays,
 because the sampler reads it too. The roots are read *before* the rewiring, or
 the batch node nothing reads any more would look like an output node and be
@@ -996,7 +1001,7 @@ most of them; the duration still sets the length.
 Music has the switch too, on its description, and there it is the caption that
 goes through verbatim — Music 3's own three-section format, which is worth
 reading `music3-director.ts` for before typing one. Only the caption director is
-skipped. Node 47 is an OpenAI node as well, but it is there because *Write the
+skipped. Node 47 is a rewrite node as well, but it is there because *Write the
 lyrics for me* or *Plan the sections* is on, and those are switches of their
 own; with the caption rewrite off it reads what the user typed, which is what
 the model is being given as its caption either way.
@@ -1242,7 +1247,7 @@ Three further things are deliberately *not* true of it:
 
   It writes *the prompt*, not only the director's brief, which is the whole
   point of where it is wired. The rewrite is optional — **Send my prompt as
-  written** deletes the OpenAI node outright — so anything that reached H3 only
+  written** deletes the rewrite node outright — so anything that reached H3 only
   through the director would silently vanish for exactly the people who chose to
   write the format by hand. So `promptTarget` in `minimax-common.ts` is the
   prompt's equivalent of `directorTarget`: several controls write the same node

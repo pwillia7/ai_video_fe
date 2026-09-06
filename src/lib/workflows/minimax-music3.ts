@@ -1,5 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { hideDirectorOnly, type DirectorBypass } from "./director";
+import { rewriteModelParam, rewriteNode } from "./rewrite-model";
 import {
   LITERAL_PROMPT,
   directorTarget,
@@ -77,36 +78,21 @@ const graph: ComfyGraph = {
     inputs: { value: "then they fly to the moon on broomsticks" },
     _meta: { title: "Input Text (Prompt)" },
   },
-  "45": {
-    class_type: "OAIAPI_Client",
-    inputs: {
-      base_url: "https://api.openai.com/v1",
-      max_retries: 2,
-      timeout: 600,
-      api_key: "-",
-    },
-    _meta: { title: "OpenAI API - Client" },
-  },
-  "46": {
-    class_type: "OAIAPI_ChatCompletion",
-    inputs: {
-      model: "gpt-5.6-terra",
-      force_regen: false,
-      prompt: ["44", 0],
-      // Empty in the export — the workflow was run with the rewrite doing
-      // nothing in particular. Overwritten per run by every control that
-      // shapes the caption; see `director` below.
-      system_prompt: "",
-      client: ["45", 0],
-      // No `images` input, unlike the H3 directors. There is nothing to look
-      // at here, and the lyrics stay out on purpose.
-    },
-    _meta: { title: "OpenAI API - Chat Completion" },
-  },
+  // The caption director. Its `system_prompt` was empty in the export — the
+  // workflow was run with the rewrite doing nothing in particular — and is
+  // overwritten per run by every control that shapes the caption; see
+  // `director` below.
+  //
+  // No picture goes in, unlike the H3 directors: there is nothing to look at
+  // here, and the lyrics stay out on purpose.
+  "46": rewriteNode({
+    prompt: ["44", 0],
+    system: "",
+    title: "AI Gateway - Write Caption",
+  }),
 
-  // The lyricist. Not in the ComfyUI export: it is the same node class as 46
-  // on the same client, so it needs nothing installed that the graph did not
-  // already need.
+  // The lyricist. Not in the ComfyUI export: it is the same node class as 46,
+  // so it needs nothing installed that the graph did not already need.
   //
   // Its user message is the caption node's output — that is the whole trick,
   // and the reason what it writes comes back in the right genre for the right
@@ -114,19 +100,14 @@ const graph: ComfyGraph = {
   //
   // Only ever writes words, and only when the lyricist is switched on.
   // Deleted outright on every other run; see `finalize`.
-  "47": {
-    class_type: "OAIAPI_ChatCompletion",
-    inputs: {
-      model: "gpt-5.6-terra",
-      force_regen: false,
-      prompt: ["46", 0],
-      // Written per run, like 46's: LYRICS_DIRECTOR plus what the user said
-      // the song should be about.
-      system_prompt: "",
-      client: ["45", 0],
-    },
-    _meta: { title: "OpenAI API - Chat Completion (Lyrics)" },
-  },
+  //
+  // Its `system_prompt` is written per run, like 46's: LYRICS_DIRECTOR plus
+  // what the user said the song should be about.
+  "47": rewriteNode({
+    prompt: ["46", 0],
+    system: "",
+    title: "AI Gateway - Write Lyrics",
+  }),
 
   // The guard on the section plan, and the reason an LLM is allowed to write a
   // field whose contents are performed.
@@ -334,7 +315,7 @@ Ooh... goodnight`;
 /**
  * The caption director is the one that can be skipped, and only that one.
  *
- * Node 47 is an OpenAI node too, but it is there because the user asked for
+ * Node 47 is a rewrite node too, but it is there because the user asked for
  * words or for a section plan — switches of their own, which this does not
  * touch. With the caption rewrite off, 47 reads what the user typed instead of
  * the caption that was written from it, which is the same relationship it
@@ -365,9 +346,12 @@ const params: ParamDef[] = [
     // Names the format, because unlike the video graphs there is a written
     // spec for it — and typing prose into a field the model reads as a caption
     // is the failure this switch makes possible.
-    help: "Skips the rewrite: what is in the box becomes the caption itself, in Music 3's own three-section format. No OpenAI node runs for it.",
+    help: "Skips the rewrite: what is in the box becomes the caption itself, in Music 3's own three-section format. Nothing is sent to a language model for it.",
     group: "Song",
   }),
+  // Both directors, always the same model: writing the caption and writing the
+  // words to go with it are two calls in one act of writing a song.
+  rewriteModelParam([DIRECTOR_NODE, LYRICIST_NODE], { group: "Song" }),
   {
     id: "write_lyrics",
     label: "Write the lyrics for me",
@@ -651,9 +635,9 @@ export const minimaxMusic3: WorkflowDef = {
    *
    * Unused nodes are deleted rather than left in. ComfyUI executes only what an
    * output depends on, so a stray one would cost nothing at run time, but a
-   * node with no consumer is a node someone wires up by accident later — and an
-   * OAIAPI_ChatCompletion that did get executed would spend an API call to
-   * produce nothing.
+   * node with no consumer is a node someone wires up by accident later — and a
+   * rewrite node that did get executed would spend a gateway call to produce
+   * nothing.
    */
   finalize(graph, values) {
     if (values.write_lyrics === true) {

@@ -1,6 +1,7 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { ParamError } from "@/lib/params";
 import { hideDirectorOnly } from "./director";
+import { rewriteModelParam, rewriteNode } from "./rewrite-model";
 import type { ParamDef, ParamPin, ParamValue, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
@@ -341,33 +342,19 @@ const graph: ComfyGraph = {
   },
 
   // The prompt-rewrite stage. 138 holds what the user typed, 146 batches the
-  // references so the rewrite can see them, 145 expands the two into the
-  // description node 136 actually reads. The api_key is "-" as exported: the
-  // ComfyUI host supplies the real one.
-  "144": {
-    class_type: "OAIAPI_Client",
-    inputs: {
-      base_url: "https://api.openai.com/v1",
-      max_retries: 2,
-      timeout: 600,
-      api_key: "-",
-    },
-    _meta: { title: "OpenAI API - Client" },
-  },
-  "145": {
-    class_type: "OAIAPI_ChatCompletion",
-    inputs: {
-      model: "gpt-5.6-terra",
-      force_regen: false,
-      prompt: ["138", 0],
-      // Overwritten per run by the duration param, which appends the finished
-      // video's length — H3's format needs it to place shot cut times.
-      system_prompt: REFERENCE_DIRECTOR,
-      client: ["144", 0],
-      images: ["146", 0],
-    },
-    _meta: { title: "OpenAI API - Chat Completion" },
-  },
+  // references so the rewrite can see them all at once, 145 expands the two
+  // into the description node 136 actually reads. Which model does the reading
+  // is the `rewrite_model` param below; the key lives on the ComfyUI host.
+  //
+  // The `system_prompt` is overwritten per run by the duration param, which
+  // appends the finished video's length — H3's format needs it to place shot
+  // cut times.
+  "145": rewriteNode({
+    prompt: ["138", 0],
+    system: REFERENCE_DIRECTOR,
+    images: ["146", 0],
+    title: "AI Gateway - Rewrite Prompt",
+  }),
   "146": {
     class_type: "BatchImagesNode",
     // Variadic, like ref_images above: an unused slot's input is removed
@@ -615,6 +602,7 @@ const params: ParamDef[] = [
     promptText,
   ),
   literalPromptParam(),
+  rewriteModelParam([ids.director]),
 
   durationParam(ids, director),
   {

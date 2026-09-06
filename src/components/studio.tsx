@@ -10,6 +10,7 @@ import {
 } from "react";
 import { ConnectionPill } from "@/components/connection-pill";
 import { NotifyToggle } from "@/components/notify-toggle";
+import { RewriteKeyButton } from "@/components/rewrite-key";
 import { GenerationStage } from "@/components/generation-stage";
 import { ParamForm } from "@/components/param-form";
 import { SettingsModal } from "@/components/settings-modal";
@@ -845,6 +846,7 @@ function Workbench({
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <ConnectionPill />
+            <RewriteKeyButton />
             <NotifyToggle />
             <ThemeToggle />
           </div>

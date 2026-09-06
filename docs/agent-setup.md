@@ -36,12 +36,18 @@ The app is the easy half. Almost every failed setup is here.
 
 Tell them plainly what has to be true, then let them go do it:
 
-**Custom nodes** — three packs, all installable from ComfyUI Manager by name:
+**Custom nodes** — four packs. Three install from ComfyUI Manager by name; the
+first one installs by Git URL:
 
-- **OpenAI API** (`hekmon/comfyui-openai-api`) — provides `OAIAPI_Client` and
-  `OAIAPI_ChatCompletion`. **Every workflow needs this.** Each one rewrites the
-  user's prompt through an LLM before the video model sees it, so without these
-  nodes nothing generates at all.
+- **Vercel AI Gateway** (`pwillia7/comfyui-vercel-ai-gateway`) — provides
+  `VercelAIGatewayGenerateText` and `VercelAIGatewayDescribeImage`. Not in the
+  Manager's registry by name: **Install via Git URL**, with
+  `https://github.com/pwillia7/comfyui-vercel-ai-gateway`, then
+  `pip install -r requirements.txt` in ComfyUI's own environment if the Manager
+  does not. **Every workflow needs this.** Each one rewrites the user's prompt
+  through a language model before the video model sees it, so without these
+  nodes nothing generates at all. The log line to look for after a restart is
+  `[VercelAIGateway] v1.0.0 loaded 5 nodes`.
 - **ComfyUI-KJNodes** (`kijai/ComfyUI-KJNodes`) — provides
   `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate` and
   `PathchSageAttentionKJ` (the misspelling is the pack's). Remix and Extend need
@@ -82,68 +88,47 @@ on. `pnpm check:nodes` names both the class and the pack that owns it — and it
 checks the turbo and patched forms of each graph as well as the stored one — so
 run it rather than guessing.
 
-**An LLM key on the ComfyUI host, plus a patch.** Do not skip this. It is the
-most likely reason a setup that looks correct fails partway through its first
-generation, and nothing in `check:nodes` can catch it.
+**A gateway key on the ComfyUI host.** Do not skip this. It is the most likely
+reason a setup that looks correct fails partway through its first generation.
 
-The app never sends a key — it stays on the ComfyUI host rather than crossing
-the network from Vercel. Two things have to be true:
+The app never holds the key — it stays on the ComfyUI host rather than crossing
+the network from Vercel, and it is deliberately never written into a graph,
+because ComfyUI copies the queued prompt into the metadata of every file a
+workflow saves.
 
-1. **`OPENAI_API_KEY` is set in the environment ComfyUI actually launches in.**
-   Not a different terminal, not their shell profile if ComfyUI runs as a
-   service. Same shell as `python main.py`, or `Environment=` in the systemd
-   unit.
+The key comes from [vercel.com/dashboard](https://vercel.com/dashboard) → **AI
+Gateway** → **API Keys**. Every team gets $5 of credit a month, and two of the
+models the app offers cost nothing against it.
 
-2. **`custom_nodes/comfyui-openai-api/client.py` is patched to read it.** The
-   graphs ship `api_key: "-"` (the pack's "no key needed" placeholder), and the
-   node hands that straight to the OpenAI library, which only falls back to the
-   environment when the key is `None`. `"-"` is not `None`, so without this
-   patch the fallback never fires and OpenAI returns 401 mid-job.
+There are two ways to land it on the machine, and either is enough:
 
-   Upstream does not import `os`, so that line is part of the patch:
+1. **`AI_GATEWAY_API_KEY` in the environment ComfyUI actually launches in.** Not
+   a different terminal, not their shell profile if ComfyUI runs as a service.
+   Same shell as `python main.py`, or `Environment=` in the systemd unit. This
+   wins over the file below.
 
-   ```python
-   import os   # add alongside the existing imports
+2. **From the app**, once it is running: the key button in the header, which
+   wears a warning colour until a key is set. It posts to the pack's own config
+   route and lands in `custom_nodes/comfyui-vercel-ai-gateway/config.json`,
+   which is gitignored. Prefer this when ComfyUI is on a machine they are not
+   sitting at — which is most of the time.
 
-       @classmethod
-       def execute(cls, base_url: str, max_retries: int, timeout: int, api_key: str | None = None) -> io.NodeOutput:
-           return io.NodeOutput(
-               OpenAI(
-                   api_key=(
-                       api_key
-                       if api_key and api_key != "-"
-                       else os.environ.get("OPENAI_API_KEY")
-                   ),
-                   base_url=base_url,
-                   max_retries=max_retries,
-                   timeout=timeout
-               )
-           )
-   ```
+Either way, `pnpm check:nodes` reports whether the pack can see a key, so this
+is checkable before a render rather than after one.
 
-   Offer to apply this for them if the file is reachable — check whether it is
-   already patched first, since re-applying it is not idempotent. Tell them a
-   pack update through ComfyUI Manager overwrites it.
+**Not using a language model at all?** Every workflow has a **Send my prompt as
+written** switch beside its prompt box, which queues a graph with no rewrite
+node in it — no key needed for that run. Say so if they have no key to hand, but
+do not offer it as the way to run the app: the rewrite is most of what makes a
+one-line prompt produce a usable video, and the switch is for someone writing
+MiniMax's own format by hand.
 
-Restart ComfyUI after either change.
-
-**Using a local LLM instead?** Point `base_url` at any OpenAI-compatible server
-(Ollama, vLLM, LM Studio) in `src/lib/workflows/*.ts`. Those generally need no
-key, so the stock `api_key: "-"` is right and the patch above is unnecessary.
-
-**Not using an LLM at all?** Every workflow has a **Send my prompt as written**
-switch beside its prompt box, which queues a graph with no OpenAI node in it —
-no key, no patch, no `comfyui-openai-api` pack needed for that run. Say so if
-they have no key to hand, but do not offer it as the way to run the app: the
-rewrite is most of what makes a one-line prompt produce a usable video, and the
-switch is for someone writing MiniMax's own format by hand.
-
-**The model name will bite some people.** Every graph asks for
-`model: "gpt-5.6-terra"` — the music one twice, since it runs a second call for
-lyrics. If their account cannot reach it the job dies at the
-rewrite step with an error that says nothing about models. If they hit that,
-have them change it to a model their key can use — once per file in
-`src/lib/workflows/`.
+**Which model does the rewriting is a control, not a constant.** **Rewrite
+model** under the prompt box offers ten, labelled with what they cost and which
+are free, built from the gateway's live catalog by `pnpm sync:models`. If a job
+dies at the rewrite step with an error that says nothing useful, that is usually
+a refusal — have them pick a different model rather than debug the prompt. The
+curation is in `src/lib/workflows/rewrite-catalog.ts`.
 
 **Fourteen model files.** Eleven are named literally in the graphs. The other
 three belong to the content-LoRA switch, which is off by default — all three are
@@ -192,7 +177,7 @@ download**, each LoRA can offer a **Lighter base** toggle. For VHS tape that run
 for some quality. Both are non-rotated, so either is safe for the LoRA; they need
 one of the two, not both.
 
-**Music needs no node pack but the OpenAI one.** Every other class in that graph
+**Music needs no node pack but the gateway one.** Every other class in that graph
 is a ComfyUI built-in, so if they only want music, the three files above plus a
 recent ComfyUI is the whole of Phase 1 for them.
 
@@ -341,7 +326,7 @@ Open <http://localhost:3000>. The header pill should read **Ready**. If it says
 
 Have them run one generation before deploying — **Text to Video** is the
 cheapest test since it needs no upload. A first run proves the models load and
-the OpenAI key on the ComfyUI host works, which no static check can.
+the gateway key on the ComfyUI host works, which no static check can.
 
 ## Phase 5 — Deploy to Vercel
 
@@ -399,7 +384,8 @@ to tell them:
 | Works locally, fails deployed | `COMFY_URL` is probably still `localhost`; or `$` was escaped in Vercel when it should not be |
 | Valid token still rejected | ComfyUI started with `--enable-cors-header <specific-origin>` makes the bearer check unreachable. Drop the flag or set it to `*` |
 | Generation fails on a node class | `pnpm check:nodes` — a pack is missing |
-| Generation fails mentioning the LLM | The OpenAI key on the ComfyUI host, not this app |
+| Generation fails at the rewrite, no key | The gateway key on the ComfyUI host, not this app — header key button, or `AI_GATEWAY_API_KEY` |
+| Generation fails at the rewrite, no reason | Usually a refusal. Change **Rewrite model** and try again |
 | A generation just stops | ComfyUI restarting drops its history; the job shows as **Lost** |
 
 `/api/health` is the fastest single source of truth — it reports `reachable`,

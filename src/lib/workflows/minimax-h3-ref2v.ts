@@ -1,5 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { hideDirectorOnly } from "./director";
+import { rewriteModelParam, rewriteNode } from "./rewrite-model";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
   CLIP_WORDS,
@@ -191,33 +192,20 @@ const graph: ComfyGraph = {
   // The system prompt is what sets this graph apart from the other three.
   // REMIX_DIRECTOR reads the input as a change to an existing video rather
   // than a scene to invent, and writes out instructions to hold everything
-  // else to the source — which is the whole point of the workflow.
-  "144": {
-    class_type: "OAIAPI_Client",
-    inputs: {
-      base_url: "https://api.openai.com/v1",
-      max_retries: 2,
-      timeout: 600,
-      api_key: "-",
-    },
-    _meta: { title: "OpenAI API - Client" },
-  },
-  "145": {
-    class_type: "OAIAPI_ChatCompletion",
-    inputs: {
-      model: "gpt-5.6-terra",
-      force_regen: false,
-      prompt: ["138", 0],
-      // Overwritten per run by `source_seconds` below, which appends how long
-      // the clip runs — measured in the browser, since nothing here knows it
-      // until ComfyUI decodes the file.
-      system_prompt: REMIX_DIRECTOR,
-      client: ["144", 0],
-      // The sampled frames, and the only place they are used.
-      images: ["156", 0],
-    },
-    _meta: { title: "OpenAI API - Chat Completion" },
-  },
+  // else to the source — which is the whole point of the workflow. Which model
+  // it runs on is the `rewrite_model` param below; the key lives on the ComfyUI
+  // host.
+  //
+  // The `system_prompt` is overwritten per run by `source_seconds` below, which
+  // appends how long the clip runs — measured in the browser, since nothing
+  // here knows it until ComfyUI decodes the file. The sampled frames at 156 are
+  // used here and nowhere else.
+  "145": rewriteNode({
+    prompt: ["138", 0],
+    system: REMIX_DIRECTOR,
+    images: ["156", 0],
+    title: "AI Gateway - Rewrite Prompt",
+  }),
 
   "153": {
     class_type: "GetVideoComponents",
@@ -327,6 +315,7 @@ const params: ParamDef[] = [
     promptText,
   ),
   literalPromptParam(),
+  rewriteModelParam([ids.director]),
 
   // No output controls at all on this one. Size and length come from the clip,
   // and the frame rate is fixed at the 24 the model works in.

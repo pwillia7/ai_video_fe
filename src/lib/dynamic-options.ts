@@ -26,6 +26,18 @@ export async function resolveDynamicOptions(
       const values = enumValuesFor(schema, param.optionsFrom.input);
       if (!values || values.length === 0) return param;
 
+      // "restrict" keeps the declared options and their labels — a curated list
+      // whose live counterpart is too long to show — and only drops the ones
+      // this install has stopped offering. See OptionsFrom.
+      if (param.optionsFrom.mode === "restrict") {
+        const live = new Set(values);
+        const kept = param.options.filter((option) => live.has(option.value));
+        // Everything gone means the lookup found a list that has nothing to do
+        // with this control. Keep the declared options and let ComfyUI judge,
+        // rather than rendering a select with no choices in it.
+        return kept.length > 0 ? { ...param, options: kept } : param;
+      }
+
       return {
         ...param,
         options: values.map((value) => ({ value, label: value })),
@@ -50,7 +62,17 @@ export async function allowedValuesFor(
     if (node) {
       const schema = await getNodeSchema(node.class_type);
       const values = enumValuesFor(schema, param.optionsFrom.input);
-      if (values && values.length > 0) return values;
+      if (values && values.length > 0) {
+        if (param.optionsFrom.mode !== "restrict") return values;
+        const live = new Set(values);
+        const kept = param.options
+          .map((option) => option.value)
+          .filter((value) => live.has(value));
+        // As above: an empty intersection is a lookup that went somewhere
+        // unrelated, not a control with no valid values.
+        if (kept.length > 0) return kept;
+        return param.options.map((option) => option.value);
+      }
     }
     // Live lookup failed — accept anything and let ComfyUI be the judge.
     return null;

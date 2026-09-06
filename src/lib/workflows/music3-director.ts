@@ -344,8 +344,8 @@ function spokenLength(seconds: number): string {
  *
  * What the user wants the song to be *about* travels the other way, in the
  * system prompt, via `lyricsBrief` below. It is an unusual place for it, and
- * the reason is that the prompt input is taken: an OAIAPI_ChatCompletion has
- * one string in and one string out, and the caption is the more valuable thing
+ * the reason is that the prompt input is taken: a rewrite node has one string
+ * in and one string out, and the caption is the more valuable thing
  * to spend it on.
  */
 export const LYRICS_DIRECTOR = `You are a lyricist working to a brief.
@@ -561,9 +561,9 @@ If the form in the brief will not fit in that many lines, keep the form and writ
  * One node and two jobs, because both of them are the same request — read the
  * caption node's output, write the field that gets performed — and they are
  * never both wanted on one run: the lyricist writes words for a sung track, the
- * planner writes sections for an instrumental. A second OAIAPI_ChatCompletion
- * would be a second API client, a second node to delete, and the same prompt
- * assembly twice.
+ * planner writes sections for an instrumental. A second rewrite node would be
+ * a second node to delete, a second model to keep in step with the picker, and
+ * the same prompt assembly twice.
  *
  * Assembled here rather than through `directorTarget` because this node is only
  * in the graph on some runs, and what it is told depends on values the shared

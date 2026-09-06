@@ -372,6 +372,61 @@ export function enumValuesFor(
 }
 
 /**
+ * The rewrite pack's own status route.
+ *
+ * `comfyui-vercel-ai-gateway` serves a handful of routes off ComfyUI's own web
+ * server, behind ComfyUI's own authentication — which is to say behind the same
+ * token this client already sends. They exist so a headless or remote install
+ * can be configured without shell access to the machine, which is exactly the
+ * position this app is in: the browser cannot reach ComfyUI, and the person
+ * running it may be nowhere near the GPU.
+ *
+ * Null when the pack is not installed, which is a 404 rather than a failure —
+ * every other answer here is about a machine that is answering.
+ */
+export interface GatewayStatus {
+  version?: string;
+  /** Whether the pack can see a key. Never the key itself; the route has none. */
+  credentials_configured?: boolean;
+  /** Where a key written through `setGatewayKey` lands, on the GPU machine. */
+  config_path?: string;
+  models_cached?: number;
+}
+
+export async function gatewayStatus(): Promise<GatewayStatus | null> {
+  try {
+    return await comfyJson<GatewayStatus>("/vercel_ai_gateway/status", {
+      timeoutMs: 10_000,
+    });
+  } catch (error) {
+    if (error instanceof ComfyError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/**
+ * Write a Vercel AI Gateway key into the pack's config.json, on the ComfyUI
+ * machine.
+ *
+ * This is the only secret in the app that a user supplies rather than a
+ * deployment does, and it deliberately does not stay here. It is not stored, not
+ * logged, and not put into a graph — a key written into a node's widget travels
+ * into the queued prompt, and ComfyUI copies the prompt into the metadata of
+ * every file a workflow saves, so it would end up inside videos that get shared.
+ * Instead it goes straight through to the machine that needs it, is written to a
+ * gitignored file next to the node pack, and is never read back: the status
+ * route answers with a boolean and nothing else.
+ */
+export async function setGatewayKey(apiKey: string): Promise<void> {
+  await comfyJson<{ ok?: boolean }>("/vercel_ai_gateway/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey }),
+    timeoutMs: 15_000,
+  });
+}
+
+/**
  * Stream a produced file back to the caller without buffering it in memory.
  * `headers` exists so a Range request can be forwarded, which is what lets the
  * browser scrub through the video instead of only playing it start to finish.

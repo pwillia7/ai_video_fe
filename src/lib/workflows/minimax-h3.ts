@@ -1,5 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { hideDirectorOnly } from "./director";
+import { rewriteModelParam, rewriteNode } from "./rewrite-model";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
   directorBypassFor,
@@ -59,31 +60,18 @@ const graph: ComfyGraph = {
   },
 
   // The prompt-rewrite stage. 123 holds what the user typed, 121 expands it,
-  // and 105:104 reads 121's output. The api_key is "-" as exported: the key
-  // comes from the ComfyUI host's own environment, not from this app.
-  "120": {
-    class_type: "OAIAPI_Client",
-    inputs: {
-      base_url: "https://api.openai.com/v1",
-      max_retries: 2,
-      timeout: 600,
-      api_key: "-",
-    },
-    _meta: { title: "OpenAI API - Client" },
-  },
-  "121": {
-    class_type: "OAIAPI_ChatCompletion",
-    inputs: {
-      model: "gpt-5.6-terra",
-      force_regen: false,
-      prompt: ["123", 0],
-      // Overwritten per run by the duration param, which appends the finished
-      // video's length — H3's format needs it to place shot cut times.
-      system_prompt: TEXT_DIRECTOR,
-      client: ["120", 0],
-    },
-    _meta: { title: "OpenAI API - Chat Completion" },
-  },
+  // and 105:104 reads 121's output. Which model does the expanding is the
+  // `rewrite_model` param below; the key is the gateway key on the ComfyUI
+  // host, never one held here.
+  //
+  // The `system_prompt` is overwritten per run by the duration param, which
+  // appends the finished video's length — H3's format needs it to place shot
+  // cut times.
+  "121": rewriteNode({
+    prompt: ["123", 0],
+    system: TEXT_DIRECTOR,
+    title: "AI Gateway - Rewrite Prompt",
+  }),
   "123": {
     class_type: "PrimitiveStringMultiline",
     inputs: { value: "" },
@@ -236,6 +224,7 @@ const params: ParamDef[] = [
     6,
   ),
   literalPromptParam(),
+  rewriteModelParam([ids.director]),
 
   durationParam(ids, director),
   {

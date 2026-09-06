@@ -1,5 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { hideDirectorOnly } from "./director";
+import { rewriteModelParam, rewriteNode } from "./rewrite-model";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
   directorBypassFor,
@@ -101,33 +102,20 @@ const graph: ComfyGraph = {
   //
   // EXTEND_DIRECTOR is what makes this a continuation rather than a new scene
   // sharing an opening image — it reads the input as what happens next and
-  // spends most of its instructions on not resetting at the seam. The api_key
-  // is "-" as exported: the ComfyUI host supplies the real one.
-  "121": {
-    class_type: "OAIAPI_Client",
-    inputs: {
-      base_url: "https://api.openai.com/v1",
-      max_retries: 2,
-      timeout: 600,
-      api_key: "-",
-    },
-    _meta: { title: "OpenAI API - Client" },
-  },
-  "123": {
-    class_type: "OAIAPI_ChatCompletion",
-    inputs: {
-      model: "gpt-5.6-terra",
-      force_regen: false,
-      prompt: ["125", 0],
-      // Overwritten per run by the duration param, which appends the length of
-      // the segment being generated — not of the video that comes out, since
-      // the source is concatenated on afterwards and never reaches the model.
-      system_prompt: EXTEND_DIRECTOR,
-      client: ["121", 0],
-      images: ["128", 0],
-    },
-    _meta: { title: "OpenAI API - Chat Completion" },
-  },
+  // spends most of its instructions on not resetting at the seam. Which model
+  // it runs on is the `rewrite_model` param below; the key lives on the
+  // ComfyUI host.
+  //
+  // The `system_prompt` is overwritten per run by the duration param, which
+  // appends the length of the segment being generated — not of the video that
+  // comes out, since the source is concatenated on afterwards and never
+  // reaches the model.
+  "123": rewriteNode({
+    prompt: ["125", 0],
+    system: EXTEND_DIRECTOR,
+    images: ["128", 0],
+    title: "AI Gateway - Rewrite Prompt",
+  }),
   "125": {
     class_type: "PrimitiveStringMultiline",
     inputs: { value: "" },
@@ -321,6 +309,7 @@ const params: ParamDef[] = [
     6,
   ),
   literalPromptParam(),
+  rewriteModelParam([ids.director]),
 
   // Times the addition, not the result — the source's own length is whatever it
   // already was, and the two are concatenated afterwards. Worth saying on the

@@ -1,5 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { hideDirectorOnly } from "./director";
+import { rewriteModelParam, rewriteNode } from "./rewrite-model";
 import type { ParamDef, WorkflowDef } from "./types";
 import {
   directorBypassFor,
@@ -68,32 +69,19 @@ const graph: ComfyGraph = {
   // The prompt-rewrite stage. 125 holds what the user typed, 123 expands it
   // with the upload in view, and 105:104 reads the result. Note that 123 is
   // given node 114 rather than the rescaled 119 — the rewrite reads the
-  // original, at whatever size it arrived. The api_key is "-" as exported: the
-  // ComfyUI host supplies the real one.
-  "121": {
-    class_type: "OAIAPI_Client",
-    inputs: {
-      base_url: "https://api.openai.com/v1",
-      max_retries: 2,
-      timeout: 600,
-      api_key: "-",
-    },
-    _meta: { title: "OpenAI API - Client" },
-  },
-  "123": {
-    class_type: "OAIAPI_ChatCompletion",
-    inputs: {
-      model: "gpt-5.6-terra",
-      force_regen: false,
-      prompt: ["125", 0],
-      // Overwritten per run by the duration param, which appends the finished
-      // video's length — H3's format needs it to place shot cut times.
-      system_prompt: IMAGE_DIRECTOR,
-      client: ["121", 0],
-      images: ["114", 0],
-    },
-    _meta: { title: "OpenAI API - Chat Completion" },
-  },
+  // original, at whatever size it arrived, and the node scales its own copy
+  // down before it uploads it. Which model reads it is the `rewrite_model`
+  // param below; the key lives on the ComfyUI host.
+  //
+  // The `system_prompt` is overwritten per run by the duration param, which
+  // appends the finished video's length — H3's format needs it to place shot
+  // cut times.
+  "123": rewriteNode({
+    prompt: ["125", 0],
+    system: IMAGE_DIRECTOR,
+    images: ["114", 0],
+    title: "AI Gateway - Rewrite Prompt",
+  }),
   "125": {
     class_type: "PrimitiveStringMultiline",
     inputs: { value: "" },
@@ -263,6 +251,7 @@ const params: ParamDef[] = [
     6,
   ),
   literalPromptParam(),
+  rewriteModelParam([ids.director]),
 
   durationParam(ids, director),
 
