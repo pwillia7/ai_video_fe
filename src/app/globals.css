@@ -173,6 +173,21 @@
  * nothing where scrollbars are overlays (macOS, most touch devices) — there
  * the gutter is zero.
  */
+/*
+ * Nothing in a scrolling column may shrink.
+ *
+ * These panes are flex columns with a definite height, and a flex item defaults
+ * to flex-shrink:1 — so rather than overflowing and being scrolled to, an item
+ * gives up height until it fits. Its *content* does not shrink with it, so it
+ * spills out of a box that is now too short, and the next item along paints
+ * over the spill: the stage lost 114px that way and the row of Remix / Extend
+ * / Settings / Download buttons under the video ended up behind the history
+ * panel. Shrinking is exactly what a scroll container does not want.
+ */
+.scroll-pane > * {
+  flex-shrink: 0;
+}
+
 .scroll-pane {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
