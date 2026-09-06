@@ -147,7 +147,13 @@ export function Disclosure({
     <Button
       variant="quiet"
       size="xs"
-      className="self-start"
+      /* relative because the label inside is `sr-only`, which is
+         position:absolute. Absolute boxes resolve against the nearest
+         positioned ancestor, and with none they land in the initial
+         containing block — outside any scroll container they happen to be
+         written in, where they extend the document rather than the column
+         they belong to. Positioning the button keeps it contained. */
+      className="relative self-start"
       aria-expanded={open}
       onClick={onToggle}
       icon={

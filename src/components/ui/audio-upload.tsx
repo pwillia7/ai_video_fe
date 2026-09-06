@@ -132,8 +132,13 @@ export function AudioUpload({
       )
     : null;
 
+  // `relative` on the wrapper contains the `sr-only` file input below.
+  // sr-only is position:absolute, and an absolute box with no positioned
+  // ancestor resolves against the initial containing block — escaping
+  // whatever scroll container it happens to sit in and lengthening the page
+  // instead of the column it belongs to.
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <div className="relative flex min-w-0 flex-col gap-2">
       <input
         ref={inputRef}
         id={id}

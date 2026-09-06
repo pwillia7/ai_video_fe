@@ -220,8 +220,10 @@ export function VideoUpload({
       )
     : null;
 
+  // `relative` for the same reason as the audio picker: it contains the
+  // `sr-only` file input, which is absolutely positioned.
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <div className="relative flex min-w-0 flex-col gap-2">
       <input
         ref={inputRef}
         id={id}
