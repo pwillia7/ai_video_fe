@@ -121,6 +121,10 @@ export async function POST(request: Request) {
       // is sent back rather than assumed: a strength submitted for a switch the
       // step count refused was never written into the graph.
       strengths: appliedStrengths,
+      // And which checkpoint each of them put under its LoRA, on the same
+      // terms: a base switch is ignored on a patch that offers no alternate,
+      // so what ran is not always what was asked for.
+      bases: appliedBases,
       // Only ever a starting point: the client replaces it with this machine's
       // own median for this workflow and these modes as soon as it has one, so
       // the fact that neither number describes both switches at once costs a
