@@ -435,7 +435,7 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
     // `stepSampler` the note below comes from — so the switch and the control
     // that overrides it cannot describe different runs.
     patches: (patches ?? []).map((patch) => {
-      const client = toClientPatch(patch);
+      const client = toClientPatch(patch, workflow.graph);
       if (stepSampler?.suppresses?.includes(patch.id)) {
         client.suppressedAt = {
           param: stepSampler.param,

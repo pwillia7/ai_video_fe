@@ -7,6 +7,7 @@ import {
   directorTarget,
   clipDurationParam,
   h3Bf16Models,
+  h3ContentLora,
   h3Patches,
   h3StepSampler,
   h3Turbo,
@@ -382,7 +383,9 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * change how a step is arrived at rather than how many there are, so a low
    * step count is no argument against either of them.
    */
-  patches: h3Patches(),
+  // The content LoRA first, matching the order they stack in. Same ref2va
+  // backbone and same caveat as Reference to Video — see h3ContentLora.
+  patches: [h3ContentLora(), ...h3Patches()],
   /**
    * The same four-step form as Reference to Video, because it is the same model
    * under the same node class: `minimax_h3_ref2va` through

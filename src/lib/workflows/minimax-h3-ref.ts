@@ -11,6 +11,7 @@ import {
   REFERENCE_DIRECTOR,
   TRACK_WORDS,
   h3Bf16Models,
+  h3ContentLora,
   h3Patches,
   h3StepSampler,
   h3Turbo,
@@ -680,7 +681,11 @@ export const minimaxH3Reference: WorkflowDef = {
    */
   turbo: h3Turbo(140, 4),
 
-  patches: h3Patches(),
+  // The content LoRA first, matching the order they stack in. This graph runs
+  // the ref2va backbone, for which the LoRA declares its own checkpoint — see
+  // h3ContentLora, and the note on that base about it being ours rather than
+  // the LoRA author's pairing.
+  patches: [h3ContentLora(), ...h3Patches()],
   stepSampler: h3StepSampler({
     models: FOUR_STEP_MODELS,
     /**

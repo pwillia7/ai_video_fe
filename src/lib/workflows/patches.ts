@@ -27,6 +27,17 @@ import type { ParamValue } from "./types";
  * applies, so the graph's `CLIPLoader` is left alone whatever it is quantised to.
  */
 export interface PatchBase {
+  /**
+   * Filename prefixes of the checkpoints this base is the answer for — the
+   * *stored* graph's, not the one loaded instead.
+   *
+   * A LoRA that runs on more than one model family needs one of these per
+   * family: MiniMax-H3 ships `fl2va` and `ref2va` backbones, each with its own
+   * non-rotated checkpoint, and the same LoRA file wants a different one on
+   * each. Matching on the graph rather than declaring per workflow keeps one
+   * entry in the dropdown instead of a near-duplicate per family.
+   */
+  forModel: string[];
   /** The file the loader names while the switch is on. */
   value: string;
   /** Set where a second supported base is worth offering. */
@@ -160,8 +171,11 @@ export interface PatchChoice {
   label: string;
   /** The LoRA file, written onto the spliced node's file input. */
   file: string;
-  /** Set where this LoRA needs weights the stored graph does not load. */
-  base?: PatchBase;
+  /**
+   * The checkpoints this LoRA needs, one per model family it runs on. Empty or
+   * absent where it runs on whatever the graph already loads.
+   */
+  bases?: PatchBase[];
   /** Set where this LoRA's strength is the user's to set. */
   strength?: PatchStrength;
   /** Set where this LoRA has a trigger word it is inert without. */
@@ -276,7 +290,7 @@ export interface ClientPatchChoices {
 
 export type ClientPatchChoice = Omit<
   PatchChoice,
-  "file" | "base" | "strength"
+  "file" | "bases" | "strength"
 > & {
   // `prompt` is not stripped: it is words that go in the prompt, which the form
   // has to show and which give nothing away about the machine.
@@ -285,23 +299,29 @@ export type ClientPatchChoice = Omit<
    * The base switch's wording, minus the filename it selects — the same trade
    * `strength` makes, and for the same reason: the form needs to know there is
    * a switch and what to call it, not which file sits behind either side.
+   *
+   * Resolved against the workflow's own graph, because a LoRA declares a base
+   * per model family and only one of them applies here. A family whose base
+   * offers no alternate shows no switch, which is why this is filled in by
+   * `toClientPatch` from the graph rather than copied off the entry.
    */
   baseAlternate?: Omit<PatchBaseAlternate, "value">;
 };
 
-export function toClientPatch(patch: PatchDef): ClientPatch {
+export function toClientPatch(patch: PatchDef, graph: ComfyGraph): ClientPatch {
   const { node: _node, modelInput: _modelInput, choices, ...rest } = patch;
   const client: ClientPatch = rest;
   if (!choices) return client;
   client.choices = {
     label: choices.label,
     options: choices.options.map((option) => {
-      const { file: _file, base, strength, ...keep } = option;
+      const { file: _file, bases, strength, ...keep } = option;
       const clientOption: ClientPatchChoice = keep;
       if (strength) {
         const { input: _input, ...clientStrength } = strength;
         clientOption.strength = clientStrength;
       }
+      const base = patchBaseFor(bases, graph);
       if (base?.alternate) {
         const { value: _value, ...clientAlternate } = base.alternate;
         clientOption.baseAlternate = clientAlternate;
@@ -451,14 +471,20 @@ export function applyPatch(
     );
   }
 
-  if (choice?.base) {
-    // Resolved rather than echoed: an entry offering no alternate loads its
+  if (choice?.bases?.length) {
+    const base = patchBaseFor(choice.bases, graph);
+    if (!base) {
+      throw new Error(
+        `${choice.label} declares no checkpoint for the model this graph loads, so it cannot be applied here.`,
+      );
+    }
+    // Resolved rather than echoed: a base offering no alternate loads its
     // default whatever the switch was left on, so recording the request would
     // name a checkpoint the run never touched.
     const alternate =
-      options.alternateBase === true && choice.base.alternate !== undefined;
+      options.alternateBase === true && base.alternate !== undefined;
     applied.base = {
-      file: applyPatchBase(graph, patch.label, choice.base, alternate),
+      file: applyPatchBase(graph, patch.label, base, alternate),
       alternate,
     };
   }
@@ -486,6 +512,26 @@ export function resolveStrength(
     return spec.default;
   }
   return Math.min(spec.max, Math.max(spec.min, submitted));
+}
+
+/**
+ * The base this LoRA needs on this graph, found by what the graph loads now.
+ *
+ * Undefined where the LoRA declares none for this family, which is what refuses
+ * the switch on a graph it was not made for rather than leaving it on weights
+ * that would warp.
+ */
+export function patchBaseFor(
+  bases: PatchBase[] | undefined,
+  graph: ComfyGraph,
+): PatchBase | undefined {
+  if (!bases?.length) return undefined;
+  const loader = modelLoaderIn(graph);
+  const current = loader ? graph[loader].inputs.unet_name : undefined;
+  if (typeof current !== "string") return undefined;
+  return bases.find((base) =>
+    base.forModel.some((prefix) => current.startsWith(prefix)),
+  );
 }
 
 /** The tier a run is using: the one it named, or the first offered. */
@@ -640,8 +686,18 @@ export function patchBaseProblems(
 
   const loader = modelLoaderIn(graph);
   for (const option of choices.options) {
-    const base = option.base;
-    if (!base) continue;
+    if (!option.bases?.length) continue;
+    // Only the base that applies here. The others answer for graphs this
+    // workflow is not, and are checked when those workflows are.
+    const base = patchBaseFor(option.bases, graph);
+    if (!base) {
+      problems.push(
+        `${option.label} declares no checkpoint for ${
+          loader ? String(graph[loader].inputs.unet_name) : "this graph's model"
+        }, so the switch offering it cannot run here.`,
+      );
+      continue;
+    }
     if (!loader) {
       problems.push(
         `${option.label} loads ${base.value}, but this graph has no single ${MODEL_LOADER} to load it into.`,
@@ -699,9 +755,10 @@ export function patchVariants(
       graph: patchGraph(graph, patch, { choice: option.id, promptInput }),
       optional: true,
     });
-    if (option.base?.alternate) {
+    const base = patchBaseFor(option.bases, graph);
+    if (base?.alternate) {
       variants.push({
-        suffix: `, ${option.label.toLowerCase()}, ${option.base.alternate.label.toLowerCase()}`,
+        suffix: `, ${option.label.toLowerCase()}, ${base.alternate.label.toLowerCase()}`,
         graph: patchGraph(graph, patch, {
           choice: option.id,
           alternateBase: true,

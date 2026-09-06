@@ -535,9 +535,8 @@ two, and both start on:**
 - **Spectrum** splices `SpectrumApplyMiniMaxH3`, which forecasts sampler steps
   from the ones already taken instead of computing every one in full.
 
-**Use additional content LoRA** is the third, on the three `fl2va` graphs only —
-text to video, image to video and Extend — and it starts **off**, because it is a
-look rather than a way of running the model. It splices ComfyUI core's
+**Use additional content LoRA** is the third, on **all five** video graphs, and it
+starts **off**, because it is a look rather than a way of running the model. It splices ComfyUI core's
 `LoraLoaderModelOnly` directly behind the turbo LoRA, holding whichever LoRA is
 picked from the dropdown under it. It needs no node pack, only the files in
 `models/loras/`.
@@ -571,11 +570,34 @@ bases it accepts, and *both* sides of the **Lighter base** switch are checked
 against that list, so a base outside it fails `check:workflows` rather than a
 render.
 
-**Lighter base** chooses which supported checkpoint that is. For VHS tape, off is
-`minimax_h3_fl2va_bf16` and on is `minimax_h3_fl2va_pruned_fp8_scaled` — much
-smaller and much easier on VRAM for some quality. Both are non-rotated, so
-neither side can produce the failure above; it is a straight quality-for-memory
-trade, and the option to take if bf16 will not fit or has not been downloaded.
+An entry declares one checkpoint **per model family**, not one checkpoint. H3
+ships two backbones — `fl2va` on text to video, image to video and Extend, and
+`ref2va` on Reference to Video and Remix — each with its own non-rotated build,
+and the same LoRA file wants a different one on each. Which applies is decided by
+what the graph already loads, so one entry in the dropdown covers every workflow
+instead of a near-duplicate per family.
+
+**Lighter base** chooses between two checkpoints where a family has two. For VHS
+tape on `fl2va`, off is `minimax_h3_fl2va_bf16` and on is
+`minimax_h3_fl2va_pruned_fp8_scaled` — much smaller and much easier on VRAM for
+some quality. Both are non-rotated, so neither side can produce the failure
+above; it is a straight quality-for-memory trade, and the option to take if bf16
+will not fit or has not been downloaded. On `ref2va` there is no scaled fp8 build
+to offer, so the switch does not appear there at all.
+
+**On the reference workflows this pairing is ours, not the LoRA author's.** The
+model card lists `fl2va` bases only and says the LoRA is designed for
+text-to-video and image-to-video. What is established is that it applies: on
+`minimax_h3_ref2va_bf16` all 104 of its modules attach with no unmatched keys —
+the same number the card reports for `fl2va` — and a same-seed pair with and
+without it differs. Whether the look is worth having on a graph whose job is
+holding a likeness is a judgement to make from takes, so compare one before
+trusting it, exactly as with Turbo on those graphs.
+
+`minimax_h3_ref2va_bf16` is also what both those graphs already load at 4 steps,
+which is not a coincidence to rely on silently: `validateWorkflow` refuses a
+declaration where the step count's own weight swap would override a LoRA's base,
+because that run would load the wrong checkpoint while the form said otherwise.
 
 **It has a trigger, and the LoRA is inert without it.** `vh5tape` has to be the
 first thing in the prompt, followed by a damage-tier phrase, then the scene —

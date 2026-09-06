@@ -543,7 +543,17 @@ export function h3Patches(): PatchDef[] {
  * ComfyUI H3 tutorial defaults to, so every LoRA offered here has to bring its
  * own base with it — see `PatchBase`.
  */
-const H3_LORA_BASES = ["minimax_h3_fl2va_bf16", "minimax_h3_fl2va_pruned_fp8_scaled"];
+const H3_FL2VA_LORA_BASES = [
+  "minimax_h3_fl2va_bf16",
+  "minimax_h3_fl2va_pruned_fp8_scaled",
+];
+
+/**
+ * And the same for the reference backbone. Only the bf16 one: the quantised
+ * `ref2va` checkpoints are `_int8_convrot`, which is the rotated basis, and
+ * there is no scaled fp8 build of it to fall back to.
+ */
+const H3_REF2VA_LORA_BASES = ["minimax_h3_ref2va_bf16"];
 
 /**
  * The LoRAs the content switch offers, in the order they are shown. The first
@@ -565,28 +575,60 @@ const H3_CONTENT_LORAS: PatchChoice[] = [
     id: "vhs-tape",
     label: "VHS tape",
     file: "vh5tape-comfyui.safetensors",
-    base: {
-      value: "minimax_h3_fl2va_bf16.safetensors",
-      /**
-       * The other base on the ✅ list, offered as a switch because which of the
-       * two to run is a question about the machine rather than about the shot:
-       * bf16 is the better one and the one to use if it fits, and the scaled
-       * fp8 checkpoint is much smaller and much easier on VRAM. On a card that
-       * cannot hold bf16 — or that simply has not downloaded it, which is a
-       * large file — the choice is this or nothing.
-       *
-       * Both are non-rotated, which is the only property that actually decides
-       * whether the LoRA may be applied at all. That is what makes this a
-       * switch rather than a trap: neither side can produce the melting-limbs
-       * failure, so it is a straight quality-for-memory trade.
-       */
-      alternate: {
-        value: "minimax_h3_fl2va_pruned_fp8_scaled.safetensors",
-        label: "Lighter base",
-        help: "Runs the LoRA on the scaled fp8 checkpoint instead of bf16. Smaller and much easier on VRAM, at some quality cost — the one to use if bf16 will not fit or is not downloaded.",
+    /**
+     * One checkpoint per model family. The same LoRA file runs on both H3
+     * backbones, and each has its own non-rotated checkpoint — so this is a
+     * list rather than a single base, and which one applies is decided by what
+     * the graph already loads. See `PatchBase.forModel`.
+     */
+    bases: [
+      {
+        forModel: ["minimax_h3_fl2va"],
+        value: "minimax_h3_fl2va_bf16.safetensors",
+        /**
+         * The other base on the model card's ✅ list, offered as a switch
+         * because which of the two to run is a question about the machine
+         * rather than about the shot: bf16 is the better one and the one to use
+         * if it fits, and the scaled fp8 checkpoint is much smaller and much
+         * easier on VRAM. On a card that cannot hold bf16 — or that simply has
+         * not downloaded it, which is a large file — the choice is this or
+         * nothing.
+         *
+         * Both are non-rotated, which is the only property that actually
+         * decides whether the LoRA may be applied at all. That is what makes
+         * this a switch rather than a trap: neither side can produce the
+         * melting-limbs failure, so it is a straight quality-for-memory trade.
+         */
+        alternate: {
+          value: "minimax_h3_fl2va_pruned_fp8_scaled.safetensors",
+          label: "Lighter base",
+          help: "Runs the LoRA on the scaled fp8 checkpoint instead of bf16. Smaller and much easier on VRAM, at some quality cost — the one to use if bf16 will not fit or is not downloaded.",
+        },
+        allowed: H3_FL2VA_LORA_BASES,
       },
-      allowed: H3_LORA_BASES,
-    },
+      {
+        /**
+         * The reference backbone, which Reference to Video and Remix run.
+         *
+         * **Not on the model card.** It lists `fl2va` bases only and says the
+         * LoRA is designed for text-to-video and image-to-video, so this pairing
+         * is ours rather than the author's. What is checked is that it applies
+         * at all: on `minimax_h3_ref2va_bf16` all 104 of the LoRA's modules
+         * attach with no unmatched keys — the same number the card reports for
+         * `fl2va` — and a same-seed pair with and without it differs. So the
+         * mechanism is sound; whether the *look* is worth having on a graph
+         * whose job is holding a likeness is a judgement to make from takes.
+         *
+         * No alternate: there is no scaled fp8 `ref2va` checkpoint to offer,
+         * and the 4-step form already loads exactly this file — see
+         * `stepSamplerAgreesWithLoraBases`, which is what keeps the two from
+         * silently disagreeing.
+         */
+        forModel: ["minimax_h3_ref2va"],
+        value: "minimax_h3_ref2va_bf16.safetensors",
+        allowed: H3_REF2VA_LORA_BASES,
+      },
+    ],
     strength: {
       input: "strength_model",
       label: "Strength",

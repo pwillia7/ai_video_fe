@@ -159,8 +159,8 @@ optional, and none is needed unless they want that look.
 | `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | the five video workflows |
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video workflows |
 | `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every video workflow) |
-| `vh5tape-comfyui.safetensors` | `models/loras/` | optional — the **VHS tape** content LoRA (text to video, image to video, Extend) |
-| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | optional — what **VHS tape** runs on, replacing the rotated `fl2va` base above while the switch is on |
+| `vh5tape-comfyui.safetensors` | `models/loras/` | optional — the **VHS tape** content LoRA (all five video workflows) |
+| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | optional — what **VHS tape** runs on for the `fl2va` graphs, replacing the rotated base above while the switch is on |
 | `minimax_h3_fl2va_pruned_fp8_scaled.safetensors` | `models/diffusion_models/` | optional — **VHS tape** on **Lighter base**, instead of bf16 |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
@@ -176,8 +176,10 @@ explain.** MiniMax-H3 LoRAs are made for fp16/fp8 bases. The `fl2va` graphs ship
 on `minimax_h3_fl2va_pruned_int8_convrot`, which is what the official ComfyUI H3
 tutorial defaults to and is a *rotated* base: a LoRA loads into it without any
 error and then produces warped faces, melting limbs and vanishing objects. So the
-switch swaps the loader to a checkpoint the chosen LoRA supports — for **VHS
-tape**, `minimax_h3_fl2va_bf16` — while it is on.
+switch swaps the loader to a checkpoint the chosen LoRA supports while it is on —
+for **VHS tape**, `minimax_h3_fl2va_bf16` on the `fl2va` graphs and
+`minimax_h3_ref2va_bf16` on Reference to Video and Remix. The `ref2va` one is
+already needed by those graphs at 4 steps, so it adds no download.
 
 That file is large, and none of this is needed by anyone who does not want the
 look: the switch starts **off**, so an install without these files fails nothing

@@ -10,6 +10,7 @@ import type { RunModes } from "@/lib/workflows/modes";
 import {
   applyPatch,
   enabledPatches,
+  patchBaseFor,
   patchBaseProblems,
   patchChoice,
   type AppliedPatch,
@@ -441,6 +442,7 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
   problems.push(...pinProblems(workflow));
   problems.push(...turboProblems(workflow));
   problems.push(...patchProblems(workflow));
+  problems.push(...stepSamplerBaseProblems(workflow));
   problems.push(...stepSamplerProblems(workflow));
   problems.push(...directorProblems(workflow));
 
@@ -625,6 +627,49 @@ function patchProblems(workflow: WorkflowDef): string[] {
     for (const patch of patches) applyPatch(graph, patch, { promptInput });
   });
 
+  return problems;
+}
+
+/**
+ * Whether the step sampler's weight swap and a content LoRA's base agree.
+ *
+ * Both write the same input. The splices run before the step sampler does, so
+ * at the swapping step count the sampler's file wins — and if the two named
+ * different checkpoints, a run at that count would load the one the LoRA was
+ * not made for while the form said otherwise. Nothing would fail; the take
+ * would just come out wrong in the way the whole `base` declaration exists to
+ * prevent.
+ *
+ * Checked rather than fixed by reordering, because the two agreeing is the
+ * honest state: the four-step form loads the non-rotated weights *because* they
+ * are the ones that work, which is the same reason the LoRA asks for them. A
+ * disagreement means one of the two declarations is wrong, and that is a
+ * question for whoever wrote it rather than something to paper over.
+ */
+function stepSamplerBaseProblems(workflow: WorkflowDef): string[] {
+  const swaps = workflow.stepSampler?.models?.filter(
+    (model) => model.input === "unet_name",
+  );
+  if (!swaps?.length) return [];
+
+  const problems: string[] = [];
+  for (const patch of workflow.patches ?? []) {
+    for (const option of patch.choices?.options ?? []) {
+      const base = patchBaseFor(option.bases, workflow.graph);
+      if (!base) continue;
+      const named = base.alternate
+        ? [base.value, base.alternate.value]
+        : [base.value];
+      for (const swap of swaps) {
+        for (const file of named) {
+          if (file === swap.value) continue;
+          problems.push(
+            `At ${workflow.stepSampler!.atValue} steps this graph loads ${swap.value}, which would override ${option.label}'s ${file}.`,
+          );
+        }
+      }
+    }
+  }
   return problems;
 }
 
