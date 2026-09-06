@@ -819,7 +819,11 @@ function Workbench({
       : `Generate ${selected?.makes ?? "video"}`;
 
   return (
-    <div className="min-h-dvh">
+    /* At lg the shell is exactly the viewport and nothing outside a column
+       scrolls, so the height is pinned rather than a minimum — a fractional
+       dvh would otherwise leave the document a pixel taller than the window
+       and grow a page scrollbar with nowhere to go. */
+    <div className="min-h-dvh lg:h-dvh lg:overflow-hidden">
       <header
         className="sticky top-0 z-20 border-b border-border-default
           bg-bg/80 backdrop-blur-md"
@@ -848,12 +852,21 @@ function Workbench({
       </header>
 
       {/* pb-24 on mobile keeps the sticky action bar from covering the last
-          control; the bar is not rendered at lg, so the padding goes away. */}
-      <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-5 sm:px-5 lg:pb-6 lg:pt-6">
+          control; the bar is not rendered at lg, so the padding goes away.
+
+          At lg this stops being a page that scrolls and becomes a shell that
+          does not: a column exactly one viewport tall, less the 56px header
+          above it. Each of the two tracks inside then scrolls on its own, so
+          the one under the pointer is the one that moves. Below lg it is an
+          ordinary block and the document scrolls as before. */}
+      <main
+        className="mx-auto max-w-[1400px] px-4 pb-24 pt-5 sm:px-5 lg:flex
+          lg:h-[calc(100dvh_-_3.5rem)] lg:flex-col lg:overflow-hidden lg:pb-6 lg:pt-6"
+      >
         {problems?.length ? (
           <div
-            className="mb-5 rounded-lg border border-warning/40 bg-warning/5 p-3
-              text-[12px] leading-relaxed text-warning"
+            className="mb-5 shrink-0 rounded-lg border border-warning/40 bg-warning/5
+              p-3 text-[12px] leading-relaxed text-warning"
           >
             <p className="font-medium">
               A workflow definition looks out of sync with its graph:
@@ -876,10 +889,19 @@ function Workbench({
           document sideways. Capping the minimum at 0 lets the ellipsis do the
           job it was there for.
         */}
-        <div className="grid gap-5 lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]">
+        <div
+          className="grid gap-5 lg:min-h-0 lg:flex-1
+            lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]"
+        >
           {/* min-w-0: a grid item defaults to min-width:auto and would grow
-              past its track to fit wide content such as an image preview. */}
-          <div className="flex min-w-0 flex-col gap-5">
+              past its track to fit wide content such as an image preview.
+
+              overscroll-contain so that reaching the end of this column stops
+              there rather than handing the leftover scroll to the page. */}
+          <div
+            className="scroll-pane flex min-w-0 flex-col gap-5 lg:h-full lg:min-h-0
+              lg:overflow-y-auto lg:overscroll-contain lg:pr-2"
+          >
             <Panel className="rise" padded>
               <PanelHeader
                 title="Workflow"
@@ -1001,12 +1023,21 @@ function Workbench({
           <div
             ref={stageRef}
             /* min-w-0 for the same reason as the left column: without it this
-               grid item takes min-width:auto and grows past its track. */
-            className="flex min-w-0 scroll-mt-20 flex-col gap-4 lg:sticky lg:top-20 lg:self-start"
+               grid item takes min-width:auto and grows past its track.
+
+               This was `lg:sticky lg:top-20`, which is what made the two
+               columns take turns: a sticky box taller than the viewport pins
+               its top and leaves its bottom off-screen until the whole grid
+               has finished scrolling, so the history below the stage could not
+               be reached until the settings column had run out. It scrolls
+               itself now instead. */
+            className="flex min-w-0 scroll-mt-20 flex-col gap-4 lg:h-full lg:min-h-0"
           >
             {/* On mobile this lives in the pinned bar at the bottom instead,
-                so the primary action is never a scroll away. */}
-            <div className="hidden items-center gap-3 lg:flex">
+                so the primary action is never a scroll away. On desktop it sits
+                outside the scroller below, so it stays put while the stage and
+                the history move under it. */}
+            <div className="hidden shrink-0 items-center gap-3 lg:flex">
               <Button
                 variant="primary"
                 size="lg"
@@ -1028,82 +1059,87 @@ function Workbench({
               </span>
             </div>
 
-            {jobs.submitError && !jobs.submitErrorField ? (
-              <div
-                className="flex items-start gap-3 rounded-lg border border-danger/40
-                  bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
-              >
-                <span className="min-w-0 flex-1">{jobs.submitError}</span>
-                <Button
-                  variant="danger"
-                  size="xs"
-                  className="shrink-0"
-                  onClick={jobs.dismissSubmitError}
+            <div
+              className="scroll-pane flex min-w-0 flex-col gap-4 lg:min-h-0 lg:flex-1
+                lg:overflow-y-auto lg:overscroll-contain lg:pr-2"
+            >
+              {jobs.submitError && !jobs.submitErrorField ? (
+                <div
+                  className="flex items-start gap-3 rounded-lg border border-danger/40
+                    bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
                 >
-                  Dismiss
-                </Button>
-              </div>
-            ) : null}
+                  <span className="min-w-0 flex-1">{jobs.submitError}</span>
+                  <Button
+                    variant="danger"
+                    size="xs"
+                    className="shrink-0"
+                    onClick={jobs.dismissSubmitError}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              ) : null}
 
-            {clipError ? (
-              <div
-                className="flex items-start gap-3 rounded-lg border border-danger/40
-                  bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
-              >
-                <span className="min-w-0 flex-1">{clipError}</span>
-                <Button
-                  variant="danger"
-                  size="xs"
-                  className="shrink-0"
-                  onClick={() => setClipError(null)}
+              {clipError ? (
+                <div
+                  className="flex items-start gap-3 rounded-lg border border-danger/40
+                    bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
                 >
-                  Dismiss
-                </Button>
-              </div>
-            ) : null}
+                  <span className="min-w-0 flex-1">{clipError}</span>
+                  <Button
+                    variant="danger"
+                    size="xs"
+                    className="shrink-0"
+                    onClick={() => setClipError(null)}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              ) : null}
 
-            <GenerationStage
-              job={viewedJob}
-              now={now}
-              estimateSeconds={viewedJob ? jobs.estimateFor(viewedJob) : null}
-              onCancel={(promptId) => void jobs.cancel(promptId)}
-              onReuseSeed={(seed) => setValue("seed", seed)}
-              clipActions={offeredActions}
-              onClipAction={
-                offeredActions.length > 0
-                  ? (job, action) => void sendClip(job, action)
-                  : undefined
-              }
-              onShowSettings={
-                viewedJob
-                  ? () => setSettingsForId(viewedJob.promptId)
-                  : undefined
-              }
-              onToggleFavorite={jobs.toggleFavorite}
-              busyAction={sending}
-            />
-
-            <Panel padded>
-              <PanelHeader
-                title="Generations"
-                hint={
-                  jobs.jobs.length > 0
-                    ? `${jobs.jobs.length} on this device`
+              <GenerationStage
+                job={viewedJob}
+                now={now}
+                estimateSeconds={viewedJob ? jobs.estimateFor(viewedJob) : null}
+                onCancel={(promptId) => void jobs.cancel(promptId)}
+                onReuseSeed={(seed) => setValue("seed", seed)}
+                clipActions={offeredActions}
+                onClipAction={
+                  offeredActions.length > 0
+                    ? (job, action) => void sendClip(job, action)
                     : undefined
                 }
-              />
-              <GenerationsPanel
-                jobs={jobs.jobs}
-                selectedId={viewedJob?.promptId ?? null}
-                now={now}
-                onSelect={setViewedId}
-                onCancel={(promptId) => void jobs.cancel(promptId)}
-                onRemove={jobs.remove}
-                onRemoveMany={jobs.removeMany}
+                onShowSettings={
+                  viewedJob
+                    ? () => setSettingsForId(viewedJob.promptId)
+                    : undefined
+                }
                 onToggleFavorite={jobs.toggleFavorite}
-                onClearFinished={jobs.clearFinished}
+                busyAction={sending}
               />
-            </Panel>
+
+              <Panel padded>
+                <PanelHeader
+                  title="Generations"
+                  hint={
+                    jobs.jobs.length > 0
+                      ? `${jobs.jobs.length} on this device`
+                      : undefined
+                  }
+                />
+                <GenerationsPanel
+                  jobs={jobs.jobs}
+                  selectedId={viewedJob?.promptId ?? null}
+                  now={now}
+                  onSelect={setViewedId}
+                  onCancel={(promptId) => void jobs.cancel(promptId)}
+                  onRemove={jobs.remove}
+                  onRemoveMany={jobs.removeMany}
+                  onToggleFavorite={jobs.toggleFavorite}
+                  onClearFinished={jobs.clearFinished}
+                />
+              </Panel>
+            </div>
           </div>
         </div>
       </main>

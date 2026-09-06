@@ -158,6 +158,64 @@
   }
 }
 
+/*
+ * A column that scrolls on its own, on desktop only — the class is inert
+ * wherever the overflow utilities that go with it are not applied, so the
+ * mobile layout is untouched.
+ *
+ * The scrollbar is deliberately quiet: no track, a hairline thumb in the same
+ * grey as the borders, darkening only when the pointer is on the column it
+ * belongs to. Present enough to say there is more below, faint enough not to
+ * draw a second vertical line down the middle of the page.
+ *
+ * `scrollbar-gutter: stable` reserves the width up front so a panel does not
+ * shift sideways the moment its column grows past a screenful. It costs
+ * nothing where scrollbars are overlays (macOS, most touch devices) — there
+ * the gutter is zero.
+ */
+.scroll-pane {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.scroll-pane:hover {
+  scrollbar-color: var(--fg-subtle) transparent;
+}
+
+/* Firefox takes the two properties above; WebKit and Blink need these. */
+.scroll-pane::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.scroll-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* The stepper arrows the platform puts at each end of the track are the one
+   part of a classic scrollbar that reads as chrome from another decade. */
+.scroll-pane::-webkit-scrollbar-button {
+  display: none;
+}
+
+.scroll-pane::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  /* Inset with a transparent border rather than a narrower bar, so the thumb
+     keeps a full-width hit target while reading as a 4px hairline. */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  background-color: var(--border-strong);
+}
+
+.scroll-pane:hover::-webkit-scrollbar-thumb {
+  background-color: var(--fg-subtle);
+}
+
+.scroll-pane::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fg-muted);
+}
+
 /* Faint engineering grid — depth without decoration competing for attention. */
 .app-backdrop {
   position: fixed;
