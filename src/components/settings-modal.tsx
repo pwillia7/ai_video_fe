@@ -153,6 +153,19 @@ export function SettingsModal({
               the workflow and falls back to the raw id, on the same grounds as
               a param the current definition no longer declares: a stale name
               beats dropping the answer someone opened the modal for. */}
+          {/* The checkpoint a switch put under its LoRA, where it swapped one.
+              Shown as the filename it was recorded as, since that is the thing
+              that explains a difference between two takes. */}
+          {Object.entries(job.bases ?? {}).map(([id, base]) => (
+            <Row
+              key={`base-${id}`}
+              label={`${
+                workflow?.patches.find((patch) => patch.id === id)?.label ?? id
+              } base`}
+              value={base.file}
+              mono
+            />
+          ))}
           {Object.entries(job.strengths ?? {}).map(([id, value]) => (
             <Row
               key={id}

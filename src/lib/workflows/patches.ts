@@ -29,13 +29,37 @@ import type { ParamValue } from "./types";
 export interface PatchBase {
   /** The file the loader names while the switch is on. */
   value: string;
+  /** Set where a second supported base is worth offering. */
+  alternate?: PatchBaseAlternate;
   /**
-   * Filename prefixes this patch is known to work on. `value` has to start with
-   * one of them, which is what turns "someone pointed this at a rotated
-   * checkpoint" into a failed `check:workflows` rather than a render that
-   * finishes looking subtly wrong.
+   * Filename prefixes this patch is known to work on. `value` — and
+   * `alternate.value` — have to start with one of them, which is what turns
+   * "someone pointed this at a rotated checkpoint" into a failed
+   * `check:workflows` rather than a render that finishes looking subtly wrong.
    */
   allowed: string[];
+}
+
+/**
+ * A second base the patch also runs on, offered as a switch under it.
+ *
+ * Not a quality setting so much as a question about the machine and what is on
+ * its disk: the full-precision checkpoint is the better one and the lighter one
+ * is what you reach for when it will not fit or is not downloaded. That is the
+ * same kind of question Low VRAM answers, which is why the switch is remembered
+ * once for the whole app rather than per workflow.
+ *
+ * A boolean rather than a list of files, because there are two and the app
+ * should not be handing the browser a menu of the model files on someone's
+ * disk — `base` is withheld from `ClientPatch` for exactly that reason. Which
+ * file each side of the switch means is resolved on the server. A third base
+ * would want a different shape, and would be the point to reconsider this.
+ */
+export interface PatchBaseAlternate {
+  /** The file the loader names instead, while this switch is on. */
+  value: string;
+  label: string;
+  help: string;
 }
 
 /**
@@ -137,6 +161,12 @@ export type ClientPatch = Omit<
 > & {
   strength?: Omit<PatchStrength, "input">;
   /**
+   * The base switch's wording, minus the filename it selects — the same trade
+   * `strength` makes, and for the same reason: the form needs to know there is
+   * a switch and what to call it, not which file sits behind either side.
+   */
+  baseAlternate?: Omit<PatchBaseAlternate, "value">;
+  /**
    * The value of another control at which this switch is refused, and the line
    * that says so — see `suppresses` on StepSampler, which is where the rule
    * actually lives.
@@ -149,16 +179,17 @@ export type ClientPatch = Omit<
 };
 
 export function toClientPatch(patch: PatchDef): ClientPatch {
-  const {
-    node: _node,
-    modelInput: _modelInput,
-    base: _base,
-    strength,
-    ...rest
-  } = patch;
-  if (!strength) return rest;
-  const { input: _input, ...clientStrength } = strength;
-  return { ...rest, strength: clientStrength };
+  const { node: _node, modelInput: _modelInput, base, strength, ...rest } = patch;
+  const client: ClientPatch = rest;
+  if (strength) {
+    const { input: _input, ...clientStrength } = strength;
+    client.strength = clientStrength;
+  }
+  if (base?.alternate) {
+    const { value: _value, ...clientAlternate } = base.alternate;
+    client.baseAlternate = clientAlternate;
+  }
+  return client;
 }
 
 /**
@@ -177,21 +208,30 @@ export function patchSuppressed(
   return rule !== undefined && values[rule.param] === rule.value;
 }
 
+/** What the run carries for one patch, for the patches that take anything. */
+export interface PatchOptions {
+  /**
+   * The strength this run set, ignored by a patch that declares none.
+   * Out-of-range numbers are clamped rather than refused: the control cannot
+   * produce one, so anything outside the range came from a hand-written request
+   * or a stored value from an older range, and neither is worth failing a
+   * render over.
+   */
+  strength?: number;
+  /** Load the patch's alternate base. Ignored where it offers none. */
+  alternateBase?: boolean;
+}
+
 /**
  * Splice the patch in, in place, and swap the base it needs. Call it on a clone
  * — `applyParams` does.
- *
- * `strength` is the value the run carries for this patch, and is ignored by a
- * patch that declares none. Out-of-range numbers are clamped rather than
- * refused: the control cannot produce one, so anything outside the range came
- * from a hand-written request or a stored value from an older range, and
- * neither is worth failing a render over.
  */
 export function applyPatch(
   graph: ComfyGraph,
   patch: PatchDef,
-  strength?: number,
+  options: PatchOptions = {},
 ): void {
+  const { strength, alternateBase } = options;
   if (patch.strength && !(patch.strength.input in patch.node.inputs)) {
     throw new Error(
       `${patch.label} offers a strength on "${patch.strength.input}", which ` +
@@ -209,7 +249,19 @@ export function applyPatch(
       : undefined,
   });
 
-  applyPatchBase(graph, patch);
+  applyPatchBase(graph, patch, alternateBase);
+}
+
+/**
+ * The file this patch's base resolves to. The alternate only when the patch
+ * actually offers one, so a stale `true` in a stored run cannot name a file
+ * that no longer exists.
+ */
+export function patchBaseFile(
+  base: PatchBase,
+  alternateBase: boolean | undefined,
+): string {
+  return alternateBase && base.alternate ? base.alternate.value : base.value;
 }
 
 /** The strength this run uses: the submitted one clamped, or the default. */
@@ -231,15 +283,20 @@ export function resolveStrength(
  * made for and finish, which is the failure this whole declaration exists to
  * prevent.
  */
-function applyPatchBase(graph: ComfyGraph, patch: PatchDef): void {
+function applyPatchBase(
+  graph: ComfyGraph,
+  patch: PatchDef,
+  alternateBase: boolean | undefined,
+): void {
   if (!patch.base) return;
+  const file = patchBaseFile(patch.base, alternateBase);
   const loader = modelLoaderIn(graph);
   if (!loader) {
     throw new Error(
-      `${patch.label} loads ${patch.base.value}, but this graph has no single diffusion-model loader to put it in.`,
+      `${patch.label} loads ${file}, but this graph has no single diffusion-model loader to put it in.`,
     );
   }
-  graph[loader].inputs.unet_name = patch.base.value;
+  graph[loader].inputs.unet_name = file;
 }
 
 /**
@@ -270,12 +327,39 @@ export function patchBaseProblems(
       `${patch.label} loads ${base.value} into node ${loader}, which does not accept "unet_name".`,
     );
   }
-  if (!base.allowed.some((prefix) => base.value.startsWith(prefix))) {
+  // Both sides of the switch, not only the default. An alternate outside the
+  // list is the same mistake as a default outside it, and is the easier one to
+  // make: it is the option someone reaches for when the recommended base will
+  // not fit, which is exactly when a quantised one looks tempting.
+  const named = base.alternate ? [base.value, base.alternate.value] : [base.value];
+  for (const file of named) {
+    if (!base.allowed.some((prefix) => file.startsWith(prefix))) {
+      problems.push(
+        `${patch.label} goes on ${base.allowed.map((prefix) => `${prefix}*`).join(" or ")}, but it loads ${file}.`,
+      );
+    }
+  }
+  if (base.alternate && base.alternate.value === base.value) {
     problems.push(
-      `${patch.label} goes on ${base.allowed.map((prefix) => `${prefix}*`).join(" or ")}, but it loads ${base.value}.`,
+      `${patch.label}'s base switch offers ${base.value} on both sides, so it does nothing.`,
     );
   }
   return problems;
+}
+
+/**
+ * The graph this patch would queue on its alternate base. Only used by
+ * `check:nodes`, which has to ask about a file the ordinary patched graph does
+ * not name either.
+ */
+export function patchAlternateGraph(
+  graph: ComfyGraph,
+  patch: PatchDef,
+): ComfyGraph | null {
+  if (!patch.base?.alternate) return null;
+  const clone = structuredClone(graph);
+  applyPatch(clone, patch, { alternateBase: true });
+  return clone;
 }
 
 /**

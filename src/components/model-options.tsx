@@ -41,6 +41,8 @@ export function ModelOptions({
   onLowVramChange,
   strengths,
   onStrengthChange,
+  alternateBase,
+  onAlternateBaseChange,
 }: {
   patches: ClientPatch[];
   /** Ids of the patches currently switched on. */
@@ -60,6 +62,9 @@ export function ModelOptions({
   /** Current value of each switch's strength control, by patch id. */
   strengths: Record<string, number>;
   onStrengthChange: (id: string, value: number) => void;
+  /** Which switches are on their alternate base, by patch id. */
+  alternateBase: Record<string, boolean>;
+  onAlternateBaseChange: (id: string, on: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -82,9 +87,21 @@ export function ModelOptions({
         checked,
         refused,
         onChange: (next: boolean) => onPatchChange(patch.id, next),
+        // Only while the switch is on: off, the graph loads whatever it always
+        // did, so a base choice would be selecting between two checkpoints
+        // neither of which the run uses — the same rule Low VRAM follows
+        // against turbo, and the strength below follows against this.
+        baseAlternate:
+          checked && patch.baseAlternate
+            ? {
+                spec: patch.baseAlternate,
+                checked: alternateBase[patch.id] === true,
+                onChange: (next: boolean) =>
+                  onAlternateBaseChange(patch.id, next),
+              }
+            : undefined,
         // Only while the switch is on: off, the node this writes to is not in
-        // the graph, so a slider would be setting an input on nothing — the
-        // same rule Low VRAM follows against turbo.
+        // the graph, so a slider would be setting an input on nothing.
         strength:
           checked && patch.strength
             ? {
@@ -104,6 +121,7 @@ export function ModelOptions({
             checked: lowVram,
             refused: false,
             onChange: onLowVramChange,
+            baseAlternate: undefined,
             strength: undefined,
           },
         ]
@@ -163,6 +181,33 @@ export function ModelOptions({
               >
                 {row.help}
               </p>
+
+              {/* Before the strength, because it decides which weights the
+                  strength is applied to. */}
+              {row.baseAlternate ? (
+                <div className="mt-3 flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <label
+                      htmlFor={`model-${row.key}-base`}
+                      className="text-[12px] text-fg-muted"
+                    >
+                      {row.baseAlternate.spec.label}
+                    </label>
+                    <p
+                      id={`model-${row.key}-base-help`}
+                      className="mt-1 text-[12px] leading-relaxed text-fg-muted"
+                    >
+                      {row.baseAlternate.spec.help}
+                    </p>
+                  </div>
+                  <Toggle
+                    id={`model-${row.key}-base`}
+                    checked={row.baseAlternate.checked}
+                    onChange={row.baseAlternate.onChange}
+                    describedBy={`model-${row.key}-base-help`}
+                  />
+                </div>
+              ) : null}
 
               {row.strength ? (
                 <div className="mt-3">

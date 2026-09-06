@@ -31,6 +31,7 @@ import { api, ApiError, getToken } from "@/lib/client";
 import {
   clampValues,
   hydrateAll,
+  hydrateAlternateBase,
   hydratePatches,
   hydrateStrengths,
   hydrateTurbo,
@@ -38,6 +39,7 @@ import {
   readStoredLowVram,
   writeStoredLowVram,
   writeStoredParams,
+  writeStoredAlternateBase,
   writeStoredPatches,
   writeStoredStrengths,
   writeStoredTurbo,
@@ -215,6 +217,15 @@ function Workbench({
    */
   const [strengths, setStrengths] = useState(() => hydrateStrengths(workflows));
 
+  /**
+   * Which switches are on their alternate base. Shared across workflows for the
+   * same reason as the strengths: it answers what this card can hold and what
+   * has been downloaded onto it, not what this shot needs.
+   */
+  const [alternateBase, setAlternateBase] = useState(() =>
+    hydrateAlternateBase(workflows),
+  );
+
   // Values are kept per workflow so switching to compare settings and coming
   // back does not throw away what you typed, and persisted so a reload does
   // not either.
@@ -242,6 +253,10 @@ function Workbench({
     writeStoredStrengths(strengths);
   }, [strengths]);
 
+  useEffect(() => {
+    writeStoredAlternateBase(alternateBase);
+  }, [alternateBase]);
+
   // A clock that only ticks while something is running, so elapsed times
   // advance smoothly between poll results without re-rendering an idle page.
   const [now, setNow] = useState(() => Date.now());
@@ -264,8 +279,8 @@ function Workbench({
     [patchesByWorkflow, selectedId],
   );
   const modes = useMemo(
-    () => ({ turbo: turboOn, patches: patchesOn, strengths }),
-    [turboOn, patchesOn, strengths],
+    () => ({ turbo: turboOn, patches: patchesOn, strengths, alternateBase }),
+    [turboOn, patchesOn, strengths, alternateBase],
   );
 
   /**
@@ -307,8 +322,9 @@ function Workbench({
         return !patch || !patchSuppressed(patch, runValues);
       }),
       strengths,
+      alternateBase,
     }),
-    [turboOn, patchesOn, selected, runValues, strengths],
+    [turboOn, patchesOn, selected, runValues, strengths, alternateBase],
   );
 
   /**
@@ -365,6 +381,11 @@ function Workbench({
    */
   const setStrength = useCallback((id: string, value: number) => {
     setStrengths((previous) => ({ ...previous, [id]: value }));
+  }, []);
+
+  /** Not per workflow either, and for the same reason. See `alternateBase`. */
+  const setAlternateBaseFor = useCallback((id: string, on: boolean) => {
+    setAlternateBase((previous) => ({ ...previous, [id]: on }));
   }, []);
 
   const setValue = useCallback(
@@ -589,6 +610,17 @@ function Workbench({
         for (const patch of target.patches) {
           const was = job.strengths?.[patch.id];
           if (patch.strength && typeof was === "number") next[patch.id] = was;
+        }
+        return next;
+      });
+      // And which checkpoint it ran on — the switch, not the filename, since
+      // that is the half of the record this side can act on. Restored only for
+      // switches that still offer a choice, exactly as the strengths above are.
+      setAlternateBase((previous) => {
+        const next = { ...previous };
+        for (const patch of target.patches) {
+          const was = job.bases?.[patch.id];
+          if (patch.baseAlternate && was) next[patch.id] = was.alternate;
         }
         return next;
       });
@@ -839,6 +871,8 @@ function Workbench({
                   onLowVramChange={setLowVram}
                   strengths={strengths}
                   onStrengthChange={setStrength}
+                  alternateBase={alternateBase}
+                  onAlternateBaseChange={setAlternateBaseFor}
                 />
 
                 {clipNotice &&

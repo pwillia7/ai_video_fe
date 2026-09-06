@@ -58,6 +58,8 @@ interface GenerateResponse {
   patches?: string[];
   /** What each of those was applied at, for the switches that carry a strength. */
   strengths?: Record<string, number>;
+  /** The checkpoint each switch that swaps one actually loaded, and which side. */
+  bases?: Record<string, { file: string; alternate: boolean }>;
   estimatedSeconds: number | null;
 }
 
@@ -354,6 +356,7 @@ export function useJobs(): JobsController {
             patches: asked,
             lowVram: Boolean(options?.lowVram),
             strengths: options?.strengths,
+            alternateBase: options?.alternateBase,
           }),
         });
 
@@ -365,6 +368,7 @@ export function useJobs(): JobsController {
         // was showing. Two takes that differ only by a LoRA strength are exactly
         // the pair the history has to be able to tell apart.
         const strengths = response.strengths;
+        const bases = response.bases;
 
         const job: Job = {
           promptId: response.promptId,
@@ -380,6 +384,7 @@ export function useJobs(): JobsController {
           turbo,
           patches,
           strengths,
+          bases,
           derivedFrom: options?.derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),

@@ -555,11 +555,14 @@ const H3_LORA_BASES = ["minimax_h3_fl2va_bf16", "minimax_h3_fl2va_pruned_fp8_sca
  *
  * **A base.** The stored graphs load `minimax_h3_fl2va_pruned_int8_convrot`,
  * which is exactly the rotated basis this LoRA cannot be applied to. So the
- * switch swaps the loader to `minimax_h3_fl2va_bf16` for as long as it is on and
- * puts it straight back when it is off. That makes a VHS run cost noticeably
- * more than a plain one — bf16 is the full-precision checkpoint — which is
- * accounted for on its own, because `modeKey` buckets the learned estimates by
- * which patches were on.
+ * switch swaps the loader for as long as it is on and puts it straight back
+ * when it is off. That makes a VHS run cost noticeably more than a plain one —
+ * the default is the full-precision checkpoint — which is accounted for on its
+ * own, because `modeKey` buckets the learned estimates by which patches were on.
+ *
+ * Which of the two supported checkpoints it swaps to is a switch under the
+ * switch, since that is a question about the card and about what has been
+ * downloaded rather than about the shot. See `alternate` below.
  *
  * **A strength.** Turbo is on by default, and the two LoRAs perturb the same
  * weights, so their strengths add: at 4-step turbo there is very little headroom
@@ -592,6 +595,24 @@ export function h3VhsLora(): PatchDef {
     modelInput: "model",
     base: {
       value: "minimax_h3_fl2va_bf16.safetensors",
+      /**
+       * The other base on the ✅ list, offered as a switch because which of the
+       * two to run is a question about the machine rather than about the shot:
+       * bf16 is the better one and the one to use if it fits, and the scaled
+       * fp8 checkpoint is much smaller and much easier on VRAM. On a card that
+       * cannot hold bf16 — or that simply has not downloaded it, which is a
+       * large file — the choice is this or nothing.
+       *
+       * Both are non-rotated, which is the only property that actually decides
+       * whether the LoRA may be applied at all. That is what makes this a
+       * switch rather than a trap: neither side can produce the melting-limbs
+       * failure, so it is a straight quality-for-memory trade.
+       */
+      alternate: {
+        value: "minimax_h3_fl2va_pruned_fp8_scaled.safetensors",
+        label: "Lighter base",
+        help: "Runs the LoRA on the scaled fp8 checkpoint instead of bf16. Smaller and much easier on VRAM, at some quality cost — the one to use if bf16 will not fit or is not downloaded.",
+      },
       allowed: H3_LORA_BASES,
     },
     strength: {
@@ -612,7 +633,7 @@ export function h3VhsLora(): PatchDef {
      * the graph onto the full-precision checkpoint, which is not a cost to hand
      * someone who never asked for the look.
      */
-    help: "Stacks a VHS tape LoRA on the diffusion model and moves the graph onto the bf16 base it needs. Best at 20–25 steps with Turbo off; Turbo's 4-step sampler softens the grain.",
+    help: "Stacks a VHS tape LoRA on the diffusion model, and moves the graph onto a base the LoRA can actually run on — bf16 unless you pick the lighter one. Best at 20–25 steps with Turbo off; Turbo's 4-step sampler softens the grain.",
   };
 }
 

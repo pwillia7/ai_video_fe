@@ -9,6 +9,7 @@ import type { RunModes } from "@/lib/workflows/modes";
 import {
   applyPatch,
   enabledPatches,
+  patchBaseFile,
   patchBaseProblems,
   resolveStrength,
 } from "@/lib/workflows/patches";
@@ -196,6 +197,19 @@ export interface AppliedParams {
    * history to tell apart.
    */
   strengths: Record<string, number>;
+  /**
+   * The checkpoint each switch that swaps one actually loaded, by patch id.
+   * Recorded for the same reason as `strengths`: it is a difference between two
+   * takes that nothing else in the history would show.
+   *
+   * Both halves together rather than as two maps, because they answer for two
+   * different readers and must not be able to disagree. `file` is what a person
+   * needs — it is the thing that explains why two takes differ, and it keeps
+   * meaning the same after the declaration behind the switch changes. `alternate`
+   * is what Reuse settings needs, since the browser is never given either
+   * filename and so cannot work the switch back out of `file` on its own.
+   */
+  bases: Record<string, { file: string; alternate: boolean }>;
 }
 
 /**
@@ -296,7 +310,10 @@ export function applyParams(
     (mode.patches ?? []).filter((id) => !refused.includes(id as SpliceId)),
   );
   for (const patch of patches) {
-    applyPatch(graph, patch, mode.strengths?.[patch.id]);
+    applyPatch(graph, patch, {
+      strength: mode.strengths?.[patch.id],
+      alternateBase: mode.alternateBase?.[patch.id],
+    });
   }
 
   for (const param of params) {
@@ -356,6 +373,25 @@ export function applyParams(
           ? [[patch.id, resolveStrength(patch.strength, mode.strengths?.[patch.id])]]
           : [],
       ),
+    ),
+    // The checkpoint each switch actually put under its LoRA. Recorded by
+    // filename rather than as the boolean that chose it, because what explains
+    // a difference between two takes is which weights were sampled — and a
+    // boolean would stop meaning anything the moment the declaration changed
+    // which file it selects.
+    bases: Object.fromEntries(
+      patches.flatMap((patch) => {
+        if (!patch.base) return [];
+        // Resolved rather than echoed: a run that asked for the alternate on a
+        // patch offering none loaded the default, and recording the request
+        // would name a checkpoint the run never touched.
+        const alternate =
+          mode.alternateBase?.[patch.id] === true &&
+          patch.base.alternate !== undefined;
+        return [
+          [patch.id, { file: patchBaseFile(patch.base, alternate), alternate }],
+        ];
+      }),
     ),
   };
 }

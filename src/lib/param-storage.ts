@@ -55,6 +55,13 @@ const LOW_VRAM_KEY = "sorant-low-vram";
  * others too. Keyed by patch id rather than by workflow for the same reason.
  */
 const STRENGTHS_KEY = "sorant-patch-strengths";
+/**
+ * Which switches are set to their alternate base, by patch id. Stored the same
+ * way and for the same reason as the strengths above and Low VRAM below: which
+ * checkpoint fits on this card, and which one has been downloaded, are facts
+ * about the machine rather than about any one workflow.
+ */
+const ALTERNATE_BASE_KEY = "sorant-patch-alternate-base";
 
 export type StoredModes = Record<string, boolean>;
 
@@ -102,6 +109,28 @@ export function hydrateStrengths(
 
 export const writeStoredStrengths = (strengths: Record<string, number>) =>
   write(STRENGTHS_KEY, strengths);
+
+/**
+ * The stored base choice for each switch that offers one, defaulting to the
+ * recommended base and dropping anything stored against a switch that no longer
+ * offers a choice.
+ */
+export function hydrateAlternateBase(
+  workflows: WorkflowSummary[],
+): Record<string, boolean> {
+  const stored = read<boolean>(ALTERNATE_BASE_KEY);
+  const chosen: Record<string, boolean> = {};
+  for (const workflow of workflows) {
+    for (const patch of workflow.patches) {
+      if (!patch.baseAlternate) continue;
+      chosen[patch.id] = stored[patch.id] === true;
+    }
+  }
+  return chosen;
+}
+
+export const writeStoredAlternateBase = (chosen: Record<string, boolean>) =>
+  write(ALTERNATE_BASE_KEY, chosen);
 
 function read<T>(key: string): Record<string, T> {
   try {

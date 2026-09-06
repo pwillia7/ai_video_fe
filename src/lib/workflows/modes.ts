@@ -28,6 +28,14 @@ export interface RunModes {
    * outliving the switch it belonged to should do nothing, not fail a run.
    */
   strengths?: Record<string, number>;
+  /**
+   * Which switches were asked to load their alternate base, by patch id.
+   *
+   * A boolean rather than a filename because the browser is not given the model
+   * files either side of the switch — see `PatchBaseAlternate`. Ids naming no
+   * patch, or a patch that offers no alternate, are ignored.
+   */
+  alternateBase?: Record<string, boolean>;
 }
 
 /**

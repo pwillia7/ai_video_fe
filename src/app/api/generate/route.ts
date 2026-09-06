@@ -26,6 +26,7 @@ export async function POST(request: Request) {
       lowVram?: boolean;
       patches?: string[];
       strengths?: Record<string, number>;
+      alternateBase?: Record<string, boolean>;
     };
 
     if (!body.workflowId) {
@@ -62,6 +63,12 @@ export async function POST(request: Request) {
         strengths[id] = value;
       }
     }
+    // Booleans only. Which file each side means is this side's business — the
+    // browser is never given either filename. See `PatchBaseAlternate`.
+    const alternateBase: Record<string, boolean> = {};
+    for (const [id, value] of Object.entries(body.alternateBase ?? {})) {
+      if (typeof value === "boolean") alternateBase[id] = value;
+    }
 
     const problems = validateWorkflow(workflow);
     if (problems.length > 0) {
@@ -92,11 +99,13 @@ export async function POST(request: Request) {
       resolved,
       patches: applied,
       strengths: appliedStrengths,
+      bases: appliedBases,
     } = applyParams(workflow, body.params ?? {}, allowedValues, {
       turbo,
       lowVram,
       patches,
       strengths,
+      alternateBase,
     });
 
     const clientId = crypto.randomUUID();

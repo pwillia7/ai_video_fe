@@ -145,8 +145,8 @@ rewrite step with an error that says nothing about models. If they hit that,
 have them change it to a model their key can use — once per file in
 `src/lib/workflows/`.
 
-**Thirteen model files.** Eleven are named literally in the graphs; the last two
-are named by the two switches that bring their own weights.
+**Fourteen model files.** Eleven are named literally in the graphs; the rest are
+named by the switches that bring their own weights, and the last one is optional.
 
 | File | Directory | Needed by |
 | --- | --- | --- |
@@ -159,7 +159,8 @@ are named by the two switches that bring their own weights.
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video workflows |
 | `minimax_h3_turbo_v4_step600_ema.safetensors` | `models/loras/` | the Turbo switch only (every video workflow) |
 | `vh5tape-comfyui.safetensors` | `models/loras/` | the VHS tape switch only (text to video, image to video, Extend) |
-| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | the VHS tape switch, which replaces the quantised `fl2va` base above for as long as it is on |
+| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | the VHS tape switch, which replaces the rotated `fl2va` base above for as long as it is on |
+| `minimax_h3_fl2va_pruned_fp8_scaled.safetensors` | `models/diffusion_models/` | optional — only if they turn on the VHS switch's **Lighter base** instead of bf16 |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |
@@ -177,8 +178,14 @@ error and then produces warped faces, melting limbs and vanishing objects. So
 the switch swaps the loader to `minimax_h3_fl2va_bf16` while it is on. That file
 is large, and it is only needed by anyone who wants the VHS look — unlike the
 packs above, this switch starts **off**, so an install without it fails nothing
-until someone turns it on. `pnpm check:nodes` asks about both files, because it
-checks each switch's form of every graph.
+until someone turns it on.
+
+**If bf16 will not fit on their card, or they do not want the download**, the
+switch has a **Lighter base** toggle under it that runs
+`minimax_h3_fl2va_pruned_fp8_scaled` instead. Both are non-rotated, so either is
+safe for the LoRA; fp8 is smaller and much easier on VRAM for some quality. They
+need one of the two, not both — which is why `check:nodes` calls bf16 required
+and the fp8 one optional.
 
 **Music needs no node pack but the OpenAI one.** Every other class in that graph
 is a ComfyUI built-in, so if they only want music, the three files above plus a

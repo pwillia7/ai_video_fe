@@ -22,7 +22,7 @@ import {
   type ComfyGraph,
 } from "../src/lib/comfy";
 import { WORKFLOWS } from "../src/lib/workflows";
-import { patchGraph } from "../src/lib/workflows/patches";
+import { patchAlternateGraph, patchGraph } from "../src/lib/workflows/patches";
 import { stepSamplerGraph } from "../src/lib/workflows/step-sampler";
 import { turboGraph } from "../src/lib/workflows/turbo";
 
@@ -68,12 +68,32 @@ const MODEL_INPUTS: Record<string, string> = {
 
 interface Need {
   workflows: Set<string>;
+  /**
+   * True while nothing that *has* to run has named this file.
+   *
+   * For a switch that offers a choice of checkpoint: you download one of the
+   * two, so reporting both as required would leave this check permanently red
+   * on a correctly set-up machine and train everyone to ignore it. An optional
+   * file that is absent is a line of information, not a failure.
+   *
+   * Cleared rather than set, so a file named by both a required graph and an
+   * optional one stays required — being offered as somebody's fallback is not a
+   * reason to stop needing it.
+   */
+  optional: boolean;
 }
 
 function collect() {
   const classes = new Map<string, Need>();
   /** filename -> which loader input it has to appear in. */
   const models = new Map<string, { loader: string; input: string } & Need>();
+
+  /** A graph to check, and whether the run can do without the files it names. */
+  interface Candidate {
+    label: string;
+    graph: ComfyGraph;
+    optional?: boolean;
+  }
 
   for (const workflow of WORKFLOWS) {
     // Each mode's graph as well as the stored one. Both are modes rather than
@@ -90,9 +110,7 @@ function collect() {
     // The two are checked separately rather than stacked: what is being asked
     // is whether each class and file exists, and neither node's presence
     // affects the answer for the other.
-    const graphs: Array<{ label: string; graph: ComfyGraph }> = [
-      { label: workflow.id, graph: workflow.graph },
-    ];
+    const graphs: Candidate[] = [{ label: workflow.id, graph: workflow.graph }];
     if (workflow.turbo) {
       graphs.push({
         label: `${workflow.id} (turbo)`,
@@ -104,6 +122,17 @@ function collect() {
         label: `${workflow.id} (${patch.id})`,
         graph: patchGraph(workflow.graph, patch),
       });
+      // And the other checkpoint, where the switch offers one. Optional,
+      // because it is the alternative to the base above rather than a second
+      // requirement — see `optional` on Need.
+      const alternate = patchAlternateGraph(workflow.graph, patch);
+      if (alternate) {
+        graphs.push({
+          label: `${workflow.id} (${patch.id}, ${patch.base!.alternate!.label.toLowerCase()})`,
+          graph: alternate,
+          optional: true,
+        });
+      }
     }
     // And the form the graph takes at the step count that swaps its sampler,
     // which needs no switch at all — so its class would otherwise go unasked
@@ -114,11 +143,18 @@ function collect() {
         graph: stepSamplerGraph(workflow.graph, workflow.stepSampler),
       });
     }
-    for (const { label: used, graph } of graphs) {
+    for (const { label: used, graph, optional = false } of graphs) {
       for (const node of Object.values(graph)) {
         const existing = classes.get(node.class_type);
-        if (existing) existing.workflows.add(used);
-        else classes.set(node.class_type, { workflows: new Set([used]) });
+        if (existing) {
+          existing.workflows.add(used);
+          if (!optional) existing.optional = false;
+        } else {
+          classes.set(node.class_type, {
+            workflows: new Set([used]),
+            optional,
+          });
+        }
 
         const input = MODEL_INPUTS[node.class_type];
         if (!input) continue;
@@ -126,12 +162,15 @@ function collect() {
         if (typeof filename !== "string" || !filename) continue;
 
         const model = models.get(filename);
-        if (model) model.workflows.add(used);
-        else {
+        if (model) {
+          model.workflows.add(used);
+          if (!optional) model.optional = false;
+        } else {
           models.set(filename, {
             loader: node.class_type,
             input,
             workflows: new Set([used]),
+            optional,
           });
         }
       }
@@ -205,6 +244,7 @@ async function main() {
 
   console.log("\nModel files");
   const missingModels: string[] = [];
+  const absentOptional: string[] = [];
   for (const [filename, need] of models) {
     const installed = enumValuesFor(schemas.get(need.loader) ?? null, need.input);
     if (installed === null) {
@@ -213,17 +253,28 @@ async function main() {
       console.log(`  unknown  ${filename}  (could not read ${need.loader}.${need.input})`);
       continue;
     }
+    const used = [...need.workflows].join(", ");
     if (installed.includes(filename)) {
       console.log(`  ok       ${filename}`);
+    } else if (need.optional) {
+      // Absent and that is fine: this is the other side of a choice, and the
+      // side actually in use is reported on its own line. Said rather than
+      // skipped, so someone looking for why a switch will not run finds it.
+      absentOptional.push(filename);
+      console.log(`  optional ${filename}  — not installed; only needed by ${used}`);
     } else {
       missingModels.push(filename);
-      const used = [...need.workflows].join(", ");
       console.log(`  NOT FOUND  ${filename}  — ${need.loader}.${need.input}, needed by ${used}`);
     }
   }
 
   if (missingClasses.length === 0 && missingModels.length === 0) {
-    console.log("\nEverything the workflows reference is present.");
+    console.log(
+      absentOptional.length === 0
+        ? "\nEverything the workflows reference is present."
+        : `\nEverything required is present. ${absentOptional.length} optional ` +
+            "file(s) are not installed; the switches that would use them say so.",
+    );
     return;
   }
 

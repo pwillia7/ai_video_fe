@@ -219,7 +219,8 @@ LoRA comes from its own pack, and the three Music 3 files from
 | `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | the five video graphs |
 | [`minimax_h3_turbo_v4_step600_ema.safetensors`](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) | `models/loras/` | the Turbo switch — every video workflow |
 | `vh5tape-comfyui.safetensors` | `models/loras/` | the VHS tape switch — text/image to video, Extend |
-| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | the VHS tape switch, which cannot run on the quantised `fl2va` base |
+| `minimax_h3_fl2va_bf16.safetensors` | `models/diffusion_models/` | the VHS tape switch, which cannot run on the rotated `fl2va` base |
+| `minimax_h3_fl2va_pruned_fp8_scaled.safetensors` | `models/diffusion_models/` | optional — the VHS switch's **Lighter base**, instead of bf16 |
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |
@@ -547,12 +548,33 @@ the `fl2va` graphs ship on `minimax_h3_fl2va_pruned_int8_convrot` — the base t
 official ComfyUI H3 tutorial defaults to, and a *rotated* one. A LoRA loads into
 a rotated base with no error at all and then produces warped faces, melting limbs
 and objects that vanish mid-shot, which is worse than a failure because the run
-finishes. So the switch points the `UNETLoader` at `minimax_h3_fl2va_bf16` for
-as long as it is on, and puts it straight back when it is off. That makes a VHS
-take cost noticeably more than a plain one; the learned estimate accounts for it
-on its own, since `modeKey` buckets by which switches were on. The same applies
-to `*_nvfp4` and `*_w4a8` — the patch declares the bases it will accept, so a
-`base` outside that list fails `check:workflows` rather than a render.
+finishes. So the switch points the `UNETLoader` at a supported checkpoint for as
+long as it is on, and puts the rotated one straight back when it is off. That
+makes a VHS take cost noticeably more than a plain one; the learned estimate
+accounts for it on its own, since `modeKey` buckets by which switches were on.
+The same applies to `*_nvfp4` and `*_w4a8` — the patch declares the bases it will
+accept, and *both* sides of the switch below are checked against that list, so a
+base outside it fails `check:workflows` rather than a render.
+
+**Lighter base**, a switch under the switch, chooses which supported checkpoint
+that is. Off is `minimax_h3_fl2va_bf16`, the better one and the default; on is
+`minimax_h3_fl2va_pruned_fp8_scaled`, much smaller and much easier on VRAM for
+some quality. Both are non-rotated, so neither side can produce the failure
+above — this is a straight quality-for-memory trade, not a trap, and it is the
+option to take if bf16 will not fit on the card or has not been downloaded.
+
+It is a boolean rather than a menu of checkpoints because the browser is never
+handed the model filenames — `base` is withheld from `ClientPatch` for the same
+reason the graph is — so the switch travels as a boolean and the server resolves
+which file it means. Like Low VRAM and the strength, it is remembered once for
+the whole app: which checkpoint fits this card, and which one is on the disk, are
+facts about the machine rather than about a workflow. The finished job records
+the filename that ran *and* which side of the switch it was, so the run detail
+can show the former and **Reuse settings** can restore the latter.
+
+`pnpm check:nodes` reports the default base as required and the lighter one as
+**optional** — you download the side you use, and a check that demanded both
+would be permanently red on a correctly set-up machine.
 
 **It has a strength.** The two LoRAs perturb the same weights and their
 strengths add, and 4-step turbo has very little headroom, so stacked on Turbo

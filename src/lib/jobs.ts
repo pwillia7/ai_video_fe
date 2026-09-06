@@ -65,6 +65,20 @@ export interface Job {
    * graph, and a LoRA costs the same to apply at any strength.
    */
   strengths?: Record<string, number>;
+  /**
+   * The checkpoint each switch that swaps one actually loaded, by patch id.
+   *
+   * `file` is what the run detail shows, since the filename is what explains a
+   * difference between two takes and keeps meaning the same after the
+   * declaration behind the switch changes. `alternate` is what Reuse settings
+   * puts back, because the browser never sees either filename and cannot work
+   * the switch out of `file` itself.
+   *
+   * Not in `modeKey`: the two bases do differ in what a run costs, but
+   * splitting an already-narrow bucket by them would buy a worse estimate than
+   * pooling them.
+   */
+  bases?: Record<string, { file: string; alternate: boolean }>;
   hasAudio: boolean;
   /**
    * Marked by the user as worth keeping. Purely an organising flag — it sorts
