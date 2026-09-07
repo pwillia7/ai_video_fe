@@ -1306,49 +1306,47 @@ among several and the target is a new scene — `referenceVideo` in
 director carrying Remix's instinct re-cuts the source instead of building what
 was asked for.
 
-The wiring is four nodes. A `LoadVideo` (170) holds the clip and a
-`GetVideoComponents` (171) decodes it — frames out of output 0, soundtrack out
-of output 1 for `ref_video_audios.ref_video_audio_0`. A
-`GetImageRangeFromBatch` (174) cuts the first `MAX_CLIP_SECONDS × 24` frames out
-of that batch for `ref_videos.ref_video_0`, and a `VHS_SelectEveryNthImage`
-(172) strides the same batch down to about five frames for the director to look
-at — the rewrite stage is shown images, so there is no such thing as showing it
-a video.
+The wiring is four nodes. `VHS_LoadVideo` (170) reads the clip, a
+`ImageScaleToTotalPixels` (171) scales it to the size of the video being made
+and feeds `ref_videos.ref_video_0`, and the loader's own audio output feeds
+`ref_video_audios.ref_video_audio_0`. A `VHS_SelectEveryNthImage` (172) strides
+that same batch down to about five frames for the director to look at, at a
+stride a `ComfyMathExpression` (173) works out from the frame count the loader
+reports — the rewrite stage is shown images, so there is no such thing as
+showing it a video.
 
-**24 fps is not a preference.** There is no resampling anywhere in
-`nodes_minimax_h3.py`: whatever batch reaches `ref_videos.ref_video_0` is
-*interpreted* as 24 fps, and the node's own tooltip says so. Hand it a 60 fps
-clip untouched and the model is told a 5-second reference runs 12.5 seconds —
-every judgement it makes about how fast something moves is wrong by the ratio.
+**VHS's loader rather than ComfyUI's own, and that is load-bearing twice.**
 
-**Every frame is selected out of the decoded batch, never out of the video, and
-that is not a stylistic choice.** ComfyUI's own frame samplers ask the container
-how many frames it has, and a file written by a browser's `MediaRecorder` cannot
-answer: it is a *fragmented* MP4, written by a streaming encoder that never goes
-back to fill in the header. Its `mvhd` duration is `0` and every sample table —
-`stsz`, `stts`, `stco`, `stsc` — has zero entries. `get_frame_count` falls back
-to decoding and counting, but bounds that loop by the container's own duration,
-so it returns **1**. `VideoFrameSample` then samples one frame and the reference
-node rejects the run for having fewer than five. `GetVideoComponents` is the one
-step that does not care, because it decodes by iterating; everything after it
-works on a real `IMAGE` batch and the bookkeeping stops mattering.
+`force_rate` resamples the clip to 24 fps, which matters because there is no
+resampling anywhere in `nodes_minimax_h3.py`: whatever batch reaches
+`ref_videos.ref_video_0` is *interpreted* as 24 fps, and the node's own tooltip
+says so. A clip left at its own rate is read at the wrong speed by exactly the
+ratio — and the rate is rarely what you would guess. A webcam recording made by
+this app measured **16.87 fps**, not 24 and not 30, so read as 24 it would have
+run 40% fast.
 
-The cost of selecting by index rather than by time is that the frames keep
-whatever spacing the camera gave them, so the recorder asks `getUserMedia` for
-24 fps and a recorded clip plays at its real speed. An *uploaded* clip at some
-other rate is still read as 24 — a 30 fps upload comes back about a fifth slow.
-That is the safe direction to be wrong in for a reference, and the reason the
-in-app recorder is the better way to get one.
+And VHS can read a file the core loader cannot measure. A browser's
+`MediaRecorder` writes a *fragmented* MP4 — a streaming encoder that never goes
+back to fill in the header — so its `mvhd` duration is `0` and every sample
+table (`stsz`, `stts`, `stco`, `stsc`) has zero entries. ComfyUI's own
+`get_frame_count` falls back to decoding and counting but bounds that loop by
+the container's duration, so it returns **1**; anything selecting frames from
+the VIDEO then hands on one frame, and the reference node rejects the run for
+having fewer than five. VHS demuxes the same file and reports its real 14.9
+seconds.
 
-**Those five frames join the same batch as the reference pictures**, which is
-the one thing about this that needed saying out loud. `REFERENCE_DIRECTOR`
-promises that the images it is shown are `<Picture 1>`, `<Picture 2>` and so on
-in order; five more arriving in that batch breaks the promise, and a director
-left to work it out writes five phantom subjects. So `finalize` appends them at
-the first slot *past* the pictures actually filled — they are always last,
-whatever the run — and `referenceVideo` says how many of the images are frames,
-that they are one clip seen at intervals, and that they carry no `<Picture N>`
-number of their own.
+**The clip is scaled to the output's own frame size**, which is the difference
+between a reference that costs about what a generated frame costs and one that
+costs nearly twice as much. The reference node has no opinion about the output:
+its canvas is a 768 short edge, and its only restraint is that it will not
+upscale. So a 1280×720 recording is conditioned on at 1280×704 — 901,120 pixels
+against the 504,832 of a frame at the default 0.5 MP, **1.8× the area, carried
+through every sampling step**. `ImageScaleToTotalPixels` takes it to 960×544
+instead, on the same **Frame size** control that sets the output, capped at
+`REF_MAX_MEGAPIXELS` so the top of that range does not drag a 2 MP reference
+through the run. `resolution_steps` is 32 because the reference node rounds its
+own canvas to multiples of 32, and landing on one is what stops it resampling a
+second time.
 
 **Use the clip's sound** decides whether the soundtrack goes with it. Note which
 slot that is: `ref_video_audios` pairs with `ref_videos` by index and the node
@@ -1389,10 +1387,10 @@ Three limits worth knowing:
   param, checked in the browser before the upload starts. Unlike Remix and
   Extend nothing hands a clip to this slot server-side, so every one of them
   goes through the browser and the 4 MB cap really binds.
-- **The clip is decoded in full either way.** Node 171 supplies both the frames
-  and the sound, and it is the only step that reads a `MediaRecorder` file
-  correctly, so turning the sound off drops the input but not the node. Bounded
-  by the six-second cap, that decode is cheap next to the sampling.
+- **Nothing past the cap is ever decoded.** `frame_load_cap` is counted in
+  frames at the forced rate, so the loader stops there rather than reading a
+  long clip and throwing most of it away. Turning the sound off drops the
+  reference input but not the loader, which is where the frames come from too.
 
 **Or record one.** The camera button under the clip slot opens `VideoCapture`,
 which records with the device's own camera and microphone and hands the file to
