@@ -1372,16 +1372,26 @@ Three limits worth knowing:
   a batch-dimension mismatch on a run carrying more than one kind of reference
   block, and a clip is that as much as a track is. Remix, which is nothing but a
   video reference through this same node class, already runs on the bf16 pair.
-- **Six seconds, and that cap is the reason this workflow is usable.** A
-  reference video is encoded to latent frames that ride through *every* sampling
-  step alongside the ones being generated, so its cost is not paid once at the
-  start — it is added to the sequence for the whole run. The node's own limit is
-  the generated video's length (`frames[:frame_count]`), which means an
-  unbounded reference roughly doubles the sequence: on a 24 GB card that is a
-  10-second video taking several times as long and a 15-second one running out
-  of memory before the first step. MiniMax documents 2–15s, which is what the
-  node accepts rather than what a 3090 finishes. Six is enough to establish who
-  someone is and how they move, which is what a reference is for.
+- **Twenty seconds, and the length is not what decides the cost.** A reference
+  video is encoded to latent frames that ride through *every* sampling step
+  alongside the ones being generated, so its cost is added to the sequence for
+  the whole run rather than paid once at the start. But the node truncates a
+  reference to the generated video's own frame count (`frames[:frame_count]`),
+  so what the model carries is `min(clip, video)` — and the expensive case is
+  therefore not a long clip but a clip *as long as the video*, which doubles the
+  sequence. That ceiling is 2× and it is reachable at any length: six seconds of
+  reference against a five-second video already sits there.
+
+  | video | 3s clip | 6s | 10s | 15s | 20s |
+  | --- | --- | --- | --- | --- | --- |
+  | 5s | 1.48× | 2.03× | 2.03× | 2.03× | 2.03× |
+  | 10s | 1.24× | 1.60× | 1.96× | 2.03× | 2.03× |
+  | 20s | 1.12× | 1.31× | 1.49× | 1.74× | 2.00× |
+
+  So a short reference is what keeps a run quick, and a low cap only ever
+  punished the long-video runs where a short clip was already cheap. MiniMax
+  documents 2–15s; past fifteen is outside what they describe rather than
+  outside what the node takes.
 - **4 MB and a 768px short edge**, with a 1-second floor because the node
   refuses anything under five frames outright — `minSeconds`/`maxSeconds` on the
   param, checked in the browser before the upload starts. Unlike Remix and

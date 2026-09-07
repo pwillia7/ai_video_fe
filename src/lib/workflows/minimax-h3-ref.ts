@@ -139,22 +139,28 @@ const REF_MAX_MEGAPIXELS = 0.5;
 const REF_VIDEO_FPS = 24;
 
 /**
- * How much of a clip the model is given, in seconds.
+ * The longest clip that may be attached, in seconds.
  *
- * Small on purpose, and the reason this is a cap rather than a control. A
- * reference video is encoded to latent frames that ride through *every*
- * sampling step alongside the ones being generated, so its cost is not paid
- * once at the start — it is added to the sequence for the whole run. The node's
- * own limit is the generated video's length (`frames[:frame_count]`), which
- * means an unbounded reference roughly doubles the sequence: on a 24 GB card
- * that is a 10-second video taking several times as long, and a 15-second one
- * running out of memory before the first step.
+ * A limit on the upload rather than on the conditioning, because the reference
+ * node imposes its own and it is the one that decides the cost: it truncates a
+ * reference to the generated video's own frame count, so what the model carries
+ * is `min(clip, video)` however long the file is. A 20-second clip on a
+ * 5-second video costs exactly what a 5-second clip costs.
  *
- * Six seconds is enough to establish who someone is and how they move, which is
- * what a reference is for. MiniMax documents 2-15s; that is what the node
- * accepts, not what a 3090 finishes.
+ * Which means the expensive case is not a long clip, it is a clip as long as
+ * the video — and that doubles the sequence the sampler works through, since a
+ * reference is encoded to latent frames that ride alongside the generated ones
+ * through every step. That ceiling is 2x and it is reachable at any length: six
+ * seconds of reference on a five-second video already sits there. So this
+ * number does not protect against it, and pretending otherwise by keeping it
+ * small only costs the long-video runs, where a short reference really is
+ * cheap — three seconds against twenty is 1.1x.
+ *
+ * 20 matches what Remix and Extend accept. MiniMax documents a reference video
+ * at 2-15s, so past fifteen is outside what they describe rather than outside
+ * what the node takes.
  */
-const MAX_CLIP_SECONDS = 6;
+const MAX_CLIP_SECONDS = 20;
 
 /**
  * How many frames of the clip the director is shown.
@@ -705,7 +711,7 @@ const params: ParamDef[] = [
     default: "",
     minSeconds: 1,
     maxSeconds: MAX_CLIP_SECONDS,
-    help: `Optional. A clip shows how someone moves, which a still cannot. Up to ${MAX_CLIP_SECONDS}s — it is added to every sampling step, so a long one is what makes a run crawl. Pins the run to 4 steps.`,
+    help: `Optional. A clip shows how someone moves, which a still cannot. Up to ${MAX_CLIP_SECONDS}s, and only as much of it as the video is long is used — a clip about as long as the video is what makes a run slow. Pins the run to 4 steps.`,
     group: "References",
     targets: [
       { node: VIDEO_NODE, input: "video" },

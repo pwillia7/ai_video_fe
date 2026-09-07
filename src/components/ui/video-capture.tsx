@@ -168,20 +168,22 @@ export function VideoCapture({
           // all, and an exact constraint would fail outright rather than
           // giving back the only camera there is.
           //
-          // 1280x720 rather than the 1920x1080 a photo asks for, because this
-          // is the shape the model takes: a reference clip is capped at a
-          // 768px short edge, and recording larger would only spend the
-          // bitrate budget on pixels that get scaled away.
+          // 960x540 rather than 720p or 1080p, because the workflow scales a
+          // reference clip to about half a megapixel before the model sees it
+          // and anything above that is thrown away. It matters here rather than
+          // being merely tidy: the bitrate is budgeted from the upload ceiling
+          // and the length, so at the longest clip allowed there is not much of
+          // it to go round, and spending it on pixels that get scaled off is
+          // what makes a long recording look bad.
           video: {
             facingMode: { ideal: facing },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            // 24, because that is the rate H3 reads a reference video at and
-            // nothing downstream can resample a recording to it: the frames are
-            // cut out of a decoded batch by index, so their spacing is whatever
-            // the camera produced. Recording at the target rate is what makes a
-            // recorded clip play at its real speed — at 30 it would come back
-            // a fifth slow, at 60 half speed.
+            width: { ideal: 960 },
+            height: { ideal: 540 },
+            // The rate H3 reads a reference at. No longer load-bearing — the
+            // loader forces it server-side, which is just as well since a
+            // webcam ignores this freely and the one that started all of this
+            // delivered 16.87 — but fewer frames at a fixed bitrate is more
+            // bits for each of them, so it is still worth asking for.
             frameRate: { ideal: REF_VIDEO_FPS },
           },
           // The soundtrack is half the point of attaching a clip rather than a
