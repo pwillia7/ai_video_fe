@@ -9,6 +9,11 @@ import {
 import { isSet } from "./types";
 import type { ParamDef, ParamPin, ParamValue, WorkflowDef } from "./types";
 import {
+  CHUNK_FPS,
+  LITERAL_PROMPT,
+  MAX_CHUNKS,
+  MAX_CHUNK_SECONDS,
+  chunkPlan,
   FRAME_EXPRESSION,
   directorBypassFor,
   effectiveSeconds,
@@ -42,6 +47,30 @@ import {
 /**
  * MiniMax H3 reference-to-video: up to four reference images steer the subject,
  * and the prompt says what they do.
+ *
+ * ## Past fifteen seconds
+ *
+ * The model takes at most 362 frames in a pass, so a longer video is built in
+ * several and joined. The arithmetic is shared with Remix (`chunkPlan`); what
+ * differs is what a pass is conditioned on, and it is worth being precise about
+ * because it is the whole reason this graph needed its own answer.
+ *
+ * Remix cuts one continuous source into spans and gives each pass its own. Here
+ * most of the references are **stills** — the same four pictures belong to every
+ * second of the video, so passes given only those would be four renders of one
+ * conditioning at one seed. Not a long video: the same shot, repeated. So a run
+ * past one pass needs something that varies with time, and that is a reference
+ * clip or a reference track. Each pass takes its own slice; the pictures, the
+ * prompt, the seed and the scheduler are shared, which is what keeps the passes
+ * looking like each other. Without either, `finalize` refuses rather than
+ * building the stutter.
+ *
+ * The soundtrack is picked in the same spirit and in this order: a reference
+ * track that covers the whole video, else the clip's own sound where it was
+ * attached and reaches the end, else the passes' own generated audio joined end
+ * to end. Only the last has a seam, and it is audible — each pass invents its
+ * audio from nothing, so a score restarts at every join. The first two were
+ * continuous before anything was generated and stay that way.
  *
  * Notes on this export:
  *
@@ -89,7 +118,59 @@ const ids: MinimaxNodeIds = {
  * so dropping one means clearing a link in both places.
  */
 const REF_NODES = ["137", "139", "165", "166"];
+
+
 const REFERENCE_NODE = "136";
+const REFERENCE_NODE_ID = "136";
+const GUIDER_NODE = "126";
+const SAMPLER_NODE = "125";
+const DECODE_NODE = "122";
+const DECODE_AUDIO_NODE = "121";
+const FRAMES_NODE = "131";
+const DURATION_NODE = "132";
+/** Where the finished video is assembled before it is saved. */
+const VIDEO_OUT_NODE = "130";
+/**
+ * The nodes a second and subsequent pass needs its own copy of, and the ids
+ * they take.
+ *
+ * Chunking here is the same idea as Remix's and a different shape, because what
+ * a pass is conditioned on is different. Remix cuts one continuous source into
+ * spans and hands each span to its own pass; this graph's references are mostly
+ * *stills*, which do not vary with time at all — the same four pictures belong
+ * to every second of the video.
+ *
+ * So what a chunk owns here is only the part that moves: its slice of a
+ * reference clip, its slice of a reference track, and the sampling stack that
+ * turns them into a segment. The pictures, the prompt, the seed, the scheduler
+ * and the model loaders are shared, which is both cheaper and the point — four
+ * passes that disagreed about any of them would not read as one video.
+ *
+ * Which is also the rule `finalize` enforces: with neither a clip nor a track
+ * there is nothing that varies from pass to pass, so four passes would be four
+ * renders of the same conditioning at the same seed. That is not a long video,
+ * it is a stutter, and it is refused rather than built.
+ */
+const CHUNK_NODES = [
+  REFERENCE_NODE_ID,
+  GUIDER_NODE,
+  SAMPLER_NODE,
+  DECODE_NODE,
+  DECODE_AUDIO_NODE,
+  FRAMES_NODE,
+  DURATION_NODE,
+];
+/** Ids for pass i. Pass 0 keeps the ids the exported graph already used. */
+const chunkId = (base: string, index: number) =>
+  index === 0 ? base : `${base}k${index}`;
+
+/** Where the passes are put back together. */
+const JOIN_IMAGES_NODE = "180";
+/** The reference track cut to the finished video's length, when it becomes it. */
+const JOIN_TRACK_NODE = "184";
+/** One per seam, joining the passes' own generated audio when nothing else can. */
+const audioJoinId = (index: number) => `18${index + 1}`;
+
 const BATCH_NODE = "146";
 const AUDIO_NODE = "155";
 const TRIM_NODE = "167";
@@ -109,6 +190,8 @@ const VIDEO_NODE = "170";
 const VIDEO_SCALE_NODE = "171";
 const VIDEO_PEEK_NODE = "172";
 const VIDEO_STRIDE_NODE = "173";
+/** The clip's own per-pass pair: the slice, and that slice scaled. */
+const CHUNK_VIDEO_NODES = [VIDEO_NODE, VIDEO_SCALE_NODE];
 const VIDEO_INPUT = "ref_videos.ref_video_0";
 const VIDEO_AUDIO_INPUT = "ref_video_audios.ref_video_audio_0";
 const VIDEO_PARAM = "reference_video";
@@ -198,6 +281,8 @@ const TRIM_PARAM = "reference_trim";
 const TRIM_SECONDS_PARAM = "reference_trim_seconds";
 const TRIM_START_PARAM = "reference_trim_start";
 const TRACK_SECONDS_PARAM = "reference_track_seconds";
+/** Where the browser reports the reference clip's length. See `measures`. */
+const CLIP_SECONDS_PARAM = "reference_clip_seconds";
 const LYRICS_PARAM = "reference_lyrics";
 
 /** What the trim select offers, and what each answer means in seconds. */
@@ -314,10 +399,81 @@ const trackSeconds = (values: Record<string, ParamValue>): number =>
   Math.max(0, Number(values[TRACK_SECONDS_PARAM] ?? 0));
 
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
+/**
+ * How long the finished video runs, snapped to the grid the sampler accepts —
+ * the same number the director is told and the trim matches, so the passes are
+ * divided by what actually comes back rather than by what was asked for.
+ */
+const outputSeconds = (values: Record<string, ParamValue>): number =>
+  effectiveSeconds(Number(values.duration ?? 10));
+
+/** How long the reference clip runs, or 0 for "nothing has measured it". */
+const clipSeconds = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[CLIP_SECONDS_PARAM] ?? 0));
+
+/**
+ * Whether anything in this submission varies with time.
+ *
+ * The condition on running more than one pass. Stills do not: the same four
+ * pictures belong to every second of the video, so four passes given only those
+ * would be four renders of one conditioning at one seed. A clip or a track is
+ * the thing that can be sliced, and so the thing that makes pass 2 different
+ * from pass 1.
+ */
+const hasMovingReference = (values: Record<string, ParamValue>): boolean =>
+  videoAttached(values) || trackAttached(values);
+
+/**
+ * How many passes this submission takes, and what each covers.
+ *
+ * One whenever nothing varies with time, whatever the duration says — the
+ * refusal lives in `finalize`, which is where it can name the control to fix.
+ * Reported here as one so that `passes` and the estimate agree with the graph
+ * that will actually be queued.
+ */
+const refChunkPlan = (values: Record<string, ParamValue>) =>
+  hasMovingReference(values)
+    ? chunkPlan(outputSeconds(values))
+    : { count: 1, frames: 0 };
+
 const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
 const batchInput = (index: number) => `images.image${index - 1}`;
 
-const graph: ComfyGraph = {
+/**
+ * One pass's worth of graph, cloned from the ids the export already used.
+ *
+ * Built by reading the stored nodes rather than by writing them out a second
+ * time: a copy typed here would be a copy to keep in step, and the thing it
+ * would drift from is the very wiring `check:workflows` validates. So the
+ * chunk stack is whatever pass 0 is, with its internal links renamed.
+ *
+ * A link is rewritten only when it points at another node in the same stack.
+ * Everything else — the model loaders, the pictures, the prompt, the seed —
+ * keeps pointing at the one shared copy, which is what makes the passes look
+ * like each other rather than like four separate runs.
+ */
+function chunkNodes(base: ComfyGraph, index: number, ids: string[]): ComfyGraph {
+  const owned = new Set(ids);
+  const out: ComfyGraph = {};
+  for (const id of ids) {
+    const node = base[id];
+    const inputs: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(node.inputs)) {
+      inputs[name] =
+        Array.isArray(value) && typeof value[0] === "string" && owned.has(value[0])
+          ? [chunkId(value[0], index), value[1]]
+          : value;
+    }
+    out[chunkId(id, index)] = {
+      class_type: node.class_type,
+      inputs: inputs as ComfyGraph[string]["inputs"],
+      _meta: { title: `${node._meta?.title ?? node.class_type} (pass ${index + 1})` },
+    };
+  }
+  return out;
+}
+
+const baseGraph: ComfyGraph = {
   "92": {
     class_type: "SaveVideo",
     inputs: {
@@ -660,6 +816,83 @@ const graph: ComfyGraph = {
 };
 
 /**
+ * The stored graph plus every pass past the first, and the nodes that put them
+ * back together.
+ *
+ * All MAX_CHUNKS declared rather than cloned at run time, for the reason the
+ * rest of this file's optional inputs are: `finalize` deletes what a given
+ * submission does not reach, and a graph that stands still is a graph
+ * `check:workflows` can validate.
+ */
+const graph: ComfyGraph = {
+  ...baseGraph,
+  ...Object.assign(
+    {},
+    ...Array.from({ length: MAX_CHUNKS - 1 }, (_, i) =>
+      chunkNodes(baseGraph, i + 1, [...CHUNK_NODES, ...CHUNK_VIDEO_NODES, TRIM_NODE]),
+    ),
+  ),
+
+  /** The passes' pictures, end to end. */
+  [JOIN_IMAGES_NODE]: {
+    class_type: "BatchImagesNode",
+    inputs: Object.fromEntries(
+      Array.from({ length: MAX_CHUNKS }, (_, i) => [
+        `images.image${i}`,
+        [chunkId(DECODE_NODE, i), 0],
+      ]),
+    ),
+    _meta: { title: "Batch Images (passes)" },
+  },
+
+  /**
+   * The passes' own soundtracks, end to end.
+   *
+   * The fallback rather than the intent. Each pass invents its audio from
+   * nothing, so joining them gives a score that restarts at every seam — which
+   * is why `finalize` prefers the reference track below whenever there is one
+   * long enough to cover the whole video, and only comes here when there is
+   * not. Remix never needs this: a clip brings a continuous track with it.
+   */
+  ...Object.fromEntries(
+    Array.from({ length: MAX_CHUNKS - 1 }, (_, i) => [
+      audioJoinId(i),
+      {
+        class_type: "AudioConcatenate",
+        inputs: {
+          direction: "right",
+          audio1: i === 0 ? [chunkId(DECODE_AUDIO_NODE, 0), 0] : [audioJoinId(i - 1), 0],
+          audio2: [chunkId(DECODE_AUDIO_NODE, i + 1), 0],
+        },
+        _meta: { title: "Audio Concatenate" },
+      },
+    ]),
+  ),
+
+  /**
+   * The reference track, cut to the length of the finished video.
+   *
+   * What makes a long run here worth listening to. A track that already covers
+   * the whole video is continuous by definition, so putting it over the top
+   * removes the only seam none of the rest of this can hide — the same trade
+   * Remix makes with a clip's own sound, and the reason chunking is offered on
+   * these two graphs and not on the ones that invent a video from nothing.
+   *
+   * Both inputs are written per run by `finalize`: the start is wherever the
+   * trim controls point, and the duration is the video's own length.
+   */
+  [JOIN_TRACK_NODE]: {
+    class_type: "TrimAudioDuration",
+    inputs: {
+      audio: [AUDIO_NODE, 0],
+      start_index: 0,
+      duration: 15,
+    },
+    _meta: { title: "Trim Audio Duration (soundtrack)" },
+  },
+};
+
+/**
  * Everything that shapes the director's instructions writes this one target,
  * built once here so the duration and every facet select cannot disagree about
  * what it is. See `directorTarget` for why they all write the whole thing.
@@ -737,6 +970,9 @@ const params: ParamDef[] = [
   {
     id: VIDEO_PARAM,
     label: "Reference clip",
+    // Reported onward so a long video can be cut into passes that each follow
+    // their own stretch of the clip. See `refChunkPlan`.
+    measures: CLIP_SECONDS_PARAM,
     type: "video",
     default: "",
     minSeconds: 1,
@@ -816,6 +1052,25 @@ const params: ParamDef[] = [
       // real one has been handed to the model. See referenceTrack.
       director,
     ],
+  },
+  {
+    /**
+     * No control of its own: filled in by the clip above, and read only when
+     * the video runs past a single pass — which is when the clip has to be
+     * divided between them. Nothing measured reads as unknown, and a run with
+     * an unmeasured clip simply gives every pass the same opening slice.
+     */
+    id: CLIP_SECONDS_PARAM,
+    label: "Clip length",
+    type: "measured",
+    default: 0,
+    group: "References",
+    // The director, like every other measurement here — it writes the same
+    // computed brief every contributor writes, and a measured value with no
+    // target at all is refused by `check:workflows`. `finalize` is the reader
+    // that actually matters, and it reads the resolved value rather than a
+    // node, so this survives the director being switched off.
+    targets: [director],
   },
   {
     id: TRACK_SECONDS_PARAM,
@@ -938,7 +1193,10 @@ const params: ParamDef[] = [
   literalPromptParam(),
   rewriteModelParam(graph, [ids.director]),
 
-  durationParam(ids, director),
+  durationParam(ids, director, {
+    max: MAX_CHUNK_SECONDS,
+    help: `Snaps to the nearest length the model accepts, so it can land slightly long. Past about 15s it is built in passes and joined — which needs a reference clip or track for the passes to follow, and sounds best when the track covers the whole video.`,
+  }),
   aspectRatioParam("115"),
   {
     id: "megapixels",
@@ -974,6 +1232,12 @@ export const minimaxH3Reference: WorkflowDef = {
   name: "Reference to Video",
   description: "Puts people or objects from your images into a new scene.",
   estimatedSeconds: 300,
+  /**
+   * One per pass. Past a single pass this is four times the wait, so it is both
+   * the estimate's multiplier and the bucket the learned median groups by. See
+   * `refChunkPlan`.
+   */
+  passes: (values) => refChunkPlan(values).count,
   hasAudio: true,
   graph,
   // A control that only ever wrote the director's instructions goes out of
@@ -1074,6 +1338,93 @@ export const minimaxH3Reference: WorkflowDef = {
    * wired, which is exactly the shape of deletion that goes wrong quietly.
    */
   finalizeCases: [
+    /**
+     * The passes. Each count is a different graph, and the soundtrack branch
+     * doubles them again — a track that covers the video becomes the sound, one
+     * that does not leaves the passes' own audio joined instead.
+     */
+    {
+      name: "two passes following a clip",
+      values: {
+        reference_image_1: "a.png",
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: true,
+        [CLIP_SECONDS_PARAM]: 30,
+        duration: 30,
+      },
+    },
+    {
+      name: "four passes following a clip",
+      values: {
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: true,
+        [CLIP_SECONDS_PARAM]: 60,
+        duration: 58,
+      },
+    },
+    {
+      name: "four passes following a clip whose length nothing measured",
+      values: {
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: false,
+        duration: 58,
+      },
+    },
+    {
+      name: "passes over a track long enough to become the soundtrack",
+      values: {
+        reference_image_1: "a.png",
+        [AUDIO_PARAM]: "song.mp3",
+        [TRACK_SECONDS_PARAM]: 90,
+        duration: 40,
+      },
+    },
+    {
+      name: "passes over a track too short to cover the video",
+      values: {
+        reference_image_1: "a.png",
+        [AUDIO_PARAM]: "song.mp3",
+        [TRACK_SECONDS_PARAM]: 10,
+        duration: 40,
+      },
+    },
+    {
+      name: "passes over a whole track, which keeps its per-pass trims",
+      values: {
+        reference_image_1: "a.png",
+        [AUDIO_PARAM]: "song.mp3",
+        [TRACK_SECONDS_PARAM]: 90,
+        [TRIM_PARAM]: TRIM_WHOLE,
+        duration: 40,
+      },
+    },
+    {
+      name: "passes over a clip and a track at once",
+      values: {
+        reference_image_1: "a.png",
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: true,
+        [CLIP_SECONDS_PARAM]: 40,
+        [AUDIO_PARAM]: "song.mp3",
+        [TRACK_SECONDS_PARAM]: 90,
+        duration: 40,
+      },
+    },
+    {
+      name: "four passes with the rewrite switched off",
+      values: {
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: true,
+        [CLIP_SECONDS_PARAM]: 60,
+        duration: 58,
+        [LITERAL_PROMPT]: true,
+      },
+    },
+    {
+      name: "a long video with nothing that varies over it",
+      values: { reference_image_1: "a.png", duration: 40 },
+      rejects: "same shot repeated",
+    },
     {
       name: "a picture and nothing else",
       values: { reference_image_1: "a.png" },
@@ -1130,9 +1481,82 @@ export const minimaxH3Reference: WorkflowDef = {
   ],
 
   finalize(graph, values) {
+    /**
+     * The passes, before anything else — every branch below writes the
+     * reference node, and past one pass there are several of them.
+     */
+    const { count: chunks, frames } = refChunkPlan(values);
+    const refNodes = Array.from({ length: chunks }, (_, i) =>
+      chunkId(REFERENCE_NODE, i),
+    );
+
+    /**
+     * Asking for a long video with nothing that varies over it.
+     *
+     * Refused rather than clamped, because clamping would hand back a fifteen
+     * second video to someone who asked for a minute and say nothing. Named
+     * against the duration because that is the control to move — the other way
+     * out is to attach a clip or a track, which the message says.
+     */
+    if (chunks === 1 && !hasMovingReference(values) && outputSeconds(values) > MAX_CHUNK_SECONDS / MAX_CHUNKS) {
+      throw new ParamError(
+        `Past ${Math.floor(MAX_CHUNK_SECONDS / MAX_CHUNKS)}s this is built in passes, and pictures alone are the same in every one of them — so it would come back as the same shot repeated. Add a reference clip or a reference track for the passes to follow, or shorten the video.`,
+        "duration",
+      );
+    }
+
+    // Everything past the passes this run needs, and the reassembly it would
+    // have fed. Done before the pruning below so that what follows only ever
+    // sees stacks that are staying.
+    for (let index = chunks; index < MAX_CHUNKS; index += 1) {
+      for (const base of [...CHUNK_NODES, ...CHUNK_VIDEO_NODES, TRIM_NODE]) {
+        delete graph[chunkId(base, index)];
+      }
+      delete graph[JOIN_IMAGES_NODE].inputs[`images.image${index}`];
+    }
+    for (let join = Math.max(0, chunks - 1); join < MAX_CHUNKS - 1; join += 1) {
+      delete graph[audioJoinId(join)];
+    }
+
+    // What each pass covers: its share of the running time, and — where a clip
+    // or a track is attached — its own slice of them. The clip's filename is
+    // copied across because only pass 0's loader is a param target.
+    if (chunks > 1) {
+      const share = frames / CHUNK_FPS;
+      // Read before the loop, because the loop overwrites pass 0's copy.
+      const trimStart = Number(graph[TRIM_NODE]?.inputs.start_index ?? 0);
+      const clipFrames = Math.ceil(clipSeconds(values) * CHUNK_FPS);
+      const clipShare = Math.max(
+        1,
+        Math.min(REF_BUDGET_SECONDS * CHUNK_FPS, Math.ceil(clipFrames / chunks)),
+      );
+      for (let index = 0; index < chunks; index += 1) {
+        graph[chunkId(DURATION_NODE, index)].inputs.value = share;
+
+        const loader = graph[chunkId(VIDEO_NODE, index)];
+        if (loader) {
+          loader.inputs.video = graph[VIDEO_NODE].inputs.video;
+          loader.inputs.skip_first_frames = index * clipShare;
+          // The last pass keeps the budget as its cap, so it runs to the end of
+          // the clip whatever the browser measured — the same guard Remix makes,
+          // for the same untrustworthy number.
+          loader.inputs.frame_load_cap =
+            index === chunks - 1 ? REF_BUDGET_SECONDS * CHUNK_FPS : clipShare;
+        }
+        const trim = graph[chunkId(TRIM_NODE, index)];
+        if (trim) {
+          // Its own span of the track, not the whole video's: the param writes
+          // pass 0's duration as the length of the finished video, which is
+          // right for one pass and four times too long for four.
+          trim.inputs.start_index = trimStart + index * share;
+          trim.inputs.duration = share;
+        }
+      }
+    }
+
     const filled = leadingReferences(values, REF_NODES.length);
     for (let index = filled + 1; index <= REF_NODES.length; index += 1) {
-      delete graph[REFERENCE_NODE].inputs[refInput(index)];
+      for (const node of refNodes) delete graph[node].inputs[refInput(index)];
       delete graph[BATCH_NODE].inputs[batchInput(index)];
       delete graph[REF_NODES[index - 1]];
     }
@@ -1151,13 +1575,17 @@ export const minimaxH3Reference: WorkflowDef = {
       // Only the input goes. The loader stays either way: it is where the
       // frames come from as well as the sound.
       if (!videoAudioAttached(values)) {
-        delete graph[REFERENCE_NODE].inputs[VIDEO_AUDIO_INPUT];
+        for (const node of refNodes) delete graph[node].inputs[VIDEO_AUDIO_INPUT];
       }
     } else {
-      delete graph[REFERENCE_NODE].inputs[VIDEO_INPUT];
-      delete graph[REFERENCE_NODE].inputs[VIDEO_AUDIO_INPUT];
-      delete graph[VIDEO_NODE];
-      delete graph[VIDEO_SCALE_NODE];
+      for (const node of refNodes) {
+        delete graph[node].inputs[VIDEO_INPUT];
+        delete graph[node].inputs[VIDEO_AUDIO_INPUT];
+      }
+      for (let index = 0; index < chunks; index += 1) {
+        delete graph[chunkId(VIDEO_NODE, index)];
+        delete graph[chunkId(VIDEO_SCALE_NODE, index)];
+      }
       delete graph[VIDEO_PEEK_NODE];
       delete graph[VIDEO_STRIDE_NODE];
     }
@@ -1180,16 +1608,24 @@ export const minimaxH3Reference: WorkflowDef = {
     // variadic input left in place tells H3 to expect a reference that was
     // never supplied.
     if (!trackAttached(values)) {
-      delete graph[REFERENCE_NODE].inputs[AUDIO_INPUT];
+      for (const node of refNodes) delete graph[node].inputs[AUDIO_INPUT];
       delete graph[AUDIO_NODE];
-      delete graph[TRIM_NODE];
+      for (let index = 0; index < chunks; index += 1) {
+        delete graph[chunkId(TRIM_NODE, index)];
+      }
     } else if (String(values[TRIM_PARAM] ?? TRIM_MATCH) === TRIM_WHOLE) {
       // All of it is the trim *removed* rather than the trim set to the track's
       // length: how long the file runs is not a number this app has — nothing
       // has opened it, and the browser never sees the bytes for a track that
       // arrived through Create video.
-      graph[REFERENCE_NODE].inputs[AUDIO_INPUT] = [AUDIO_NODE, 0];
-      delete graph[TRIM_NODE];
+      //
+      // Past one pass it stays, because each pass is then reading its own span
+      // of the track rather than all of it, and the spans are what the trims
+      // are for. See the start offsets written above.
+      if (chunks === 1) {
+        graph[REFERENCE_NODE].inputs[AUDIO_INPUT] = [AUDIO_NODE, 0];
+        delete graph[TRIM_NODE];
+      }
     }
 
     /**
@@ -1229,5 +1665,87 @@ export const minimaxH3Reference: WorkflowDef = {
         TRIM_START_PARAM,
       );
     }
+
+    /**
+     * The reassembly, or its removal.
+     *
+     * A single pass is the graph this workflow has always queued — the join
+     * nodes go and the output reads the one decode pair — so everything below
+     * is what happens only past fifteen seconds.
+     */
+    if (chunks === 1) {
+      delete graph[JOIN_IMAGES_NODE];
+      delete graph[JOIN_TRACK_NODE];
+      return;
+    }
+
+    graph[VIDEO_OUT_NODE].inputs.images = [JOIN_IMAGES_NODE, 0];
+
+    /**
+     * Which soundtrack the finished video gets.
+     *
+     * The reference track wins wherever it covers the whole video, because it
+     * is the only sound in this graph that was continuous before anything was
+     * generated — the same reason Remix takes a clip's own audio. It has to
+     * *cover* it: a track shorter than the video would run out partway and
+     * leave the rest silent, which is worse than a seam.
+     *
+     * Failing that, the passes' own soundtracks are joined end to end. Each was
+     * invented from nothing and they have no relation to each other, so this is
+     * the case where the seams are audible. It is the honest fallback rather
+     * than a good outcome, and the help on the duration control says so.
+     */
+    const seconds = outputSeconds(values);
+    const trackCovers = trackAttached(values) && length > 0 && length - start >= seconds;
+    // The clip's own sound, where it was attached and reaches the end of the
+    // video. Each pass's loader already carries exactly its own span of it, so
+    // the joins below rebuild the whole track by reading the loaders instead of
+    // the decodes — the same span-by-span reassembly Remix does, and the reason
+    // its seams are inaudible.
+    const clipCovers =
+      !trackCovers &&
+      videoAudioAttached(values) &&
+      clipSeconds(values) >= seconds;
+
+    if (trackCovers || clipCovers) {
+      if (trackCovers) {
+        graph[JOIN_TRACK_NODE].inputs.audio = [AUDIO_NODE, 0];
+        graph[JOIN_TRACK_NODE].inputs.start_index = start;
+      } else {
+        for (let join = 0; join < chunks - 1; join += 1) {
+          graph[audioJoinId(join)].inputs.audio1 =
+            join === 0 ? [chunkId(VIDEO_NODE, 0), 2] : [audioJoinId(join - 1), 0];
+          graph[audioJoinId(join)].inputs.audio2 = [chunkId(VIDEO_NODE, join + 1), 2];
+        }
+        graph[JOIN_TRACK_NODE].inputs.audio = [audioJoinId(chunks - 2), 0];
+        graph[JOIN_TRACK_NODE].inputs.start_index = 0;
+      }
+      // Cut to the video rather than to the source, so a track or a clip that
+      // runs past the end does not leave audio hanging off it.
+      graph[JOIN_TRACK_NODE].inputs.duration = seconds;
+      graph[VIDEO_OUT_NODE].inputs.audio = [JOIN_TRACK_NODE, 0];
+
+      // Nothing reads what the passes invented any more.
+      for (let index = 0; index < chunks; index += 1) {
+        delete graph[chunkId(DECODE_AUDIO_NODE, index)];
+      }
+      if (trackCovers) {
+        for (let join = 0; join < chunks - 1; join += 1) delete graph[audioJoinId(join)];
+      }
+      return;
+    }
+
+    /**
+     * Nothing continuous to fall back on, so the passes' own soundtracks are
+     * joined end to end.
+     *
+     * Each was invented from nothing and none of them knows the others, so this
+     * is the one path here with an audible seam. It is reachable with pictures
+     * and a short track, or a clip whose sound was left off — the duration's
+     * help says as much, and attaching a track that covers the video is the way
+     * out of it.
+     */
+    delete graph[JOIN_TRACK_NODE];
+    graph[VIDEO_OUT_NODE].inputs.audio = [audioJoinId(chunks - 2), 0];
   },
 };

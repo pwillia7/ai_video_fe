@@ -3,6 +3,11 @@ import { hideDirectorOnly } from "./director";
 import { rewriteModelParam, rewriteNode } from "./rewrite-model";
 import type { ParamDef, ParamValue, WorkflowDef } from "./types";
 import {
+  CHUNK_FPS,
+  CHUNK_FRAMES,
+  MAX_CHUNKS,
+  MAX_CHUNK_SECONDS,
+  chunkPlan,
   CLIP_WORDS,
   directorBypassFor,
   directorTarget,
@@ -102,38 +107,10 @@ const VIDEO_NODE = "154";
  * wrong length. 24 is what `CreateVideo` writes and what H3 reads a reference
  * video at.
  */
-const SOURCE_FPS = 24;
+const SOURCE_FPS = CHUNK_FPS;
 
 /** Roughly how many frames the director is shown. See node 157. */
 const DIRECTOR_FRAMES = 5;
-
-/**
- * The longest single pass the model was trained for, in frames at SOURCE_FPS.
- *
- * The node states it: "trained range is ~124-362". 362 frames is 15.08 seconds
- * and sits on the 17k+5 grid the sampler snaps to, so it is both the ceiling
- * and a clean number to cut at.
- */
-const CHUNK_FRAMES = 362;
-
-/**
- * How many of those a run may string together.
- *
- * Four is a minute, which is past what the 4 MB upload ceiling can carry at any
- * watchable bitrate — so in practice this bites on clips arriving through the
- * Remix button, where a previous generation is copied server-side and has no
- * size limit. Each chunk is a full sampling pass, so the cost is linear: about
- * five minutes a chunk in turbo.
- */
-const MAX_CHUNKS = 4;
-
-/**
- * The longest clip this graph will take, in seconds: every chunk full.
- *
- * Derived rather than typed, so raising MAX_CHUNKS raises the control with it
- * instead of leaving a form that refuses clips the graph could now rebuild.
- */
-const MAX_SECONDS = Math.floor((MAX_CHUNKS * CHUNK_FRAMES) / SOURCE_FPS);
 
 /** Ids for chunk i. Chunk 0 keeps the ids the exported graph already used. */
 const chunkId = (base: string, index: number) =>
@@ -226,60 +203,13 @@ function chunkNodes(index: number): ComfyGraph {
 }
 
 /**
- * The shortest pass worth making, in frames.
- *
- * The other end of the node's "trained range is ~124-362". Nothing enforces it
- * — a shorter pass samples and returns something — but what comes back has left
- * the range the weights were fitted on, and it is the reason chunks are spread
- * rather than packed. See `chunkPlan`.
+ * The clip's running time as the browser measured it, which is what decides how
+ * many passes a remix takes. Zero until the preview has loaded, which
+ * `chunkPlan` reads as one pass.
  */
-const MIN_CHUNK_FRAMES = 124;
+const sourceSeconds = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values.source_seconds ?? 0));
 
-/**
- * How the clip is divided: how many passes, and how much of it each one loads.
- *
- * **Spread evenly rather than packed to the ceiling**, which is the whole of
- * the arithmetic below. Packing takes 362 frames at a time and gives the last
- * pass the remainder, so a clip that runs a half-second past a boundary ends in
- * a ten-frame chunk — an eighth of the model's trained minimum, sampled as its
- * own video and then batched onto the end of a good one. Dividing the frames
- * across the passes instead puts the worst case at just over half a chunk
- * (a hair past one boundary is two passes of ~7.5s each), which is inside the
- * range everywhere.
- *
- * The frame count comes from the duration the browser measured, which is the
- * one number here that can be wrong — a MediaRecorder file misreports its own
- * length, which is why node 157 works its stride out from what the loader
- * actually returned rather than from this. So this is used only to *place* the
- * cuts, never to decide where the video ends: the last pass keeps the full
- * ceiling as its cap and stops when the file does. An under-measured clip
- * therefore comes back whole, with a last chunk longer than its siblings,
- * rather than truncated at a length nothing verified.
- */
-function chunkPlan(values: Record<string, ParamValue>): {
-  count: number;
-  frames: number;
-} {
-  const seconds = Math.max(0, Number(values.source_seconds ?? 0));
-  // Nothing measured yet: one pass, which is both the safe answer and what
-  // every run did before this existed.
-  if (seconds <= 0) return { count: 1, frames: CHUNK_FRAMES };
-
-  const total = Math.ceil(seconds * SOURCE_FPS);
-  const count = Math.min(MAX_CHUNKS, Math.max(1, Math.ceil(total / CHUNK_FRAMES)));
-  if (count === 1) return { count, frames: CHUNK_FRAMES };
-
-  // Rounded up, so the cuts between them cover the measured length rather than
-  // stopping a frame or two short of it.
-  const frames = Math.ceil(total / count);
-  return {
-    count,
-    // Both ends: a clip past the four-chunk ceiling divides into pieces bigger
-    // than a pass, and the floor is there for a measurement that came back
-    // absurdly small rather than for any division of a real clip.
-    frames: Math.min(CHUNK_FRAMES, Math.max(MIN_CHUNK_FRAMES, frames)),
-  };
-}
 const VIDEO_PARAM = "reference_video";
 const WORDS_PARAM = "clip_words";
 const AUDIO_KEEP_PARAM = "clip_audio_keep";
@@ -523,13 +453,13 @@ const params: ParamDef[] = [
     type: "video",
     default: "",
     required: true,
-    help: `Its size and length become the new video's. Up to 768×1344, ${MAX_SECONDS}s, 4 MB. Past ${(CHUNK_FRAMES / SOURCE_FPS).toFixed(0)}s it is rebuilt in passes of about that long and stitched back together, so a long clip costs a pass per piece.`,
+    help: `Its size and length become the new video's. Up to 768×1344, ${MAX_CHUNK_SECONDS}s, 4 MB. Past ${(CHUNK_FRAMES / SOURCE_FPS).toFixed(0)}s it is rebuilt in passes of about that long and stitched back together, so a long clip costs a pass per piece.`,
     group: "Source",
     // Four passes' worth, which is this graph's own ceiling rather than the
     // upload path's 20s — a clip arriving through the Remix button is copied
     // server-side and is only ever limited by this. Anything longer would be
     // silently truncated at the last chunk, so it is refused instead.
-    maxSeconds: MAX_SECONDS,
+    maxSeconds: MAX_CHUNK_SECONDS,
     targets: [{ node: VIDEO_NODE, input: "video" }],
     // The clip is the only thing that knows how long the output will be, so
     // the control that loads it reports that onward to the param below.
@@ -594,7 +524,7 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * four times the wait — the number the clock starts from, and the bucket its
    * learned replacement is grouped by. See `chunkPlan`.
    */
-  passes: (values) => chunkPlan(values).count,
+  passes: (values) => chunkPlan(sourceSeconds(values)).count,
   hasAudio: true,
   graph,
   // A control that only ever wrote the director's instructions goes out of
@@ -682,7 +612,7 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
    * below is what happens past fifteen seconds.
    */
   finalize(graph, values) {
-    const { count: chunks, frames } = chunkPlan(values);
+    const { count: chunks, frames } = chunkPlan(sourceSeconds(values));
 
     // Where each surviving pass cuts. The stored graph packs them at the
     // ceiling; this is what spreads them. The last one keeps the ceiling as its

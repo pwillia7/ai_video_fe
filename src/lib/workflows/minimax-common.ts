@@ -259,7 +259,13 @@ export function durationParam(
     label = "Duration",
     help = "Snaps to the nearest length the model accepts, so it can land slightly long. Past about 15s the model is out of its trained range.",
     default: value = 10,
-  }: { label?: string; help?: string; default?: number } = {},
+    /**
+     * The ceiling, where a graph can build past a single pass. 20 is one pass
+     * plus the slack the frame grid needs; a graph that chunks raises it to
+     * what its passes add up to. See `chunkPlan`.
+     */
+    max = 20,
+  }: { label?: string; help?: string; default?: number; max?: number } = {},
 ): ParamDef {
   return {
     id: "duration",
@@ -267,7 +273,7 @@ export function durationParam(
     type: "slider",
     default: value,
     min: 1,
-    max: 20,
+    max,
     step: 0.5,
     unit: "sec",
     help,
@@ -305,6 +311,84 @@ export function durationParam(
  * at 24fps. For a clip this app generated those are the same number. For an
  * upload at some other frame rate they are not.
  */
+/**
+ * The rate every H3 video graph here reads and writes at.
+ *
+ * One constant because a frame count taken at one rate and written out at
+ * another is a video that comes back the wrong length — which is exactly what
+ * chunking a clip would get wrong first.
+ */
+export const CHUNK_FPS = 24;
+
+/**
+ * The longest single pass the model was trained for, in frames at CHUNK_FPS.
+ *
+ * The node states it: "trained range is ~124-362". 362 frames is 15.08 seconds
+ * and sits on the 17k+5 grid the sampler snaps to, so it is both the ceiling
+ * and a clean number to cut at.
+ */
+export const CHUNK_FRAMES = 362;
+
+/**
+ * The shortest pass worth making.
+ *
+ * The other end of that range. Nothing enforces it — a shorter pass samples and
+ * returns something — but what comes back has left the range the weights were
+ * fitted on, and it is the reason chunks are spread rather than packed.
+ */
+export const MIN_CHUNK_FRAMES = 124;
+
+/**
+ * How many passes a run may string together.
+ *
+ * Four is a minute. Each is a full sampling pass, so the cost is linear — about
+ * five minutes a chunk in turbo — and past four the wait stops being something
+ * anyone sits through.
+ */
+export const MAX_CHUNKS = 4;
+
+/** The longest video any of these graphs will build, with every chunk full. */
+export const MAX_CHUNK_SECONDS = Math.floor(
+  (MAX_CHUNKS * CHUNK_FRAMES) / CHUNK_FPS,
+);
+
+/**
+ * How a length is divided into passes: how many, and how many frames each one
+ * covers.
+ *
+ * **Spread evenly rather than packed to the ceiling**, which is the whole of
+ * the arithmetic. Packing takes 362 frames at a time and leaves the last pass
+ * the remainder, so a length a half-second past a boundary ends in a ten-frame
+ * chunk — an eighth of the trained minimum, sampled as its own video and then
+ * joined onto the end of a good one. Dividing evenly puts the worst case at
+ * just over half a chunk, which is inside the range everywhere.
+ *
+ * Shared by every graph that chunks, because the arithmetic is a property of
+ * the model rather than of any one workflow, and three copies of it would be
+ * three chances to round differently.
+ */
+export function chunkPlan(seconds: number): { count: number; frames: number } {
+  const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+  // Nothing measured, or nothing asked for: one pass, which is both the safe
+  // answer and what every run did before chunking existed.
+  if (safe <= 0) return { count: 1, frames: CHUNK_FRAMES };
+
+  const total = Math.ceil(safe * CHUNK_FPS);
+  const count = Math.min(MAX_CHUNKS, Math.max(1, Math.ceil(total / CHUNK_FRAMES)));
+  if (count === 1) return { count, frames: CHUNK_FRAMES };
+
+  return {
+    count,
+    // Both ends: a length past the four-chunk ceiling divides into pieces
+    // bigger than a pass, and the floor is for a measurement that came back
+    // absurdly small rather than for any division of a real one.
+    frames: Math.min(
+      CHUNK_FRAMES,
+      Math.max(MIN_CHUNK_FRAMES, Math.ceil(total / count)),
+    ),
+  };
+}
+
 export function clipDurationParam(director: ParamTarget): ParamDef {
   return {
     id: "source_seconds",
