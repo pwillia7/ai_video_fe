@@ -86,19 +86,21 @@ This is the part that takes effort. The app itself is a few minutes.
 
 You need a **recent ComfyUI** — the workflows use MiniMax H3
 (`MiniMaxH3ImageToVideo`, `MiniMaxH3ReferenceToVideo`) and the newer video nodes
-(`LoadVideo`, `CreateVideo`, `GetVideoComponents`, `VideoFrameSample`). All are
+(`CreateVideo`, `GetVideoComponents`, `ImageScaleToTotalPixels`). All are
 built in, but only on a build new enough to have them. If the checker below
 reports those missing, update ComfyUI rather than hunting for node packs.
 
 ### Custom nodes
 
-Most of the node classes these graphs use are ComfyUI built-ins. Eight are not.
-The first three packs install from ComfyUI Manager by name:
+Most of the node classes these graphs use are ComfyUI built-ins. Eleven are not,
+and they come from five packs. All but the first install from ComfyUI Manager by
+name; that one goes in by Git URL:
 
 | Pack | Provides | Needed by |
 | --- | --- | --- |
 | [comfyui-vercel-ai-gateway](https://github.com/pwillia7/comfyui-vercel-ai-gateway) (Manager: Install via Git URL) | `VercelAIGatewayGenerateText`, `VercelAIGatewayDescribeImage` | **every** workflow |
-| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate`, `PathchSageAttentionKJ` | Remix, Extend, and the SageAttention switch everywhere |
+| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | `GetImageSizeAndCount`, `RandomImageFromBatch`, `AudioConcatenate`, `PathchSageAttentionKJ` | Remix, Extend, reference clips, and the SageAttention switch everywhere |
+| [ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) | `VHS_LoadVideo`, `VHS_SelectEveryNthImage` | every workflow that reads a video — Remix, Extend, and a reference clip |
 | [ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) (Manager: "MiniMax-H3 Turbo") | `MiniMaxH3TurboLoRA`, `MiniMaxH3TurboSampler` | the Turbo switch and 4 steps — every video workflow |
 | whichever pack you got `SpectrumApplyMiniMaxH3` from | `SpectrumApplyMiniMaxH3` | the Spectrum switch — every workflow |
 
@@ -983,8 +985,9 @@ line prompt sent this way is a one line prompt.
 `director.ts` does the unwiring, and works out what to delete rather than being
 told. Everything reading the director's output is repointed at the prompt node,
 and then anything no longer reachable from the graph's own output nodes goes:
-the rewrite node, and whatever existed only to be shown to it — Reference to Video's `BatchImagesNode`, Remix's
-`VideoFrameSample` and `GetVideoComponents`. Image to Video's upload stays,
+the rewrite node, and whatever existed only to be shown to it — Reference to
+Video's `BatchImagesNode`, Remix's frame stride and the expression that sizes
+it. Image to Video's upload stays,
 because the sampler reads it too. The roots are read *before* the rewiring, or
 the batch node nothing reads any more would look like an output node and be
 kept. `check:workflows` runs the whole pass on each graph and fails on a link
@@ -1041,14 +1044,13 @@ orphaned one, and the current export drops it.
 `minimax-h3-ref2v` takes a clip and rebuilds it. Everything the graph needs is
 derived from that one input:
 
-- `LoadVideo` (154) loads it, and `GetVideoComponents` (153) splits it into
-  frames and audio, which become `ref_videos.ref_video_0` and
-  `ref_audios.ref_audio_0`.
-  That pair is the **only** visual input the sampler gets.
-- `VideoFrameSample` (155) takes five frames spread evenly across it and
-  `GetVideoComponents` (156) turns them back into images, which go to the
-  prompt director and nowhere else — so the rewrite can see the clip it is
-  editing instead of working blind from a filename.
+- `VHS_LoadVideo` (154) reads it at 24 fps. Its frames and its soundtrack become
+  `ref_videos.ref_video_0` and `ref_video_audios.ref_video_audio_0`, and that
+  pair is the **only** visual input the sampler gets.
+- `VHS_SelectEveryNthImage` (155) takes every nth frame for the prompt director
+  and nowhere else — so the rewrite can see the clip it is editing instead of
+  working blind from a filename — at a stride `ComfyMathExpression` (157) works
+  out from the frame count the loader reports.
 - `GetImageSizeAndCount` (163) measures the clip's own frames — not the
   five-frame sample — and supplies all three dimensions of the output: width,
   height, and length as a frame count. A remix comes back the same shape and
@@ -1070,7 +1072,7 @@ does not exist. What stays editable is what the clip cannot decide: the prompt
 and the sampling settings.
 
 **Words in the clip** is the one addition, and it is not a second input to the
-graph — it writes nothing the clip does not already fill. The audio at 153 is a
+graph — it writes nothing the clip does not already fill. The clip's audio is a
 recording H3 is being asked to work over, and nothing on this side can hear it:
 the director is shown five frames and no sound, and the model regenerates a
 soundtrack from a description that never contained the words. `REMIX_DIRECTOR`
@@ -1118,7 +1120,7 @@ reaches ComfyUI's input directory.
 is the image-to-video graph with the clip's own last frame standing in for an
 upload, plus a join on the way out:
 
-- `LoadVideo` (126) and `GetVideoComponents` (127) split the clip, and
+- `VHS_LoadVideo` (126) reads the clip at 24 fps, and
   `RandomImageFromBatch` (128) takes the **last frame** of that sequence
   (`start_index: -1`, `num_frames: 1`). That one frame is the whole bridge —
   `MiniMaxH3ImageToVideo` gets it as `first_frame`, `GetImageSize` (120)

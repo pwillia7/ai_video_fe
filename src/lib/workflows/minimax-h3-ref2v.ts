@@ -27,23 +27,26 @@ import {
  *
  * The clip goes in at node 154 and everything else follows from it:
  *
- * - 153 splits it into frames and audio, which go to the reference node as
- *   `ref_videos.ref_video_0` and `ref_video_audios.ref_video_audio_0` — the
- *   soundtrack slot that pairs by index with the video, not the standalone one.
- *   That pair is the only visual input the sampler gets.
- * - 155 samples five frames spread evenly across it and 156 turns them back
- *   into images, which go to the prompt director alone — so the rewrite can
- *   see the clip it is editing rather than working blind from the filename.
- *   Nothing from that sample reaches the sampler; an earlier version wired it
- *   into `ref_images.*` as well, which is kept under archive/ for comparison.
+ * - 154 is VHS's loader, reading the clip at 24 fps. Its frames and its
+ *   soundtrack go to the reference node as `ref_videos.ref_video_0` and
+ *   `ref_video_audios.ref_video_audio_0` — the soundtrack slot that pairs by
+ *   index with the video, not the standalone one. That pair is the only visual
+ *   input the sampler gets.
+ * - 155 takes every nth frame for the prompt director alone, at a stride 157
+ *   works out from the frame count the loader reports — so the rewrite can see
+ *   the clip it is editing rather than working blind from the filename. Nothing
+ *   from that sample reaches the sampler; an earlier version wired it into
+ *   `ref_images.*` as well, which is kept under archive/ for comparison.
  * - 163 measures the clip's own frames and supplies all three dimensions of
  *   the output: width, height, and length as a frame count. So a remix comes
  *   back the same shape and the same length as what went in, and there is
- *   neither a ResolutionSelector nor a duration node in this graph.
+ *   neither a ResolutionSelector nor a duration node in this graph. That is
+ *   also why the loader forces a frame rate: a count taken at one rate and
+ *   written out at another is a remix that comes back the wrong length.
  *
  * So the clip is the one input the form offers, with one exception: **Words in
  * the clip**. That is not a second input to the graph — it writes no node the
- * clip does not already fill — but the audio at 153 is a recording H3 is asked
+ * clip does not already fill — but the clip's audio is a recording H3 is asked
  * to work over, and nothing on this side can hear it. Typing the words out is
  * the only way they reach either the director or the model. Same control, same
  * two blocks and the same reasoning as Reference to Video's attached track;
@@ -64,6 +67,19 @@ const ids: Omit<MinimaxNodeIds, "duration"> = {
 };
 
 const VIDEO_NODE = "154";
+
+/**
+ * The rate the clip is read at, and the rate the result is written at.
+ *
+ * One constant because the two must agree: this graph takes the output's frame
+ * count from the source, so a source read at any other rate comes back the
+ * wrong length. 24 is what `CreateVideo` writes and what H3 reads a reference
+ * video at.
+ */
+const SOURCE_FPS = 24;
+
+/** Roughly how many frames the director is shown. See node 157. */
+const DIRECTOR_FRAMES = 5;
 const VIDEO_PARAM = "reference_video";
 const WORDS_PARAM = "clip_words";
 
@@ -190,8 +206,8 @@ const graph: ComfyGraph = {
       // numbered 1-based per type — so with one video and nothing else this is
       // <Video 1> and <Audio 1> in both wirings, and REMIX_DIRECTOR's names for
       // them still hold.
-      "ref_videos.ref_video_0": ["153", 0],
-      "ref_video_audios.ref_video_audio_0": ["153", 1],
+      "ref_videos.ref_video_0": ["154", 0],
+      "ref_video_audios.ref_video_audio_0": ["154", 2],
     },
     _meta: { title: "MiniMax H3 Reference to Video" },
   },
@@ -218,50 +234,74 @@ const graph: ComfyGraph = {
   "145": rewriteNode({
     prompt: ["138", 0],
     system: REMIX_DIRECTOR,
-    images: ["156", 0],
+    images: ["155", 0],
     title: "AI Gateway - Rewrite Prompt",
   }),
 
-  "153": {
-    class_type: "GetVideoComponents",
-    inputs: { video: ["154", 0] },
-    _meta: { title: "Get Video Components" },
-  },
+  // The clip, read at 24 fps.
+  //
+  // VHS's loader rather than ComfyUI's own, for the two reasons the reference
+  // workflow moved to it. `force_rate` matters more here than anywhere: this
+  // graph takes the output's *frame count* from the source (node 163) and
+  // writes the result at 24 fps, so a clip at any other rate came back the
+  // wrong length — a 30 fps ten-second clip is 300 frames, and 300 frames at 24
+  // fps is a twelve-and-a-half-second remix, a quarter long and slowed to
+  // match. Nothing noticed because the usual source is a generation from this
+  // app, which is already 24.
+  //
+  // And VHS reads a file the core loader cannot measure: a browser's
+  // MediaRecorder writes a fragmented MP4 whose header says duration 0 and
+  // whose sample tables are empty. See minimax-h3-ref.ts, where that is what
+  // reduced a fifteen-second clip to a single frame.
+  //
+  // No `frame_load_cap`: a remix is the whole clip by definition, which is what
+  // separates it from a clip attached as a reference.
+  //
+  // Outputs: 0 is the frames, 1 is how many there are, 2 is the soundtrack.
   "154": {
-    class_type: "LoadVideo",
-    // `video-preview` is a ComfyUI editor widget with no bearing on execution.
-    // Kept because the graph stays verbatim from the export.
-    inputs: { file: "", "video-preview": "" },
+    class_type: "VHS_LoadVideo",
+    inputs: {
+      video: "",
+      force_rate: SOURCE_FPS,
+      custom_width: 0,
+      custom_height: 0,
+      frame_load_cap: 0,
+      skip_first_frames: 0,
+      select_every_nth: 1,
+    },
     _meta: { title: "Load Video" },
   },
 
-  // Five frames spread evenly across the clip, for the director to look at.
+  // A handful of frames spread across the clip, for the director to look at.
   //
-  // `seed` is carried from the export rather than exposed. It should not
-  // select anything while `strategy` is "uniform" — evenly spaced frames are
-  // not a random draw — but it is the one widget value here that no param
-  // overwrites, so it is kept in step with the export rather than guessed at.
+  // By stride over the decoded batch rather than by sampling the video, because
+  // every node that selects frames from a VIDEO asks the container how many it
+  // has — the question a MediaRecorder file answers wrongly. 157 works the
+  // stride out from the frame count the loader actually returned.
   "155": {
-    class_type: "VideoFrameSample",
+    class_type: "VHS_SelectEveryNthImage",
     inputs: {
-      num_frames: 5,
-      strategy: "uniform",
-      seed: 249656790861689,
-      video: ["154", 0],
+      images: ["154", 0],
+      select_every_nth: ["157", 1],
+      skip_first_images: 0,
     },
-    _meta: { title: "Sample Video Frame" },
+    _meta: { title: "Select Every Nth Image" },
   },
-  "156": {
-    class_type: "GetVideoComponents",
-    inputs: { video: ["155", 0] },
-    _meta: { title: "Get Video Components" },
+  "157": {
+    class_type: "ComfyMathExpression",
+    // Output 1 is the INT.
+    inputs: {
+      expression: `max(1, round(a / ${DIRECTOR_FRAMES}))`,
+      "values.a": ["154", 1],
+    },
+    _meta: { title: "Math Expression" },
   },
 
   // Reads the clip's full frame sequence, not the five-frame sample: the count
   // has to be the length of the source, not the size of the director's peek.
   "163": {
     class_type: "GetImageSizeAndCount",
-    inputs: { image: ["153", 0] },
+    inputs: { image: ["154", 0] },
     _meta: { title: "Get Image Size & Count" },
   },
 };
@@ -302,7 +342,7 @@ const params: ParamDef[] = [
     required: true,
     help: "Its size and length become the new video's. Up to 768×1344, 20s, 4 MB.",
     group: "Source",
-    targets: [{ node: VIDEO_NODE, input: "file" }],
+    targets: [{ node: VIDEO_NODE, input: "video" }],
     // The clip is the only thing that knows how long the output will be, so
     // the control that loads it reports that onward to the param below.
     measures: "source_seconds",

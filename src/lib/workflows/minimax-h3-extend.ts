@@ -24,8 +24,9 @@ import {
  * Structurally this is the image-to-video graph with the clip's own last frame
  * standing in for an upload, plus a join on the way out. Three parts:
  *
- * 1. **The seam.** 126 loads the clip, 127 splits it into frames and audio, and
- *    128 takes the last frame of that sequence (`start_index: -1`). That single
+ * 1. **The seam.** 126 loads the clip at 24 fps — frames on output 0, sound on
+ *    output 2 — and 128 takes the last frame of that sequence
+ *    (`start_index: -1`). That single
  *    frame is the whole bridge: 105:104 receives it as `first_frame`, 120
  *    measures it for the output size, and 123 shows it to the prompt director.
  *    So the new segment starts on the exact image the source ended on, at the
@@ -57,18 +58,44 @@ const ids: MinimaxNodeIds = {
 
 const VIDEO_NODE = "126";
 
+/**
+ * The rate the source is read at, and the rate the join is written at.
+ *
+ * One constant because the two must agree: this graph concatenates the source's
+ * own frames with the generated ones and writes the result as a single video,
+ * so a source read at another rate plays its half at the wrong speed inside the
+ * finished file.
+ */
+const SOURCE_FPS = 24;
+
 const graph: ComfyGraph = {
+  // The clip, read at 24 fps.
+  //
+  // VHS's loader, forcing the rate, because this graph *joins* the source to
+  // what it generates: 131 batches the source's frames ahead of the new ones
+  // and 137 writes the pair out at 24 fps. A source at any other rate has its
+  // own half of the finished video replayed at the wrong speed — a 30 fps clip
+  // plays a quarter slow before the extension starts, inside one file, which
+  // is worse than being uniformly wrong. Nothing noticed because the usual
+  // source is a generation from this app, already at 24.
+  //
+  // It also reads the fragmented MP4 a browser's MediaRecorder writes, which
+  // ComfyUI's own loader measures as a single frame. See minimax-h3-ref.ts.
+  //
+  // No `frame_load_cap`: an extension carries the whole source through to the
+  // output. Outputs are 0 frames, 1 frame count, 2 audio.
   "126": {
-    class_type: "LoadVideo",
-    // `video-preview` is a ComfyUI editor widget with no bearing on execution.
-    // Kept because the graph stays verbatim from the export.
-    inputs: { file: "", "video-preview": "" },
+    class_type: "VHS_LoadVideo",
+    inputs: {
+      video: "",
+      force_rate: SOURCE_FPS,
+      custom_width: 0,
+      custom_height: 0,
+      frame_load_cap: 0,
+      skip_first_frames: 0,
+      select_every_nth: 1,
+    },
     _meta: { title: "Load Video" },
-  },
-  "127": {
-    class_type: "GetVideoComponents",
-    inputs: { video: ["126", 0] },
-    _meta: { title: "Get Video Components" },
   },
 
   // The last frame of the clip, and the only frame anything downstream sees.
@@ -85,7 +112,7 @@ const graph: ComfyGraph = {
       min_distance: 0,
       max_distance: 0,
       seed: 0,
-      input: ["127", 0],
+      input: ["126", 0],
     },
     _meta: { title: "Random Image From Batch" },
   },
@@ -243,7 +270,7 @@ const graph: ComfyGraph = {
   "131": {
     class_type: "BatchImagesNode",
     inputs: {
-      "images.image0": ["127", 0],
+      "images.image0": ["126", 0],
       "images.image1": ["132", 0],
     },
     _meta: { title: "Batch Images" },
@@ -252,7 +279,7 @@ const graph: ComfyGraph = {
     class_type: "AudioConcatenate",
     inputs: {
       direction: "right",
-      audio1: ["127", 1],
+      audio1: ["126", 2],
       audio2: ["132", 1],
     },
     _meta: { title: "AudioConcatenate" },
@@ -299,7 +326,7 @@ const params: ParamDef[] = [
     required: true,
     help: "Its last frame is where the new footage starts, and sets the size. Up to 768×1344, 20s, 4 MB.",
     group: "Source",
-    targets: [{ node: VIDEO_NODE, input: "file" }],
+    targets: [{ node: VIDEO_NODE, input: "video" }],
   },
 
   promptParam(
