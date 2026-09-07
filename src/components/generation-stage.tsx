@@ -3,7 +3,13 @@
 import { Badge, Dot } from "@/components/ui/panel";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { withToken } from "@/lib/client";
-import { formatDuration, isAudioOnly, isFavorite, type Job } from "@/lib/jobs";
+import {
+  clockMs,
+  formatDuration,
+  isAudioOnly,
+  isFavorite,
+  type Job,
+} from "@/lib/jobs";
 import { StarIcon } from "@/components/ui/star-icon";
 import type { ClipAction, ClipHandoff } from "@/lib/workflows/types";
 
@@ -169,7 +175,9 @@ function InFlight({
   // fallback that says "Generating" about an unknown state is how the branch
   // above went wrong, so this one names what it actually has.
   const copy = PHASE_COPY[job.phase] ?? PHASE_COPY.queued;
-  const elapsedMs = now - job.submittedAt;
+  // Waiting time while it waits, render time once it renders — the clock
+  // restarts at the seam rather than running on from submit. See `clockMs`.
+  const elapsedMs = clockMs(job, now);
 
   // Progress is measured from when rendering began, not when the job was
   // accepted — otherwise time spent queued behind other jobs would show up as
@@ -197,7 +205,7 @@ function InFlight({
           <Dot tone="accent" pulse />
           <span className="text-sm font-medium text-fg">{copy.label}</span>
           <span className="font-mono text-[13px] tabular-nums text-fg-muted">
-            {formatDuration(elapsedMs)}
+            {elapsedMs === null ? "" : formatDuration(elapsedMs)}
           </span>
         </div>
 

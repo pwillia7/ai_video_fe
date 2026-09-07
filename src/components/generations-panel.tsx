@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dot } from "@/components/ui/panel";
 import { withToken } from "@/lib/client";
 import {
+  clockMs,
   dayKey,
   formatDuration,
   formatWhen,
@@ -434,11 +435,11 @@ function Row({
    * stage's job.
    */
   const playable = !active && isAudioOnly(job);
-  const elapsed = active
-    ? now - job.submittedAt
-    : job.completedAt !== undefined
-      ? job.completedAt - job.submittedAt
-      : null;
+  // The same clock the stage runs, so a generation is not one number in the
+  // list and another in the panel. Blank on a finished job that was never seen
+  // running — the timestamp beside it already says when, and the alternative is
+  // to print a queue wait under a heading that means render. See `clockMs`.
+  const elapsed = clockMs(job, now);
 
   return (
     <div

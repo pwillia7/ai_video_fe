@@ -201,7 +201,10 @@ export function SettingsModal({
                 : []),
             ];
           })}
-          <Row label="Started" value={formatWhen(job.submittedAt)} />
+          {/* Submitted, not started: `submittedAt` is when it joined the
+              queue, and on a busy box that can be a long way from when the GPU
+              picked it up. Render time below is the one that measures work. */}
+          <Row label="Submitted" value={formatWhen(job.submittedAt)} />
           {rendered !== null ? (
             <Row label="Render time" value={formatDuration(rendered)} />
           ) : null}

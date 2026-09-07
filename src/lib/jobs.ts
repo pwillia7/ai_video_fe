@@ -317,6 +317,40 @@ export function renderMs(job: Job): number | null {
 }
 
 /**
+ * The number to put on the clock, whatever state the job is in.
+ *
+ * One function because there were three, and they disagreed: the settings panel
+ * reported render time, the history row reported submit-to-finish, and the
+ * stage's live timer counted from submit even after rendering had begun. The
+ * same generation could therefore be a different number of minutes long
+ * depending on where you read it, and two of the three were counting a wait in
+ * the queue as part of the render.
+ *
+ * Queue time is not dropped, it is kept apart. While a job is waiting, how long
+ * it has waited is the only thing worth showing and the only honest thing to
+ * call it — it is also the signal that something is stuck behind something
+ * else. The moment it starts rendering the clock restarts against `startedAt`,
+ * because from there on the question is how long the GPU has been at it.
+ *
+ * Null once finished if the job was never seen running: a run that started and
+ * ended while the tab was closed has no `startedAt`, and the alternative is to
+ * report the wait as though it were work. See `renderMs`, which refuses the
+ * same fallback for the same reason.
+ */
+export function clockMs(job: Job, now: number): number | null {
+  if (job.phase === "queued") return now - job.submittedAt;
+  if (job.phase === "running") {
+    return job.startedAt === undefined ? null : now - job.startedAt;
+  }
+  return renderMs(job);
+}
+
+/** Whether that number is a wait rather than a render. */
+export function isWaiting(job: Job): boolean {
+  return job.phase === "queued";
+}
+
+/**
  * How long this workflow, in this mode, actually takes on this machine.
  *
  * ComfyUI's API carries no estimate — a running job reports only its id,
