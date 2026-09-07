@@ -414,7 +414,7 @@ const params: ParamDef[] = [
     promptText,
   ),
   literalPromptParam(),
-  rewriteModelParam([ids.director]),
+  rewriteModelParam(graph, [ids.director]),
 
   // No output controls at all on this one. Size and length come from the clip,
   // and the frame rate is fixed at the 24 the model works in.

@@ -7,9 +7,11 @@ import {
 } from "@/lib/workflows/director";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import {
+  modelsFor,
   REWRITE_CLASSES,
   REWRITE_MODEL,
   REWRITE_MODELS,
+  VISION_CLASS,
 } from "@/lib/workflows/rewrite-model";
 import type { RunModes } from "@/lib/workflows/modes";
 import {
@@ -769,11 +771,31 @@ function rewriteModelProblems(workflow: WorkflowDef): string[] {
   );
   if (rewrites.length === 0) return problems;
 
+  /**
+   * Whether this graph shows its director a picture, which decides which models
+   * it may be given: `DescribeImage` is handed an image and a model that cannot
+   * be shown one fails the run, where `GenerateText` is happy with any of them.
+   *
+   * Checked rather than trusted because the answer is derived in two places —
+   * `rewriteNode` picks the class from whether it was handed images, and
+   * `rewriteModelParam` reads that class back off the graph — and a graph
+   * carrying one node of each kind would make the second answer depend on which
+   * node was asked.
+   */
+  const needsVision = rewrites.some(([, node]) => node.class_type === VISION_CLASS);
+  const usable = new Set(modelsFor(needsVision).map((model) => model.id));
+
   for (const [id, node] of rewrites) {
     const model = node.inputs.model;
     if (typeof model !== "string" || !offered.has(model)) {
       problems.push(
         `Rewrite node ${id} is set to "${String(model)}", which the model picker does not offer. Run \`pnpm sync:models\`.`,
+      );
+      continue;
+    }
+    if (node.class_type === VISION_CLASS && !usable.has(model)) {
+      problems.push(
+        `Rewrite node ${id} is shown a picture but is set to "${model}", which cannot be shown one.`,
       );
     }
   }
@@ -784,6 +806,19 @@ function rewriteModelProblems(workflow: WorkflowDef): string[] {
       `Workflow runs ${rewrites.length} rewrite node(s) but declares no "${REWRITE_MODEL}" param, so the model cannot be changed from the form.`,
     );
     return problems;
+  }
+
+  // And the same of every option the form can put there. A picker offering a
+  // text-only model to a node that is shown a picture is a rejected run one
+  // click away.
+  if (picker.type === "select") {
+    for (const option of picker.options) {
+      if (!usable.has(option.value)) {
+        problems.push(
+          `The model picker offers "${option.value}", which this workflow's rewrite node cannot use.`,
+        );
+      }
+    }
   }
 
   const driven = new Set(

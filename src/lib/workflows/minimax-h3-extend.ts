@@ -336,7 +336,7 @@ const params: ParamDef[] = [
     6,
   ),
   literalPromptParam(),
-  rewriteModelParam([ids.director]),
+  rewriteModelParam(graph, [ids.director]),
 
   // Times the addition, not the result — the source's own length is whatever it
   // already was, and the two are concatenated afterwards. Worth saying on the

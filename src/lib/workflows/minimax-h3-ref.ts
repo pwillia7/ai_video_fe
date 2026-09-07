@@ -928,7 +928,7 @@ const params: ParamDef[] = [
     promptText,
   ),
   literalPromptParam(),
-  rewriteModelParam([ids.director]),
+  rewriteModelParam(graph, [ids.director]),
 
   durationParam(ids, director),
   aspectRatioParam("115"),

@@ -225,9 +225,24 @@ for. That is the state today: every model in the catalog costs something, so
 saying **free** changes nothing for now. The answer is still kept, and takes
 effect the day a free model appears.
 
-Every option accepts images, because four of the six graphs show the rewrite a
-picture (the upload, the last frame of the clip being extended, the reference
-sheet) and a text-only model wired into that position fails the run.
+**Which models a workflow offers depends on what its rewrite node is.** The node
+comes in two classes and the choice is structural: `DescribeImage` where the
+director is shown something — the upload, the last frame of the clip being
+extended, the reference sheet — and `GenerateText` where it is not. Four of the
+six graphs are the first kind, and a model that cannot be shown a picture fails
+the run on those. Text to Video and Music are the second kind, and any model
+works.
+
+Requiring vision of everything was the simpler rule and it cost those two a
+provider outright: DeepSeek ships no vision model, so the family was curated
+away and never appeared anywhere. It is offered on the two text-only graphs now,
+which is also where the cheapest model in the list lives.
+
+The requirement is read off the graph rather than declared beside it — the class
+is already decided by whether `rewriteNode` was handed images, and a second
+statement of the same fact is one that can disagree. `check:workflows` fails a
+graph whose node is shown a picture while set to, or offered, a model that
+cannot see one.
 
 **This is the control to reach for when a generation dies at the rewrite step
 for no clear reason.** That is usually a refusal, and a refusal is about the

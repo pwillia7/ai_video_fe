@@ -1,3 +1,4 @@
+import type { ComfyGraph } from "@/lib/comfy";
 import { REWRITE_MODELS } from "./generated/gateway-models";
 import type { OfferedModel } from "./rewrite-catalog";
 import type { SelectParam } from "./types";
@@ -36,8 +37,27 @@ export const REWRITE_MODEL = "rewrite_model";
  * quite possibly not in the catalog either, and the run would be rejected
  * before it started.
  */
-export function defaultRewriteModel(): string {
-  return REWRITE_MODELS[0].id;
+export function defaultRewriteModel(needsVision = true): string {
+  return modelsFor(needsVision)[0].id;
+}
+
+/**
+ * The models a graph may actually be offered, which is not the same question on
+ * every graph.
+ *
+ * A rewrite node comes in two classes and the choice between them is structural:
+ * `DescribeImage` where the director is shown something — the upload, the last
+ * frame of a clip, the reference sheet — and `GenerateText` where it is not.
+ * Four of the six graphs are the first kind and two are the second, and a model
+ * that cannot be shown a picture fails the run on the first while working
+ * perfectly well on the second.
+ *
+ * Requiring vision of everything was the simpler rule and it cost the two
+ * text-only graphs a whole provider: DeepSeek ships no vision model, so the
+ * family was curated away and never appeared.
+ */
+export function modelsFor(needsVision: boolean): OfferedModel[] {
+  return needsVision ? REWRITE_MODELS.filter((m) => m.vision) : REWRITE_MODELS;
 }
 
 /**
@@ -59,18 +79,27 @@ export function defaultRewriteModel(): string {
  * whenever the rewrite is switched off — there is no model in that run.
  */
 export function rewriteModelParam(
+  graph: ComfyGraph,
   directors: string[],
   {
     group = "Prompt",
     help = "Only rewrites your prompt — it never touches the video. Priced in dollars per million words out, and free where it is free. Switch models if one refuses a shot; the key button says which of them your key can be spent on.",
   }: { group?: string; help?: string } = {},
 ): SelectParam {
+  // Read off the graph rather than declared beside it. Which class each rewrite
+  // node is, is already decided by whether `rewriteNode` was handed images, so
+  // a second statement of the same fact here is one that could disagree with it.
+  const needsVision = directors.some(
+    (node) => graph[node]?.class_type === VISION_CLASS,
+  );
+  const offered = modelsFor(needsVision);
+
   return {
     id: REWRITE_MODEL,
     label: "Rewrite model",
     type: "select",
-    default: defaultRewriteModel(),
-    options: REWRITE_MODELS.map((model) => ({
+    default: offered[0].id,
+    options: offered.map((model) => ({
       value: model.id,
       label: model.label,
     })),
@@ -209,10 +238,12 @@ export function freeModelsExist(): boolean {
 
 export const REWRITE_IMAGE_INPUT = "image";
 
-export const REWRITE_CLASSES: string[] = [
-  "VercelAIGatewayGenerateText",
-  "VercelAIGatewayDescribeImage",
-];
+/** The rewrite node that is only ever given text. */
+export const TEXT_CLASS = "VercelAIGatewayGenerateText";
+/** The one that is shown a picture, and so needs a model that can see one. */
+export const VISION_CLASS = "VercelAIGatewayDescribeImage";
+
+export const REWRITE_CLASSES: string[] = [TEXT_CLASS, VISION_CLASS];
 
 /** A link to another node's output, as the API graph format writes one. */
 type Link = [string, number];
@@ -250,7 +281,10 @@ export function rewriteNode({
   title: string;
 }) {
   const common = {
-    model: defaultRewriteModel(),
+    // The default follows the class the node is about to be: a text-only model
+    // written into a node that will be shown a picture is a graph rejected
+    // before it renders. `images` is what decides both.
+    model: defaultRewriteModel(Boolean(images)),
     prompt,
     system_prompt: system,
     max_tokens: MAX_TOKENS,
@@ -261,14 +295,14 @@ export function rewriteNode({
 
   if (!images) {
     return {
-      class_type: REWRITE_CLASSES[0],
+      class_type: TEXT_CLASS,
       inputs: { ...common },
       _meta: { title },
     };
   }
 
   return {
-    class_type: REWRITE_CLASSES[1],
+    class_type: VISION_CLASS,
     inputs: {
       [REWRITE_IMAGE_INPUT]: images,
       ...common,

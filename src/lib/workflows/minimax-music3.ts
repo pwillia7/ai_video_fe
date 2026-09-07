@@ -351,7 +351,9 @@ const params: ParamDef[] = [
   }),
   // Both directors, always the same model: writing the caption and writing the
   // words to go with it are two calls in one act of writing a song.
-  rewriteModelParam([DIRECTOR_NODE, LYRICIST_NODE], { group: "Song" }),
+  rewriteModelParam(graph, [DIRECTOR_NODE, LYRICIST_NODE], {
+    group: "Song",
+  }),
   {
     id: "write_lyrics",
     label: "Write the lyrics for me",

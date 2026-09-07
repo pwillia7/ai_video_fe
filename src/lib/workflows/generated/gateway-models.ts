@@ -4,7 +4,7 @@
  * ../rewrite-catalog.ts.
  *
  * Synced 2026-09-07: 371 models in the catalog,
- * 10 families declared, 9 offered.
+ * 10 families declared, 10 offered.
  */
 import type { OfferedModel } from "../rewrite-catalog";
 
@@ -43,6 +43,13 @@ export const REWRITE_MODELS: OfferedModel[] = [
     vision: true,
     free: false,
     pricePerMillion: 7.5,
+  },
+  {
+    id: "deepseek/deepseek-v4-flash",
+    label: "DeepSeek V4 Flash — $0.26/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 0.26,
   },
   {
     id: "meta/llama-4-maverick",

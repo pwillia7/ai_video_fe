@@ -107,9 +107,12 @@ function eligible(model: CatalogEntry): boolean {
   if ((model.tags ?? []).includes("image-generation")) return false;
   if (NOT_A_VERSION.test(model.id)) return false;
   if (WRONG_JOB.test(model.id)) return false;
-  // Vision is required of every offered model, on every graph — see `curate`.
-  if (!(model.modalities?.input ?? []).includes("image")) return false;
   return true;
+}
+
+/** Whether this one can be shown a picture. See `curate`. */
+function seesImages(model: CatalogEntry): boolean {
+  return (model.modalities?.input ?? []).includes("image");
 }
 
 function offer(model: CatalogEntry): OfferedModel {
@@ -151,13 +154,37 @@ export function curate(models: CatalogEntry[]): OfferedModel[] {
       .filter(eligible)
       .sort((a, b) => (b.released ?? 0) - (a.released ?? 0));
 
-    const newest = members.find((model) => price(model.pricing?.output) > 0);
-    const gratis = members.find(
-      (model) =>
-        price(model.pricing?.output) <= 0 && price(model.pricing?.input) <= 0,
-    );
+    const paid = (model: CatalogEntry) => price(model.pricing?.output) > 0;
+    const gratis = (model: CatalogEntry) =>
+      price(model.pricing?.output) <= 0 && price(model.pricing?.input) <= 0;
 
-    for (const model of [newest, gratis]) {
+    /**
+     * Up to four per family, and usually one.
+     *
+     * Vision is no longer required of everything offered, because it is not
+     * required by everything that runs one: four of the six graphs show their
+     * director a picture and two do not, and holding all six to the stricter
+     * rule cost the text-only ones a provider outright — DeepSeek ships no
+     * vision model at all, so the family was silently absent — and elsewhere
+     * picked the wrong member, offering `glm-5.3-flash` over `glm-5.3` because
+     * the faster tier is the one that takes images.
+     *
+     * So each family offers its newest, and its newest that takes a picture,
+     * which are usually the same model and collapse to one entry. The free
+     * variants follow the same pair for the same reason: a graph that needs
+     * vision needs a free *vision* model to have a free option at all.
+     *
+     * Which of them a workflow may actually pick is decided per graph, from the
+     * class of its rewrite node. See `rewriteModelParam`.
+     */
+    const picks = [
+      members.find(paid),
+      members.find((model) => paid(model) && seesImages(model)),
+      members.find(gratis),
+      members.find((model) => gratis(model) && seesImages(model)),
+    ];
+
+    for (const model of picks) {
       if (model && !offered.some((existing) => existing.id === model.id)) {
         offered.push(offer(model));
       }
