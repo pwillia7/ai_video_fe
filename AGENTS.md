@@ -39,9 +39,16 @@ afternoon.
   which weights, which switches it refuses; `pinnedBy` holds a control at a
   value another control forces; `directorBypass` unwires the prompt rewrite.
   Each is validated, so a stale one fails a check rather than a render.
-- **`pnpm check:workflows`** validates every param target against its graph, and
-  every declaration above against it too. Needs nothing but this repo. Run it
-  after touching anything under `src/lib/workflows/`.
+- **`finalize` is the exception, so it declares its cases.** It is the one part
+  that builds a *different* graph per run, which no static check can see into —
+  a deletion naming an input that does not exist is silent, and what it leaves
+  behind is a link to a node that is gone. A graph whose `finalize` branches
+  lists the combinations it has to survive in `finalizeCases`, and the check
+  queues each one.
+- **`pnpm check:workflows`** validates every param target against its graph,
+  every declaration above against it too, and every `finalizeCases` entry by
+  queueing it. Needs nothing but this repo. Run it after touching anything under
+  `src/lib/workflows/`.
 - **`pnpm check:nodes`** asks a real ComfyUI whether the classes and model files
   the graphs name are installed, whether every model the rewrite picker offers is
   still in the gateway's catalog, and whether that machine has a gateway key at

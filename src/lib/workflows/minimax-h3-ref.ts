@@ -1,7 +1,12 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { ParamError } from "@/lib/params";
 import { hideDirectorOnly } from "./director";
-import { rewriteModelParam, rewriteNode } from "./rewrite-model";
+import {
+  REWRITE_IMAGE_INPUT,
+  rewriteModelParam,
+  rewriteNode,
+} from "./rewrite-model";
+import { isSet } from "./types";
 import type { ParamDef, ParamPin, ParamValue, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
@@ -21,6 +26,7 @@ import {
   promptParam,
   promptTarget,
   referenceFacets,
+  referenceVideo,
   referenceSlot,
   referenceTrack,
   samplingParams,
@@ -85,6 +91,36 @@ const AUDIO_NODE = "155";
 const TRIM_NODE = "167";
 const AUDIO_INPUT = "ref_audios.ref_audio_0";
 const AUDIO_PARAM = "reference_audio";
+
+/**
+ * The reference clip: its loader, the split that feeds the model, and the pair
+ * that samples frames for the director to look at.
+ *
+ * Four nodes rather than two because the rewrite stage takes images and there
+ * is no such thing as showing it a video. Remix solves that the same way and
+ * with the same node classes; what differs here is only that the frames join a
+ * batch of reference pictures instead of being the whole of it.
+ */
+const VIDEO_NODE = "170";
+const VIDEO_SPLIT_NODE = "171";
+const VIDEO_SAMPLE_NODE = "172";
+const VIDEO_SAMPLE_SPLIT_NODE = "173";
+const VIDEO_INPUT = "ref_videos.ref_video_0";
+const VIDEO_AUDIO_INPUT = "ref_video_audios.ref_video_audio_0";
+const VIDEO_PARAM = "reference_video";
+const VIDEO_AUDIO_PARAM = "reference_video_audio";
+
+/**
+ * How many frames of the clip the director is shown.
+ *
+ * Five, matching Remix. It is a peek rather than a viewing — enough to see who
+ * is in the clip and roughly what they do, few enough that it does not swamp
+ * the reference pictures sitting beside it in the same batch. The number is
+ * named here because two things have to agree on it: the sampler node, and the
+ * sentence in `referenceVideo` telling the director how many of the images in
+ * front of it are frames.
+ */
+const VIDEO_SAMPLE_FRAMES = 5;
 const TRIM_PARAM = "reference_trim";
 const TRIM_SECONDS_PARAM = "reference_trim_seconds";
 const TRIM_START_PARAM = "reference_trim_start";
@@ -99,6 +135,20 @@ const TRIM_SET = "set";
 /** Whether this run has a reference track, which several things turn on. */
 const trackAttached = (values: Record<string, ParamValue>): boolean =>
   String(values[AUDIO_PARAM] ?? "").trim() !== "";
+
+/** Whether this run has a reference clip. */
+const videoAttached = (values: Record<string, ParamValue>): boolean =>
+  String(values[VIDEO_PARAM] ?? "").trim() !== "";
+
+/**
+ * Whether the clip's own soundtrack goes to the model with it.
+ *
+ * Only ever true alongside a clip: the toggle keeps its value while the video
+ * control is empty, and a soundtrack input left wired to a loader that has been
+ * deleted is a graph ComfyUI rejects.
+ */
+const videoAudioAttached = (values: Record<string, ParamValue>): boolean =>
+  videoAttached(values) && isSet(values[VIDEO_AUDIO_PARAM]);
 
 /**
  * The weights this graph loads at four steps, in place of the ones the stored
@@ -123,20 +173,27 @@ const trackAttached = (values: Record<string, ParamValue>): boolean =>
 const FOUR_STEP_MODELS = h3Bf16Models({ unet: "127", clip: "128" });
 
 /**
- * A reference track holds the step count at four, which is the only step count
- * this graph is known to take one at.
+ * A reference that is not a still holds the step count at four, which is the
+ * only step count this graph is known to take one at.
  *
  * The bf16 pair above is loaded at four steps and nowhere else, so any other
- * value would run a track through the quantised models that failed on it. That
- * is a rule about the run rather than a preference, which is why it pins the
- * control instead of nudging its default: a stored 12 from a previous run would
- * otherwise sail straight past it. Removing the track hands the control back
- * with whatever number was in it.
+ * value would run the reference through the quantised models that failed on it.
+ * That is a rule about the run rather than a preference, which is why it pins
+ * the control instead of nudging its default: a stored 12 from a previous run
+ * would otherwise sail straight past it. Removing the reference hands the
+ * control back with whatever number was in it.
+ *
+ * A reference *video* pins it for the same reason a track does, and the reason
+ * is the failure the quantised pair had: it was a batch-dimension mismatch on a
+ * run carrying more than one kind of reference block, which a clip is as much
+ * as a track is. Remix, which is nothing but a video reference through this
+ * same node class, already runs on the bf16 pair — so this is the pairing that
+ * has actually been seen to take one, rather than a guess about the other.
  */
 const TRACK_PINS_STEPS: ParamPin = {
-  whenSet: AUDIO_PARAM,
+  whenSet: [AUDIO_PARAM, VIDEO_PARAM],
   value: 4,
-  note: "A reference track pins this to 4 — the step count the bf16 model pair and the pack's own sampler take a track at. Leave Turbo on: four steps without the distilled LoRA is not a usable take.",
+  note: "A reference track or clip pins this to 4 — the step count the bf16 model pair and the pack's own sampler take one at. Leave Turbo on: four steps without the distilled LoRA is not a usable take.",
 };
 
 /**
@@ -318,6 +375,17 @@ const graph: ComfyGraph = {
       "ref_images.ref_image_1": ["139", 0],
       "ref_images.ref_image_2": ["165", 0],
       "ref_images.ref_image_3": ["166", 0],
+      // A clip as a reference, on the same footing as the pictures. 171 splits
+      // it, so output 0 is its frames and output 1 is its soundtrack.
+      //
+      // The soundtrack goes in `ref_video_audios`, which pairs with
+      // `ref_video_0` by index and fuses the two into one conditioning block —
+      // a clip that sounds like this, rather than a clip and an unrelated
+      // sound. `ref_audios` below is the other thing, and both can be given at
+      // once. All three go on any run that does not have them; see `finalize`.
+      "ref_videos.ref_video_0": ["171", 0],
+      "ref_video_audios.ref_video_audio_0": ["171", 1],
+
       // The one reference that is not a picture. It comes through the trim
       // rather than straight off the loader; both go on every run that has no
       // track — see `finalize`.
@@ -359,6 +427,11 @@ const graph: ComfyGraph = {
     class_type: "BatchImagesNode",
     // Variadic, like ref_images above: an unused slot's input is removed
     // outright rather than left pointing at a deleted node.
+    //
+    // A reference video's sampled frames are appended here too, in the first
+    // slot past the pictures that are actually filled — so they always arrive
+    // after them, whatever the run. `finalize` wires that slot rather than this
+    // declaration doing it, because which slot it is depends on the submission.
     inputs: {
       "images.image0": ["137", 0],
       "images.image1": ["139", 0],
@@ -366,6 +439,49 @@ const graph: ComfyGraph = {
       "images.image3": ["166", 0],
     },
     _meta: { title: "Batch Images" },
+  },
+
+  // The reference clip, and the four nodes it needs.
+  //
+  // 170 loads it and 171 splits it: output 0 is every frame, which is what the
+  // reference node conditions on, and output 1 is the soundtrack.
+  //
+  // 172 and 173 are the director's view of it. The rewrite stage is shown
+  // images, so it cannot be handed a clip — VIDEO_SAMPLE_FRAMES frames spread
+  // evenly across it stand in, exactly as Remix does it, and they join the
+  // batch at 146 rather than replacing it. That is why `referenceVideo` has to
+  // tell the director what those extra images are: they arrive in the same
+  // batch as the reference pictures and are not pictures.
+  "170": {
+    class_type: "LoadVideo",
+    // `video-preview` is a ComfyUI editor widget with no bearing on execution,
+    // carried to match the form the other graphs' loaders take.
+    inputs: { file: "", "video-preview": "" },
+    _meta: { title: "Load Video" },
+  },
+  "171": {
+    class_type: "GetVideoComponents",
+    inputs: { video: ["170", 0] },
+    _meta: { title: "Get Video Components" },
+  },
+  "172": {
+    class_type: "VideoFrameSample",
+    inputs: {
+      num_frames: VIDEO_SAMPLE_FRAMES,
+      strategy: "uniform",
+      // Unused while the strategy is "uniform" — evenly spaced frames are not
+      // a random draw — and fixed rather than exposed for the same reason the
+      // director's own rewrite is cached: nothing here should change between
+      // two runs of the same clip.
+      seed: 0,
+      video: ["170", 0],
+    },
+    _meta: { title: "Sample Video Frame" },
+  },
+  "173": {
+    class_type: "GetVideoComponents",
+    inputs: { video: ["172", 0] },
+    _meta: { title: "Get Video Components" },
   },
 
   // The third and fourth reference loaders. Not in the ComfyUI export — the
@@ -443,7 +559,17 @@ const words = wordsBlocks({
 });
 
 const director = directorTarget(ids, REFERENCE_DIRECTOR, [
-  referenceFacets(REF_NODES.length),
+  // The pictures speak first, then the clip — the order the two arrive in the
+  // batch the director is shown, so the instructions read in the same order as
+  // the images they describe.
+  referenceFacets(REF_NODES.length, { otherVisualReference: videoAttached }),
+  referenceVideo({
+    videoParam: VIDEO_PARAM,
+    audioParam: VIDEO_AUDIO_PARAM,
+    trackParam: AUDIO_PARAM,
+    slots: REF_NODES.length,
+    frames: VIDEO_SAMPLE_FRAMES,
+  }),
   referenceTrack(AUDIO_PARAM),
   words.director,
 ]);
@@ -470,6 +596,49 @@ const params: ParamDef[] = [
     // `finalize`, which can see both controls at once.
     referenceSlot({ index: position + 1, node, director, firstRequired: false }),
   ),
+  /**
+   * A clip as a reference, sitting alongside the pictures rather than instead
+   * of them — which is the whole difference between this and Remix, where the
+   * clip is the thing being rebuilt.
+   *
+   * Capped at the 15 seconds the node documents rather than the 20 the uploader
+   * allows elsewhere, and floored at 1s because the node refuses anything under
+   * five frames outright. Only as much of it as the video is long reaches the
+   * model in any case; the node cuts the rest.
+   */
+  {
+    id: VIDEO_PARAM,
+    label: "Reference clip",
+    type: "video",
+    default: "",
+    minSeconds: 1,
+    maxSeconds: 15,
+    help: "Optional. A clip shows how someone moves, which a still cannot. Pins the run to 4 steps. Only as much of it as the video is long is used.",
+    group: "References",
+    targets: [
+      { node: VIDEO_NODE, input: "file" },
+      // The director is told what the clip is and which of the images in front
+      // of it are frames of it. See referenceVideo.
+      director,
+    ],
+  },
+  {
+    id: VIDEO_AUDIO_PARAM,
+    label: "Use the clip's sound",
+    type: "toggle",
+    default: true,
+    help: "Gives the model the clip's own soundtrack along with its picture. Turn it off to take the movement and none of the sound.",
+    group: "References",
+    // Only a question about a clip that is there.
+    revealedBy: VIDEO_PARAM,
+    targets: [
+      // No node input of its own: what it decides is whether an input exists at
+      // all, which is `finalize`'s to do. It still targets the director, which
+      // has to know whether the model was given the sound before it writes a
+      // score over it.
+      director,
+    ],
+  },
   {
     id: AUDIO_PARAM,
     label: "Reference track",
@@ -643,7 +812,10 @@ export const minimaxH3Reference: WorkflowDef = {
   graph,
   // A control that only ever wrote the director's instructions goes out of
   // the form with it. See hideDirectorOnly.
-  params: hideDirectorOnly(params, bypass),
+  // The clip's soundtrack toggle survives the bypass: its only *target* is the
+  // director, but what it decides is whether the model is handed the clip's
+  // audio, and that is true of a run with no rewrite in it. See hideDirectorOnly.
+  params: hideDirectorOnly(params, bypass, { keep: [VIDEO_AUDIO_PARAM] }),
   directorBypass: bypass,
   /**
    * This graph is where turbo started: the mode's first form in this app was a
@@ -726,6 +898,71 @@ export const minimaxH3Reference: WorkflowDef = {
    * names left behind are what tells H3 how many pictures it has and in which
    * order — and it is the same count the director was given.
    */
+  /**
+   * The combinations `finalize` below has to survive. Every one of them prunes
+   * a different set of nodes, and the ones that go wrong are the sparse ones —
+   * a reference this graph offers that a given run did not use.
+   *
+   * The two clip cases with the soundtrack on and off are the pair worth having
+   * here: they differ by one deleted input on a node whose other input stays
+   * wired, which is exactly the shape of deletion that goes wrong quietly.
+   */
+  finalizeCases: [
+    {
+      name: "a picture and nothing else",
+      values: { reference_image_1: "a.png" },
+    },
+    {
+      name: "a picture and a clip with its sound",
+      values: {
+        reference_image_1: "a.png",
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: true,
+      },
+    },
+    {
+      name: "a picture and a clip without its sound",
+      values: {
+        reference_image_1: "a.png",
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: false,
+      },
+    },
+    {
+      name: "a clip and no pictures",
+      values: { [VIDEO_PARAM]: "clip.mp4", [VIDEO_AUDIO_PARAM]: true },
+    },
+    {
+      name: "a track and no pictures",
+      values: { [AUDIO_PARAM]: "song.mp3" },
+    },
+    {
+      name: "every reference at once",
+      values: {
+        reference_image_1: "a.png",
+        reference_image_2: "b.png",
+        reference_image_3: "c.png",
+        reference_image_4: "d.png",
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: true,
+        [AUDIO_PARAM]: "song.mp3",
+      },
+    },
+    {
+      name: "a clip with the rewrite switched off",
+      values: {
+        [VIDEO_PARAM]: "clip.mp4",
+        [VIDEO_AUDIO_PARAM]: true,
+        literal_prompt: true,
+      },
+    },
+    {
+      name: "no reference of any kind",
+      values: {},
+      rejects: "needs at least one to build from",
+    },
+  ],
+
   finalize(graph, values) {
     const filled = leadingReferences(values, REF_NODES.length);
     for (let index = filled + 1; index <= REF_NODES.length; index += 1) {
@@ -734,16 +971,42 @@ export const minimaxH3Reference: WorkflowDef = {
       delete graph[REF_NODES[index - 1]];
     }
 
-    // With no pictures at all there is nothing to batch, and a BatchImagesNode
+    // The reference clip, and the four nodes that serve it.
+    //
+    // Its frames go into the first batch slot past the pictures that survived
+    // above, so the director sees them after the pictures however many of those
+    // there were. Written here rather than declared on the node because which
+    // slot that is depends on the submission.
+    if (videoAttached(values)) {
+      graph[BATCH_NODE].inputs[batchInput(filled + 1)] = [
+        VIDEO_SAMPLE_SPLIT_NODE,
+        0,
+      ];
+      // The soundtrack is the one part of the clip that is optional. Dropping
+      // the input leaves the frames wired and the audio unsent, which is
+      // exactly "the movement and none of the sound".
+      if (!videoAudioAttached(values)) {
+        delete graph[REFERENCE_NODE].inputs[VIDEO_AUDIO_INPUT];
+      }
+    } else {
+      delete graph[REFERENCE_NODE].inputs[VIDEO_INPUT];
+      delete graph[REFERENCE_NODE].inputs[VIDEO_AUDIO_INPUT];
+      delete graph[VIDEO_NODE];
+      delete graph[VIDEO_SPLIT_NODE];
+      delete graph[VIDEO_SAMPLE_NODE];
+      delete graph[VIDEO_SAMPLE_SPLIT_NODE];
+    }
+
+    // With nothing to look at there is nothing to batch, and a BatchImagesNode
     // with no inputs is not an empty batch — it is a node that cannot produce
     // the IMAGE its consumer is asking for. So the batch goes and the director
     // loses its `images` input, which is optional on this node class: the music
     // graph's director runs without one.
     //
-    // Only reachable because a track can stand in for the first picture. Every
-    // other run keeps at least slot 1.
-    if (filled === 0) {
-      delete graph[ids.director].inputs.images;
+    // Only reachable because a track can stand in for the first picture. A run
+    // with a clip and no pictures still has a batch — of the clip's frames.
+    if (filled === 0 && !videoAttached(values)) {
+      delete graph[ids.director].inputs[REWRITE_IMAGE_INPUT];
       delete graph[BATCH_NODE];
     }
 
@@ -775,9 +1038,9 @@ export const minimaxH3Reference: WorkflowDef = {
      * are known, and it throws the same ParamError the coercion would, so it
      * reaches the form the same way any other rejected value does.
      */
-    if (filled === 0 && !trackAttached(values)) {
+    if (filled === 0 && !trackAttached(values) && !videoAttached(values)) {
       throw new ParamError(
-        "Add a reference image or a reference track — this workflow needs at least one to build from.",
+        "Add a reference image, a reference clip or a reference track — this workflow needs at least one to build from.",
         "reference_image_1",
       );
     }

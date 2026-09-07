@@ -25,6 +25,11 @@ for (const workflow of WORKFLOWS) {
         (spliced.length > 0 ? `, ${spliced.join(" + ")} splice cleanly` : "") +
         (workflow.stepSampler
           ? `, ${workflow.stepSampler.atValue}-step sampler resolves`
+          : "") +
+        // Only where there are any: most graphs have nothing for `finalize` to
+        // branch on, and a "0 cases" on every line would read as a gap.
+        (workflow.finalizeCases?.length
+          ? `, ${workflow.finalizeCases.length} finalize cases queue cleanly`
           : ""),
     );
     continue;
@@ -37,7 +42,7 @@ for (const workflow of WORKFLOWS) {
 
 if (failed) {
   console.error(
-    "\nOne or more workflows are out of sync with their graph. Fix the `targets` in the workflow file.",
+    "\nOne or more workflows are out of sync with their graph. Fix the declaration in the workflow file — the `targets`, or whichever rule the line above names.",
   );
   process.exit(1);
 }

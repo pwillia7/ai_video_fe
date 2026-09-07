@@ -406,11 +406,14 @@ function Control({
         >
           <VideoUpload
             id={id}
+            label={param.label}
             value={String(value ?? "")}
             onChange={(next) => onChange(param.id, next)}
             onMeasure={
               measures ? (seconds) => onChange(measures, seconds) : undefined
             }
+            minSeconds={param.minSeconds}
+            maxSeconds={param.maxSeconds}
             disabled={readOnly}
             describedBy={describedBy}
           />

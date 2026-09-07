@@ -1,7 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Spinner } from "@/components/ui/button";
+import { CameraIcon } from "@/components/ui/camera-capture";
+import {
+  VideoCapture,
+  videoCaptureAvailable,
+} from "@/components/ui/video-capture";
 import { api, ApiError, withToken } from "@/lib/client";
 
 interface UploadResponse {
@@ -33,7 +38,14 @@ const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
  */
 const MAX_LONG_EDGE = 1344;
 const MAX_SHORT_EDGE = 768;
-/** The same ceiling the generating workflows put on their own duration. */
+/**
+ * The same ceiling the generating workflows put on their own duration, and the
+ * default for a control that does not ask for a tighter one.
+ *
+ * A control may: Reference to Video's clip slot is capped at the 15 seconds
+ * MiniMax documents for a reference video, and floored above zero because the
+ * node refuses anything under five frames outright. See `VideoParam`.
+ */
 const MAX_SECONDS = 20;
 
 interface Probe {
@@ -81,8 +93,18 @@ function probe(file: File): Promise<Probe> {
   });
 }
 
+/** How long a clip this particular control takes. */
+interface Limits {
+  minSeconds: number;
+  maxSeconds: number;
+}
+
 /** The reason a clip cannot be used, or null when it can. */
-function rejectionFor(file: File, { width, height, seconds }: Probe): string | null {
+function rejectionFor(
+  file: File,
+  { width, height, seconds }: Probe,
+  { minSeconds, maxSeconds }: Limits,
+): string | null {
   if (file.size > MAX_UPLOAD_BYTES) {
     return (
       `That clip is ${(file.size / 1024 / 1024).toFixed(1)} MB and the limit is ` +
@@ -103,10 +125,17 @@ function rejectionFor(file: File, { width, height, seconds }: Probe): string | n
     );
   }
 
-  if (Number.isFinite(seconds) && seconds > MAX_SECONDS) {
+  if (Number.isFinite(seconds) && seconds > maxSeconds) {
     return (
-      `That clip runs ${seconds.toFixed(1)}s and the limit is ${MAX_SECONDS}s. ` +
+      `That clip runs ${seconds.toFixed(1)}s and the limit is ${maxSeconds}s. ` +
       "A long source is a long wait however it is used."
+    );
+  }
+
+  if (Number.isFinite(seconds) && minSeconds > 0 && seconds < minSeconds) {
+    return (
+      `That clip runs ${seconds.toFixed(1)}s, and this needs at least ` +
+      `${minSeconds}s to work from.`
     );
   }
 
@@ -123,13 +152,18 @@ function rejectionFor(file: File, { width, height, seconds }: Probe): string | n
  */
 export function VideoUpload({
   id,
+  label,
   value,
   onChange,
   onMeasure,
+  minSeconds = 0,
+  maxSeconds = MAX_SECONDS,
   disabled,
   describedBy,
 }: {
   id: string;
+  /** The param's own label, echoed in the recorder modal's header. */
+  label?: string;
   value: string;
   onChange: (value: string) => void;
   /**
@@ -138,6 +172,9 @@ export function VideoUpload({
    * clip that arrived by Remix or Extend as well as one that was uploaded.
    */
   onMeasure?: (seconds: number) => void;
+  /** See `VideoParam`. Both default to what any clip has to stay inside. */
+  minSeconds?: number;
+  maxSeconds?: number;
   disabled?: boolean;
   describedBy?: string;
 }) {
@@ -151,6 +188,15 @@ export function VideoUpload({
    * are the ones the workflow will actually generate at.
    */
   const [spec, setSpec] = useState<Probe | null>(null);
+  const [captureOpen, setCaptureOpen] = useState(false);
+  /**
+   * Resolved in an effect rather than at render, as the photo control does it:
+   * it reads `navigator` and `MediaRecorder`, neither of which exists on the
+   * server, and a button that appeared only after hydration would be a
+   * mismatch.
+   */
+  const [canRecord, setCanRecord] = useState(false);
+  useEffect(() => setCanRecord(videoCaptureAvailable()), []);
 
   /**
    * The one place `spec` is set, so the measurement reported upward can never
@@ -169,7 +215,10 @@ export function VideoUpload({
     setError(null);
     setUploading(true);
     try {
-      const rejection = rejectionFor(file, await probe(file));
+      const rejection = rejectionFor(file, await probe(file), {
+        minSeconds,
+        maxSeconds,
+      });
       if (rejection) {
         setError(rejection);
         return;
@@ -305,6 +354,17 @@ export function VideoUpload({
                 </span>
               ) : null}
               <div className="ml-auto flex shrink-0 gap-2">
+                {canRecord ? (
+                  <Button
+                    variant="quiet"
+                    size="xs"
+                    disabled={disabled || uploading}
+                    icon={<CameraIcon className="size-3" />}
+                    onClick={() => setCaptureOpen(true)}
+                  >
+                    Record
+                  </Button>
+                ) : null}
                 <Button
                   variant="quiet"
                   size="xs"
@@ -329,55 +389,87 @@ export function VideoUpload({
             </div>
           </div>
         ) : (
-          <button
-            type="button"
-            disabled={disabled || uploading}
-            onClick={() => inputRef.current?.click()}
-            className="flex w-full flex-col items-center justify-center gap-2 px-4 py-8
+          <>
+            <button
+              type="button"
+              disabled={disabled || uploading}
+              onClick={() => inputRef.current?.click()}
+              className="flex w-full flex-col items-center justify-center gap-2 px-4 py-8
               text-center transition-colors hover:bg-surface-hover disabled:pointer-events-none"
-          >
-            {uploading ? (
-              <>
-                <Spinner className="size-5 text-fg-muted" />
-                <span className="text-[13px] text-fg-muted">Uploading…</span>
-              </>
-            ) : (
-              <>
-                <svg
-                  viewBox="0 0 24 24"
-                  className="size-7 text-fg-subtle"
-                  fill="none"
-                  aria-hidden="true"
+            >
+              {uploading ? (
+                <>
+                  <Spinner className="size-5 text-fg-muted" />
+                  <span className="text-[13px] text-fg-muted">Uploading…</span>
+                </>
+              ) : (
+                <>
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="size-7 text-fg-subtle"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="2.5"
+                      y="5.5"
+                      width="19"
+                      height="13"
+                      rx="2"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                    />
+                    <path
+                      d="M10 9.5l4.5 2.5L10 14.5v-5Z"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span className="text-[13px] font-medium text-fg">
+                    Drop a video or click to choose
+                  </span>
+                  <span className="text-[12px] text-fg-subtle">
+                    Up to {MAX_SHORT_EDGE}×{MAX_LONG_EDGE}, {maxSeconds}s and{" "}
+                    {MAX_UPLOAD_BYTES / 1024 / 1024} MB — or hit Remix or Extend
+                    on a finished generation
+                  </span>
+                </>
+              )}
+            </button>
+
+            {canRecord ? (
+              <div
+                className="flex justify-center border-t border-border-default
+                  px-3 py-2"
+              >
+                <Button
+                  variant="quiet"
+                  size="xs"
+                  icon={<CameraIcon />}
+                  disabled={disabled || uploading}
+                  onClick={() => setCaptureOpen(true)}
                 >
-                  <rect
-                    x="2.5"
-                    y="5.5"
-                    width="19"
-                    height="13"
-                    rx="2"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                  />
-                  <path
-                    d="M10 9.5l4.5 2.5L10 14.5v-5Z"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <span className="text-[13px] font-medium text-fg">
-                  Drop a video or click to choose
-                </span>
-                <span className="text-[12px] text-fg-subtle">
-                  Up to {MAX_SHORT_EDGE}×{MAX_LONG_EDGE}, {MAX_SECONDS}s and{" "}
-                  {MAX_UPLOAD_BYTES / 1024 / 1024} MB — or hit Remix or Extend
-                  on a finished generation
-                </span>
-              </>
-            )}
-          </button>
+                  Record a clip
+                </Button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
+
+      <VideoCapture
+        open={captureOpen}
+        onClose={() => setCaptureOpen(false)}
+        subtitle={label}
+        maxSeconds={maxSeconds}
+        maxBytes={MAX_UPLOAD_BYTES}
+        // Straight into the same handler a file picked off disk goes through,
+        // so the measurements, the size guard, the upload and the preview are
+        // all one path — a recording is refused for running long or coming out
+        // too big exactly as an uploaded clip would be.
+        onCapture={(file) => void upload(file)}
+      />
 
       {error ? (
         <p className="text-[12px] leading-snug text-danger">{error}</p>

@@ -30,6 +30,7 @@ import {
 import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
 import {
   pinnedValue,
+  pinTriggers,
   type ParamDef,
   type ParamValue,
   type WorkflowDef,
@@ -451,6 +452,7 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
   problems.push(...stepSamplerProblems(workflow));
   problems.push(...directorProblems(workflow));
   problems.push(...rewriteModelProblems(workflow));
+  problems.push(...finalizeProblems(workflow));
 
   return problems;
 }
@@ -464,6 +466,65 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
  * submit, on a control the user was shown as not theirs to fix. Both are the
  * kind of thing that only shows up on the run that needed it. See `pinnedBy`.
  */
+/**
+ * Every link in a graph that points at a node the graph does not have.
+ *
+ * The failure a queued graph dies of, and the one thing a workflow's `finalize`
+ * can produce that nothing else can: params only ever set values on inputs that
+ * already exist, so a dangling link means something was deleted while something
+ * else was still reading it.
+ */
+function danglingLinks(graph: ComfyGraph): string[] {
+  const bad: string[] = [];
+  for (const [id, node] of Object.entries(graph)) {
+    for (const [input, value] of Object.entries(node.inputs)) {
+      if (Array.isArray(value) && typeof value[0] === "string" && !graph[value[0]]) {
+        bad.push(`${id}.${input} reads node ${value[0]}, which is not there`);
+      }
+    }
+  }
+  return bad;
+}
+
+/**
+ * Runs the combinations a workflow declares its `finalize` has to survive, and
+ * checks each one queues a graph ComfyUI would accept. See `finalizeCases`.
+ *
+ * The graph is built the same way a real run builds it — through `applyParams`,
+ * so coercion, pins, splices and the bypass all happen in the order they do at
+ * generation time. A case that is meant to be refused has to be refused with
+ * the message it says; any other throw is the failure, not the test.
+ */
+function finalizeProblems(workflow: WorkflowDef): string[] {
+  const problems: string[] = [];
+
+  for (const testCase of workflow.finalizeCases ?? []) {
+    const where = `Finalize case "${testCase.name}"`;
+    try {
+      const { graph } = applyParams(workflow, testCase.values);
+
+      if (testCase.rejects) {
+        problems.push(`${where} was expected to be refused and was not.`);
+        continue;
+      }
+      for (const link of danglingLinks(graph)) {
+        problems.push(`${where} queues a broken graph: ${link}.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!testCase.rejects) {
+        problems.push(`${where} failed: ${message}`);
+      } else if (!message.includes(testCase.rejects)) {
+        problems.push(
+          `${where} was refused with "${message}", which does not mention "${testCase.rejects}".`,
+        );
+      }
+    }
+  }
+
+  return problems;
+}
+
 function pinProblems(workflow: WorkflowDef): string[] {
   const problems: string[] = [];
 
@@ -471,10 +532,14 @@ function pinProblems(workflow: WorkflowDef): string[] {
     const pin = param.pinnedBy;
     if (!pin) continue;
 
-    if (!workflow.params.some((other) => other.id === pin.whenSet)) {
-      problems.push(
-        `Param "${param.id}" is pinned by "${pin.whenSet}", which this workflow has no param for.`,
-      );
+    // Every trigger, not just the first: a pin naming two params is wrong in
+    // exactly the same way if either one of them has been renamed away.
+    for (const trigger of pinTriggers(pin)) {
+      if (!workflow.params.some((other) => other.id === trigger)) {
+        problems.push(
+          `Param "${param.id}" is pinned by "${trigger}", which this workflow has no param for.`,
+        );
+      }
     }
 
     if (param.type !== "slider" && param.type !== "number") continue;

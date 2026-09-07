@@ -3,6 +3,7 @@ import type { SpliceId } from "./model-chain";
 import type { PatchChoice, PatchDef } from "./patches";
 import type { StepModel, StepSampler } from "./step-sampler";
 import type { TurboSpec } from "./turbo";
+import { isSet } from "./types";
 import type {
   ImageParam,
   ParamDef,
@@ -1238,7 +1239,24 @@ export function wordsParam({
  * run on a reference track alone, the director has to be told there is nothing
  * to cite, or it writes the citations its format calls for anyway.
  */
-export function referenceFacets(count: number): DirectorAppendix {
+export function referenceFacets(
+  count: number,
+  {
+    otherVisualReference,
+  }: {
+    /**
+     * Whether this run hands the model something else to look at — a reference
+     * video, on the graph that takes one.
+     *
+     * Only consulted when there are no pictures, and only to decide which way
+     * that silence is broken. "There is nothing to cite" is true either way;
+     * "every subject is invented from the user's text" is true only when the
+     * model really was shown nothing, and saying it over an attached video
+     * would talk the director out of the one reference it has.
+     */
+    otherVisualReference?: (values: Record<string, ParamValue>) => boolean;
+  } = {},
+): DirectorAppendix {
   return (values) => {
     const lines: string[] = [];
     const filled = leadingReferences(values, count);
@@ -1255,6 +1273,17 @@ export function referenceFacets(count: number): DirectorAppendix {
     // citations its format always calls for at a model that was given none, so
     // this says the opposite of what the block below says rather than nothing.
     if (lines.length === 0) {
+      // A reference video is still something to look at, so the second
+      // paragraph is the one that has to change: the citations are equally
+      // forbidden, but the subjects are not invented from nothing.
+      if (otherVisualReference?.(values)) {
+        return `THERE ARE NO REFERENCE IMAGES
+
+No still has been attached. Do not cite <Picture 1> or any other picture, do not write a subject_definitions line that refers to one, and do not describe anyone or anything as being "in" an image you were shown — there are no pictures among your references.
+
+What you were given to look at instead is described below, and it is where the subjects come from.`;
+      }
+
       return `THERE ARE NO REFERENCE IMAGES
 
 Nothing has been attached for you to look at. Do not cite <Picture 1> or any other picture, do not write a subject_definitions line that refers to one, and do not describe anyone or anything as being "in" an image you were shown — you were shown none.
@@ -1269,6 +1298,100 @@ The user has said, per image, which facets it controls. This is not a hint to we
 ${lines.join("\n\n")}
 
 Where the user's own text says something more specific about a picture, follow the text for the detail and these settings for the facets: the text can tell you which coat, this tells you whether the coat is preserved at all. If the two genuinely contradict each other, the user's text wins — they wrote it more recently than they set a dropdown.`;
+  };
+}
+
+/**
+ * What to say when a reference video has been attached.
+ *
+ * The director is shown a handful of frames sampled across the clip, appended
+ * to the batch of reference pictures. That is the whole reason this block has
+ * to exist rather than the video passing silently: REFERENCE_DIRECTOR promises
+ * that the images it sees are <Picture 1>, <Picture 2> and so on in order, and
+ * the sampled frames break that promise by arriving in the same batch. They
+ * are the same clip seen at intervals, not five more pictures, and a director
+ * left to guess writes five phantom subjects.
+ *
+ * The rest of it is the distinction this workflow turns on and Remix does not
+ * have to make. There, the clip *is* the video being rebuilt and the director
+ * is told to preserve it. Here it is one reference among several, and a
+ * director carrying Remix's instinct would reproduce the clip's own edit
+ * instead of building the scene the user asked for.
+ *
+ * Reads the submission rather than taking booleans, on the same terms as every
+ * other appendix here.
+ */
+export function referenceVideo({
+  videoParam,
+  audioParam,
+  trackParam,
+  slots,
+  frames,
+}: {
+  /** The control holding the clip. Nothing to say without one. */
+  videoParam: string;
+  /** The toggle deciding whether the clip's own soundtrack goes with it. */
+  audioParam: string;
+  /** The standalone reference track, which the soundtrack renumbers. */
+  trackParam: string;
+  /** How many picture slots the graph wires, for counting the filled ones. */
+  slots: number;
+  /** How many frames the director is shown. Must match the graph's sampler. */
+  frames: number;
+}): DirectorAppendix {
+  return (values) => {
+    if (!String(values[videoParam] ?? "").trim()) return "";
+
+    const pictures = leadingReferences(values, slots);
+    const soundtrack = isSet(values[audioParam]);
+    const track = String(values[trackParam] ?? "").trim() !== "";
+
+    // Where the frames sit in the batch, said in terms of what the director is
+    // looking at rather than in terms of the graph.
+    const placement =
+      pictures === 0
+        ? `The ${frames} images you are shown are frames sampled evenly across it, in playback order.`
+        : `After the ${pictures === 1 ? "reference picture" : `${pictures} reference pictures`}, you are shown ${frames} further images. Those are frames sampled evenly across <Video 1>, in playback order.`;
+
+    /**
+     * The soundtrack's own paragraph, and the one place the numbering has to be
+     * spelled out. References are presented as images, then each video preceded
+     * by its own soundtrack, then standalone audio — 1-based per type. So an
+     * attached soundtrack takes <Audio 1> and pushes a standalone track to
+     * <Audio 2>, which is the only case in this app where a track is not
+     * <Audio 1> and the only reason the director could get the pair backwards.
+     */
+    const sound = soundtrack
+      ? `THE CLIP'S SOUNDTRACK IS ATTACHED
+
+Its audio has been given to the model along with its picture, as <Audio 1>${track ? ", which also means the separately attached track is <Audio 2> rather than <Audio 1>" : ""}. You have not heard either of them and you are not being asked to describe them.
+
+So do not invent a score to sit over the one the model already has: write non_diegetic_music as deference, saying that the music is what the reference carries, and name no genre, tempo, key or instrument you have not been told. Sound that belongs to the new scene is still yours to write in overall_soundscape, and it should be sparse enough to sit under a reference rather than compete with one.`
+      : `THE CLIP'S SOUNDTRACK IS NOT ATTACHED
+
+The model has been given the clip's picture and none of its sound. Do not cite <Video 1> as a source of audio, do not write that anything from it is audible, and do not refer to a soundtrack it was not given.
+
+overall_soundscape and non_diegetic_music are written for the new scene, from the user's text and from what is on screen, exactly as they would be with no video attached at all.`;
+
+    return `A REFERENCE VIDEO HAS BEEN ATTACHED
+
+The user has supplied a clip as a reference. The model is given it as <Video 1>.
+
+${placement} They are one clip seen at intervals, not further pictures: they have no <Picture N> number of their own, and citing one as a picture invents a reference that does not exist. Read them together, as motion.
+
+WHAT THE CLIP IS FOR
+
+It is a reference, on the same footing as a photograph, and the target video is a new scene containing what it supplies — not a re-cut of it. Do not carry the clip's own shot structure, edit or camera moves into the description unless the user's text asks for exactly that, and do not treat what happens in it as the thing that happens in the video you are writing.
+
+What it supplies that a still cannot is movement: how someone walks, gestures, performs, how something behaves over time. Where that is part of what the user wants kept, name it in the facets — it is the reason to attach a clip rather than a frame of one.
+
+Cite it in subject_definitions the way you would cite a picture: "<Subject 1> is the man in <Video 1>, preserving his identity, proportions, costume and gait: ...". Give <Video 1> a standalone line only when the clip is acting as concrete footage — a shot to match, an action to reproduce beat for beat — and only when the user has asked for that. In retention_analysis it takes a marker on the same terms as any other label.
+
+In summary, add "video reference" to the task-type prefix with " + ".
+
+Only as much of the clip as the target video is long reaches the model, and the rest is cut from the end. Do not build the description around something that happens late in a clip that runs longer than the video you are writing.
+
+${sound}`;
   };
 }
 

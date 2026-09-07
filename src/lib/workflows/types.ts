@@ -143,8 +143,17 @@ export type ParamCondition = string | { param: string; is: ParamValue };
 
 /** See `pinnedBy`. */
 export interface ParamPin {
-  /** Id of the param whose being set pins this one. */
-  whenSet: string;
+  /**
+   * Id of the param whose being set pins this one, or several ids of which any
+   * one being set does.
+   *
+   * Several because a pin describes what the *run* needs rather than what one
+   * control implies: Reference to Video loads a different pair of weights
+   * whenever it is given something other than a still to work from, and a
+   * reference track and a reference video are both that. One pin naming both
+   * keeps the rule in one place; two pins onto one control could disagree.
+   */
+  whenSet: string | string[];
   /** What this control is held at while it is. */
   value: ParamValue;
   /** The line shown under the control while it is pinned. */
@@ -218,6 +227,20 @@ export interface VideoParam extends ParamBase {
   default: "";
   /** Block submission until a video is chosen. */
   required?: boolean;
+  /**
+   * How long a clip this particular control will take, in seconds, where the
+   * node behind it is fussier than the upload path's own ceiling.
+   *
+   * Reference to Video's clip slot is the case: MiniMax documents a reference
+   * video at 2-15 seconds and refuses one under five frames outright, where a
+   * clip being remixed or extended may run to the full 20. Checked in the
+   * browser with the rest of the clip's measurements, so an unusable file is
+   * refused before it is uploaded rather than at the end of a queued run.
+   *
+   * Left off, the control keeps the limits that apply to any clip.
+   */
+  minSeconds?: number;
+  maxSeconds?: number;
   /**
    * Id of a `measured` param this control fills in with the loaded clip's
    * running time. Named here rather than the other way round because the video
@@ -395,6 +418,37 @@ export interface WorkflowDef {
    * and its LoadImage node have to disappear when unused, not merely be blank.
    */
   finalize?: (graph: ComfyGraph, values: Record<string, ParamValue>) => void;
+  /**
+   * Submissions whose queued graph has to come out intact, checked by
+   * `pnpm check:workflows`.
+   *
+   * Only worth declaring where `finalize` branches. Everything else about a
+   * workflow is checked against the stored graph, which is a fixed thing —
+   * `finalize` is the one part that produces a *different* graph per run, so it
+   * is the one part a static check cannot see into. A deletion naming an input
+   * that does not exist is silent, and what it leaves behind is a link to a
+   * node that is gone: rejected by ComfyUI at queue time, on whichever
+   * combination of controls happened to reach it.
+   *
+   * That is not hypothetical. Reference to Video ran for a while deleting
+   * `images` from a rewrite node whose input is `image`, so every run with a
+   * track and no pictures queued a link to a deleted batch node. Nothing failed
+   * until someone attached a track without a picture.
+   *
+   * Each case is a submission as the form would send it. Defaults fill in the
+   * rest, so a case names only what it is about.
+   */
+  finalizeCases?: Array<{
+    /** What this combination is, for the line a failure prints. */
+    name: string;
+    values: Record<string, ParamValue>;
+    /**
+     * The case is expected to be refused, and the message must contain this.
+     * For a combination `finalize` exists to reject — Reference to Video with
+     * no reference of any kind.
+     */
+    rejects?: string;
+  }>;
 }
 
 /**
@@ -496,8 +550,13 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
  * What "set" means for every control that keys off another one — a value that
  * is neither empty nor false. Shared so `revealedBy`, `hiddenBy` and `pinnedBy`
  * cannot disagree about whether the same param counts as answered.
+ *
+ * Exported for the graphs that ask the same question themselves — a `finalize`
+ * deciding whether to wire an input, and the director appendix describing that
+ * same decision, have to answer it identically or the model is told about a
+ * reference it was not given.
  */
-function isSet(value: ParamValue | undefined): boolean {
+export function isSet(value: ParamValue | undefined): boolean {
   return value !== undefined && value !== "" && value !== false;
 }
 
@@ -515,9 +574,14 @@ export function pinnedValue(
   values: Record<string, ParamValue>,
 ): ParamValue | undefined {
   if (!param.pinnedBy) return undefined;
-  return isSet(values[param.pinnedBy.whenSet])
+  return pinTriggers(param.pinnedBy).some((id) => isSet(values[id]))
     ? param.pinnedBy.value
     : undefined;
+}
+
+/** The param ids a pin watches, however many it was declared with. */
+export function pinTriggers(pin: ParamPin): string[] {
+  return Array.isArray(pin.whenSet) ? pin.whenSet : [pin.whenSet];
 }
 
 /**

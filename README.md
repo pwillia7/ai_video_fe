@@ -22,7 +22,9 @@ node pack below; Music needs none of them. Generations queue, run in the
 background, and stay in a per-device history you can replay, download or feed
 straight back in — a finished clip with **Remix** or **Extend**, a finished
 song with **Create video**, which loads it into reference to video as a
-reference track alongside whatever pictures you attach.
+reference track alongside whatever pictures you attach. That workflow also takes
+a clip as a reference — uploaded or recorded on the spot — for the thing a still
+cannot show, which is how something moves.
 
 Every workflow rewrites your prompt through an LLM into the format the model
 was trained on, and every workflow has a switch to skip that and send what you
@@ -1157,8 +1159,8 @@ with its loader, rather than left blank.
 Note which workflow that is: `minimax-h3-ref` is **Reference to Video**, the
 one with the image slots. `minimax-h3-ref2v` is **Remix**, which takes a clip
 and has never had image references — its `MiniMaxH3ReferenceToVideo` gets
-`ref_videos.*` and `ref_audios.*` from the source and no `ref_images.*` at all.
-Neither of those facts changed here.
+`ref_videos.*` and `ref_video_audios.*` from the source and no `ref_images.*` at
+all. Neither of those facts changed here.
 
 The pictures are untouched by it. Reference to Video still offers its **four
 reference image slots**, each with its own preservation-facet select, each
@@ -1289,6 +1291,83 @@ Three further things are deliberately *not* true of it:
 Uploading a track by hand works too, and is capped at 4 MB like any other
 upload — which a few minutes of mp3 will exceed. The button has no such limit,
 because it is the same server-side copy Remix and Extend make.
+
+### A clip as a reference
+
+**Reference clip** takes a video the same way the slots above take a picture,
+and for the thing a picture cannot supply: how someone moves. It sits alongside
+the pictures rather than instead of them, so a run can carry four stills, a
+clip, and a track at once.
+
+This is not Remix. There the clip *is* the video being rebuilt, and the director
+is told to preserve its shots, its edit and its camera. Here it is one reference
+among several and the target is a new scene — `referenceVideo` in
+`minimax-common.ts` spends most of its words on that distinction, because a
+director carrying Remix's instinct re-cuts the source instead of building what
+was asked for.
+
+The wiring is four nodes. A `LoadVideo` (170) and a `GetVideoComponents` (171)
+split the clip: frames to `ref_videos.ref_video_0`, soundtrack to
+`ref_video_audios.ref_video_audio_0`. A `VideoFrameSample` (172) and a second
+`GetVideoComponents` (173) take five frames spread evenly across it for the
+director to look at, exactly as Remix does — the rewrite stage is shown images,
+so there is no such thing as showing it a video.
+
+**Those five frames join the same batch as the reference pictures**, which is
+the one thing about this that needed saying out loud. `REFERENCE_DIRECTOR`
+promises that the images it is shown are `<Picture 1>`, `<Picture 2>` and so on
+in order; five more arriving in that batch breaks the promise, and a director
+left to work it out writes five phantom subjects. So `finalize` appends them at
+the first slot *past* the pictures actually filled — they are always last,
+whatever the run — and `referenceVideo` says how many of the images are frames,
+that they are one clip seen at intervals, and that they carry no `<Picture N>`
+number of their own.
+
+**Use the clip's sound** decides whether the soundtrack goes with it. Note which
+slot that is: `ref_video_audios` pairs with `ref_videos` by index and the node
+fuses the two into a single `video_audio` conditioning block, where `ref_audios`
+would emit a `video` block and an unrelated `audio` one — a clip and a sound
+beside it, rather than a clip that sounds like this. **Remix was doing the
+second of those and now does the first.** Its labels are unchanged: references
+are presented as images, then each video preceded by its own soundtrack, then
+standalone audio, numbered 1-based per type, so a lone video is `<Video 1>` and
+`<Audio 1>` either way and `REMIX_DIRECTOR` needed no edit.
+
+That numbering does move here, and it is the only place in the app where a track
+is not `<Audio 1>`: attach both a clip's soundtrack and a reference track and
+the soundtrack takes `<Audio 1>`, pushing the track to `<Audio 2>`.
+`referenceVideo` spells that out, since it is the one thing the director could
+get backwards.
+
+Three limits worth knowing:
+
+- **A clip pins the steps to 4**, on the same `pinnedBy` as a track — which now
+  names both controls, since a pin describes what the run needs rather than what
+  one control implies. The reason is the same quantised-weights failure: it was
+  a batch-dimension mismatch on a run carrying more than one kind of reference
+  block, and a clip is that as much as a track is. Remix, which is nothing but a
+  video reference through this same node class, already runs on the bf16 pair.
+- **Only as much of the clip as the video is long reaches the model.** The node
+  truncates it — `frames[:frame_count]` — so a 15-second reference on a
+  five-second video contributes five seconds. The director is told, so it does
+  not build a description around something that happens late in a long clip.
+- **4 MB, 15 seconds, and a 768px short edge.** The clip slot caps at the 15
+  seconds MiniMax documents for a reference video rather than the 20 that Remix
+  and Extend allow, and floors at 1 second because the node refuses anything
+  under five frames outright — that is `minSeconds`/`maxSeconds` on the param,
+  checked in the browser before the upload starts. Unlike Remix and Extend
+  nothing hands a clip to this slot server-side, so every one of them goes
+  through the browser and the 4 MB cap really binds.
+
+**Or record one.** The camera button under the clip slot opens `VideoCapture`,
+which records with the device's own camera and microphone and hands the file to
+the same upload path a clip picked off disk goes through — so it is measured,
+size-checked and refused on exactly the same terms. Two things shape it: the
+bitrate is budgeted *before* recording from the size cap and the length limit,
+because a recording cannot be re-encoded smaller afterwards the way an oversized
+photo can; and the recorder stops itself at the limit rather than trusting
+anyone to watch a counter. It prefers MP4 where the browser will record one and
+falls back to WebM, which Firefox makes non-hypothetical.
 
 ### How the hand-offs are wired
 

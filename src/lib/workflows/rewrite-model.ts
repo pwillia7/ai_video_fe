@@ -107,6 +107,17 @@ const MAX_IMAGE_SIDE = 1024;
  * things ask "is this node a director": `check:workflows`, `check:nodes`, and
  * the length-block rule in params.ts.
  */
+/**
+ * What the vision rewrite node calls the pictures it is shown.
+ *
+ * Named because a graph's `finalize` has to be able to *remove* it — a run with
+ * nothing to show the director drops the input rather than passing an empty
+ * batch — and that deletion is silent when it names the wrong key. The OpenAI
+ * node this replaced called it `images`, so the wrong key is one that used to
+ * be right, which is the kind that survives review.
+ */
+export const REWRITE_IMAGE_INPUT = "image";
+
 export const REWRITE_CLASSES: string[] = [
   "VercelAIGatewayGenerateText",
   "VercelAIGatewayDescribeImage",
@@ -168,7 +179,7 @@ export function rewriteNode({
   return {
     class_type: REWRITE_CLASSES[1],
     inputs: {
-      image: images,
+      [REWRITE_IMAGE_INPUT]: images,
       ...common,
       max_image_side: MAX_IMAGE_SIDE,
       // The references are one scene to be described together, not four

@@ -264,14 +264,24 @@ export function bypassProblems(
  * `hiddenBy` is presentation only, so what was set is kept and comes back with
  * the switch. Nothing has to be pruned to match, because `applyBypass` deletes
  * the node these were writing to.
+ *
+ * `keep` is for the control the wiring describes wrongly: one that writes no
+ * node input of its own but decides, in the workflow's `finalize`, whether an
+ * input exists at all. Reference to Video's "use the clip's sound" is the case
+ * — its only target is the director, because that is the only thing it has to
+ * *write*, but what it actually does is hand the model the clip's soundtrack or
+ * withhold it. That outlives the rewrite, so the control has to as well, and
+ * `finalize` reads its value whether or not the form is still showing it.
  */
 export function hideDirectorOnly(
   params: ParamDef[],
   spec: DirectorBypass,
+  { keep = [] }: { keep?: string[] } = {},
 ): ParamDef[] {
   return params.map((param) => {
     const onlyDirector =
       param.targets.length > 0 &&
+      !keep.includes(param.id) &&
       param.targets.every((target) => target.node === spec.node);
     if (!onlyDirector) return param;
 

@@ -28,8 +28,9 @@ import {
  * The clip goes in at node 154 and everything else follows from it:
  *
  * - 153 splits it into frames and audio, which go to the reference node as
- *   `ref_videos.ref_video_0` and `ref_audios.ref_audio_0`. That pair is the
- *   only visual input the sampler gets.
+ *   `ref_videos.ref_video_0` and `ref_video_audios.ref_video_audio_0` — the
+ *   soundtrack slot that pairs by index with the video, not the standalone one.
+ *   That pair is the only visual input the sampler gets.
  * - 155 samples five frames spread evenly across it and 156 turns them back
  *   into images, which go to the prompt director alone — so the rewrite can
  *   see the clip it is editing rather than working blind from the filename.
@@ -175,8 +176,22 @@ const graph: ComfyGraph = {
       vae: ["119", 0],
       audio_vae: ["120", 0],
       // No ref_images here — the clip is the only reference the sampler gets.
+      //
+      // The soundtrack goes in `ref_video_audios`, not `ref_audios`, because it
+      // is this clip's own audio rather than a second reference that happens to
+      // be sound. The node pairs `ref_video_audio_N` with `ref_video_N` by
+      // index and emits one fused `video_audio` conditioning block for the two;
+      // `ref_audios` would emit a `video` block and an unrelated `audio` one,
+      // which is a different thing to hand the model — a clip and a sound
+      // beside it, rather than a clip that sounds like this.
+      //
+      // The labels are the same either way. References are presented as images,
+      // then each video preceded by its own soundtrack, then standalone audio,
+      // numbered 1-based per type — so with one video and nothing else this is
+      // <Video 1> and <Audio 1> in both wirings, and REMIX_DIRECTOR's names for
+      // them still hold.
       "ref_videos.ref_video_0": ["153", 0],
-      "ref_audios.ref_audio_0": ["153", 1],
+      "ref_video_audios.ref_video_audio_0": ["153", 1],
     },
     _meta: { title: "MiniMax H3 Reference to Video" },
   },
@@ -260,10 +275,10 @@ const graph: ComfyGraph = {
 /**
  * The words heard in the source clip, in the prompt and in the director's brief.
  *
- * The clip's own audio is wired straight into `ref_audios.ref_audio_0`, so this
- * graph hands H3 a recording to work over exactly as Reference to Video does
- * with an attached track — and nothing here can hear either of them. Same
- * problem, same pair of blocks, different noun for where the sound came from.
+ * The clip's own audio is wired straight into the reference node, so this graph
+ * hands H3 a recording to work over exactly as Reference to Video does with an
+ * attached track — and nothing here can hear either of them. Same problem, same
+ * pair of blocks, different noun for where the sound came from.
  */
 const words = wordsBlocks({
   sourceParam: VIDEO_PARAM,

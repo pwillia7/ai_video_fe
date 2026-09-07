@@ -47,8 +47,14 @@ export function cameraAvailable(): boolean {
   );
 }
 
-/** getUserMedia's failures, in words that say what to do about them. */
-function explain(cause: unknown): string {
+/**
+ * getUserMedia's failures, in words that say what to do about them.
+ *
+ * Exported because the video recorder opens the same camera through the same
+ * API and fails in exactly the same ways — with one addition of its own, since
+ * it asks for the microphone too and a machine can have a camera and no mic.
+ */
+export function explainCameraError(cause: unknown): string {
   const name = cause instanceof DOMException ? cause.name : "";
   switch (name) {
     case "NotAllowedError":
@@ -161,7 +167,7 @@ export function CameraCapture({
           );
         }
       } catch (cause) {
-        if (!cancelled) setError(explain(cause));
+        if (!cancelled) setError(explainCameraError(cause));
       }
     })();
 
