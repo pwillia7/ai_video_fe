@@ -228,6 +228,20 @@ export interface VideoParam extends ParamBase {
   /** Block submission until a video is chosen. */
   required?: boolean;
   /**
+   * Offer this collapsed to a single row until it is asked for.
+   *
+   * Presentational, like `advanced`, and for the same shape of problem: a file
+   * control's empty state is a drop target big enough to aim at, and three of
+   * them stacked is most of a screen of affordance for inputs most runs do not
+   * use. Reference to Video's clip and track are the case — the picture is what
+   * the workflow is named after and stays open; those two are alternatives to
+   * it, and a row that says so costs a line instead of a panel.
+   *
+   * The row still takes a drop, so dragging a file onto it works without
+   * expanding it first.
+   */
+  compact?: boolean;
+  /**
    * How long a clip this particular control will take, in seconds, where the
    * node behind it is fussier than the upload path's own ceiling.
    *
@@ -275,6 +289,20 @@ export interface AudioParam extends ParamBase {
   default: "";
   /** Block submission until something is chosen. */
   required?: boolean;
+  /**
+   * Offer this collapsed to a single row until it is asked for.
+   *
+   * Presentational, like `advanced`, and for the same shape of problem: a file
+   * control's empty state is a drop target big enough to aim at, and three of
+   * them stacked is most of a screen of affordance for inputs most runs do not
+   * use. Reference to Video's clip and track are the case — the picture is what
+   * the workflow is named after and stays open; those two are alternatives to
+   * it, and a row that says so costs a line instead of a panel.
+   *
+   * The row still takes a drop, so dragging a file onto it works without
+   * expanding it first.
+   */
+  compact?: boolean;
   /**
    * Id of a `measured` param this control fills in with the loaded track's
    * running time, on the same terms as a video's. Named here rather than the

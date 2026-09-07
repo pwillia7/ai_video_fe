@@ -189,6 +189,7 @@ export function VideoUpload({
   minSeconds = 0,
   maxSeconds = MAX_SECONDS,
   budgetSeconds,
+  compact = false,
   disabled,
   describedBy,
 }: {
@@ -208,6 +209,8 @@ export function VideoUpload({
   maxSeconds?: number;
   /** See `VideoParam`. Without one, all of an accepted clip is used. */
   budgetSeconds?: number;
+  /** See `VideoParam`. Collapsed to a row until asked for, or until filled. */
+  compact?: boolean;
   disabled?: boolean;
   describedBy?: string;
 }) {
@@ -222,6 +225,14 @@ export function VideoUpload({
    */
   const [spec, setSpec] = useState<Probe | null>(null);
   const [captureOpen, setCaptureOpen] = useState(false);
+  /**
+   * Opened by asking for it, and never closed again by this control.
+   *
+   * Clearing a clip leaves the picker open rather than folding it back to a
+   * row, because clearing one is usually the first half of choosing another.
+   * A reload starts it collapsed again, there being nothing in it.
+   */
+  const [expanded, setExpanded] = useState(false);
   /**
    * Resolved in an effect rather than at render, as the photo control does it:
    * it reads `navigator` and `MediaRecorder`, neither of which exists on the
@@ -317,18 +328,54 @@ export function VideoUpload({
         onChange={(event) => pick(event.target.files)}
       />
 
-      <div
-        onDragOver={(event) => {
-          event.preventDefault();
-          if (!disabled && !uploading) setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragging(false);
-          if (!disabled && !uploading) pick(event.dataTransfer.files);
-        }}
-        className={`relative overflow-hidden rounded-lg border transition-colors
+      {/*
+        Collapsed: a row that says what could go here, and takes a drop anyway.
+        Anything already loaded, or a picker someone has opened, falls through
+        to the full control below.
+      */}
+      {compact && !previewUrl && !expanded ? (
+        <button
+          type="button"
+          disabled={disabled || uploading}
+          onClick={() => setExpanded(true)}
+          onDragOver={(event) => {
+            event.preventDefault();
+            if (!disabled && !uploading) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            setExpanded(true);
+            if (!disabled && !uploading) pick(event.dataTransfer.files);
+          }}
+          className={`flex w-full items-center gap-2 rounded-lg border border-dashed
+            px-3 py-2.5 text-left text-[13px] transition-colors
+            disabled:pointer-events-none disabled:opacity-50
+            ${
+              dragging
+                ? "border-accent bg-accent-subtle/30 text-fg"
+                : "border-border-strong bg-bg-subtle text-fg-muted hover:border-border-default hover:text-fg"
+            }`}
+        >
+          <span aria-hidden="true" className="text-fg-subtle">
+            +
+          </span>
+          <span>{uploading ? "Uploading…" : "Add a clip"}</span>
+        </button>
+      ) : (
+        <div
+          onDragOver={(event) => {
+            event.preventDefault();
+            if (!disabled && !uploading) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            if (!disabled && !uploading) pick(event.dataTransfer.files);
+          }}
+          className={`relative overflow-hidden rounded-lg border transition-colors
           ${previewUrl ? "border-solid" : "border-dashed"}
           ${
             dragging
@@ -337,10 +384,10 @@ export function VideoUpload({
                 ? "border-border-default bg-bg-subtle"
                 : "border-border-strong bg-bg-subtle"
           } ${disabled ? "opacity-50" : ""}`}
-      >
-        {previewUrl ? (
-          <div className="relative">
-            {/*
+        >
+          {previewUrl ? (
+            <div className="relative">
+              {/*
               Controls but no autoplay: this is here so you can check which clip
               is loaded, and a source clip usually has a soundtrack that
               autoplay would force to be muted anyway.
@@ -349,166 +396,169 @@ export function VideoUpload({
               directory is cleared, so a load failure clears the value rather
               than leaving a generation to fail on it later.
             */}
-            <video
-              key={previewUrl}
-              src={previewUrl}
-              controls
-              playsInline
-              preload="metadata"
-              // Same `Infinity` problem as `probe`, and it matters more here:
-              // this is what measures a clip restored from a previous session,
-              // and that measurement is what decides how many frames of it the
-              // model is given. Seeking past the end makes the element go and
-              // find the real duration.
-              onLoadedMetadata={(event) => {
-                const el = event.currentTarget;
-                const report = () =>
-                  applySpec({
-                    width: el.videoWidth,
-                    height: el.videoHeight,
-                    seconds: el.duration,
-                  });
-                if (Number.isFinite(el.duration)) {
-                  report();
-                  return;
-                }
-                el.ontimeupdate = () => {
-                  el.ontimeupdate = null;
-                  report();
-                  el.currentTime = 0;
-                };
-                el.currentTime = 1e101;
-              }}
-              onError={() => {
-                onChange("");
-                applySpec(null);
-                setError(
-                  "That video is no longer on the ComfyUI server. Choose it again.",
-                );
-              }}
-              className="mx-auto block max-h-64 w-full bg-black"
-            />
-            <div className="flex items-center gap-2 border-t border-border-default px-3 py-2">
-              {/* min-w-0 is what actually lets `truncate` work: a flex item
+              <video
+                key={previewUrl}
+                src={previewUrl}
+                controls
+                playsInline
+                preload="metadata"
+                // Same `Infinity` problem as `probe`, and it matters more here:
+                // this is what measures a clip restored from a previous session,
+                // and that measurement is what decides how many frames of it the
+                // model is given. Seeking past the end makes the element go and
+                // find the real duration.
+                onLoadedMetadata={(event) => {
+                  const el = event.currentTarget;
+                  const report = () =>
+                    applySpec({
+                      width: el.videoWidth,
+                      height: el.videoHeight,
+                      seconds: el.duration,
+                    });
+                  if (Number.isFinite(el.duration)) {
+                    report();
+                    return;
+                  }
+                  el.ontimeupdate = () => {
+                    el.ontimeupdate = null;
+                    report();
+                    el.currentTime = 0;
+                  };
+                  el.currentTime = 1e101;
+                }}
+                onError={() => {
+                  onChange("");
+                  applySpec(null);
+                  setError(
+                    "That video is no longer on the ComfyUI server. Choose it again.",
+                  );
+                }}
+                className="mx-auto block max-h-64 w-full bg-black"
+              />
+              <div className="flex items-center gap-2 border-t border-border-default px-3 py-2">
+                {/* min-w-0 is what actually lets `truncate` work: a flex item
                   defaults to min-width:auto and would otherwise refuse to
                   shrink below the filename, pushing the buttons out. */}
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-muted">
-                {value}
-              </span>
-              {spec ? (
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
-                  {spec.width}×{spec.height}
-                  {Number.isFinite(spec.seconds)
-                    ? ` · ${spec.seconds.toFixed(1)}s`
-                    : ""}
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-muted">
+                  {value}
                 </span>
-              ) : null}
-              <div className="ml-auto flex shrink-0 gap-2">
-                {canRecord ? (
+                {spec ? (
+                  <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                    {spec.width}×{spec.height}
+                    {Number.isFinite(spec.seconds)
+                      ? ` · ${spec.seconds.toFixed(1)}s`
+                      : ""}
+                  </span>
+                ) : null}
+                <div className="ml-auto flex shrink-0 gap-2">
+                  {canRecord ? (
+                    <Button
+                      variant="quiet"
+                      size="xs"
+                      disabled={disabled || uploading}
+                      icon={<CameraIcon className="size-3" />}
+                      onClick={() => setCaptureOpen(true)}
+                    >
+                      Record
+                    </Button>
+                  ) : null}
                   <Button
                     variant="quiet"
                     size="xs"
                     disabled={disabled || uploading}
-                    icon={<CameraIcon className="size-3" />}
-                    onClick={() => setCaptureOpen(true)}
+                    onClick={() => inputRef.current?.click()}
                   >
-                    Record
+                    Replace
                   </Button>
-                ) : null}
-                <Button
-                  variant="quiet"
-                  size="xs"
-                  disabled={disabled || uploading}
-                  onClick={() => inputRef.current?.click()}
-                >
-                  Replace
-                </Button>
-                <Button
-                  variant="quiet-danger"
-                  size="xs"
-                  disabled={disabled || uploading}
-                  onClick={() => {
-                    onChange("");
-                    setError(null);
-                    applySpec(null);
-                  }}
-                >
-                  Remove
-                </Button>
+                  <Button
+                    variant="quiet-danger"
+                    size="xs"
+                    disabled={disabled || uploading}
+                    onClick={() => {
+                      onChange("");
+                      setError(null);
+                      applySpec(null);
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <>
-            <button
-              type="button"
-              disabled={disabled || uploading}
-              onClick={() => inputRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-2 px-4 py-8
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={disabled || uploading}
+                onClick={() => inputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-2 px-4 py-8
               text-center transition-colors hover:bg-surface-hover disabled:pointer-events-none"
-            >
-              {uploading ? (
-                <>
-                  <Spinner className="size-5 text-fg-muted" />
-                  <span className="text-[13px] text-fg-muted">Uploading…</span>
-                </>
-              ) : (
-                <>
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="size-7 text-fg-subtle"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <rect
-                      x="2.5"
-                      y="5.5"
-                      width="19"
-                      height="13"
-                      rx="2"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                    />
-                    <path
-                      d="M10 9.5l4.5 2.5L10 14.5v-5Z"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  <span className="text-[13px] font-medium text-fg">
-                    Drop a video or click to choose
-                  </span>
-                  <span className="text-[12px] text-fg-subtle">
-                    Up to {MAX_SHORT_EDGE}×{MAX_LONG_EDGE}, {maxSeconds}s and{" "}
-                    {MAX_UPLOAD_BYTES / 1024 / 1024} MB
-                    {budgetSeconds && budgetSeconds < maxSeconds
-                      ? ` — the first ${budgetSeconds}s of it is used`
-                      : " — or hit Remix or Extend on a finished generation"}
-                  </span>
-                </>
-              )}
-            </button>
-
-            {canRecord ? (
-              <div
-                className="flex justify-center border-t border-border-default
-                  px-3 py-2"
               >
-                <Button
-                  variant="quiet"
-                  size="xs"
-                  icon={<CameraIcon />}
-                  disabled={disabled || uploading}
-                  onClick={() => setCaptureOpen(true)}
+                {uploading ? (
+                  <>
+                    <Spinner className="size-5 text-fg-muted" />
+                    <span className="text-[13px] text-fg-muted">
+                      Uploading…
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="size-7 text-fg-subtle"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <rect
+                        x="2.5"
+                        y="5.5"
+                        width="19"
+                        height="13"
+                        rx="2"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                      />
+                      <path
+                        d="M10 9.5l4.5 2.5L10 14.5v-5Z"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <span className="text-[13px] font-medium text-fg">
+                      Drop a video or click to choose
+                    </span>
+                    <span className="text-[12px] text-fg-subtle">
+                      Up to {MAX_SHORT_EDGE}×{MAX_LONG_EDGE}, {maxSeconds}s and{" "}
+                      {MAX_UPLOAD_BYTES / 1024 / 1024} MB
+                      {budgetSeconds && budgetSeconds < maxSeconds
+                        ? ` — the first ${budgetSeconds}s of it is used`
+                        : " — or hit Remix or Extend on a finished generation"}
+                    </span>
+                  </>
+                )}
+              </button>
+
+              {canRecord ? (
+                <div
+                  className="flex justify-center border-t border-border-default
+                  px-3 py-2"
                 >
-                  Record a clip
-                </Button>
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
+                  <Button
+                    variant="quiet"
+                    size="xs"
+                    icon={<CameraIcon />}
+                    disabled={disabled || uploading}
+                    onClick={() => setCaptureOpen(true)}
+                  >
+                    Record a clip
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      )}
 
       <VideoCapture
         open={captureOpen}

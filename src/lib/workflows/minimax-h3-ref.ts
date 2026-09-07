@@ -742,7 +742,14 @@ const params: ParamDef[] = [
     minSeconds: 1,
     maxSeconds: MAX_CLIP_SECONDS,
     budgetSeconds: REF_BUDGET_SECONDS,
-    help: `Optional. A clip shows how someone moves, which a still cannot. The first ${REF_BUDGET_SECONDS}s reach the model, and only as much of that as the video is long — a clip about as long as the video is what makes a run slow. Pins the run to 4 steps.`,
+    // A row until asked for. The picture above is what this workflow is named
+    // after and keeps its drop target; a clip and a track are the alternatives
+    // to it, and three open ones were most of the panel. See `compact`.
+    compact: true,
+    // Short, because the control it sits under is a row until it is asked for
+    // — and the drop zone it opens into repeats the limits in full. What is
+    // left is the part that is not obvious from either.
+    help: "Optional. Shows how something moves, which a still cannot. Pins the run to 4 steps; a clip as long as the video is what makes one slow.",
     group: "References",
     targets: [
       { node: VIDEO_NODE, input: "video" },
@@ -796,7 +803,8 @@ const params: ParamDef[] = [
     label: "Reference track",
     type: "audio",
     default: "",
-    help: "Optional. Pins the run to 4 steps, which is where a track works. A long track is a reference rather than a running time, so only as much of it as the video is long is sent — see below.",
+    compact: true,
+    help: "Optional. Pins the run to 4 steps. Only as much of it as the video is long is sent — see below.",
     group: "References",
     // Nothing else knows how long the track runs, and the start control has to
     // land inside it. The browser reads it off the loaded player and reports it

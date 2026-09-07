@@ -415,6 +415,7 @@ function Control({
             minSeconds={param.minSeconds}
             maxSeconds={param.maxSeconds}
             budgetSeconds={param.budgetSeconds}
+            compact={param.compact}
             disabled={readOnly}
             describedBy={describedBy}
           />
@@ -441,6 +442,7 @@ function Control({
             onMeasure={
               measures ? (seconds) => onChange(measures, seconds) : undefined
             }
+            compact={param.compact}
             disabled={readOnly}
             describedBy={describedBy}
           />
