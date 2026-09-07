@@ -48,6 +48,39 @@ const MAX_SHORT_EDGE = 768;
  */
 const MAX_SECONDS = 20;
 
+/**
+ * The lowest bitrate worth recording a reference clip at, in bits per second.
+ *
+ * A clip recorded here is not something to look at — it is what a workflow
+ * holds itself to, and Remix in particular regenerates every frame against it.
+ * Soft, blocky source footage therefore does not merely look worse on the way
+ * in, it is what the model is told to reproduce.
+ *
+ * 1.2 Mbps is roughly what the 4 MB ceiling affords a 20-second clip, which is
+ * the pairing every recording made by this app until now actually used.
+ */
+const MIN_RECORD_BITS_PER_SECOND = 1_200_000;
+
+/**
+ * The longest clip worth recording *in the browser*, which is not the longest
+ * clip a workflow will take.
+ *
+ * The two limits answer different questions and stopped agreeing once Remix
+ * learned to rebuild a clip in chunks. What a graph accepts is now a minute,
+ * and a file picked off disk or handed over by the Remix button can be that
+ * long — the first was encoded by something else and the second never passes
+ * through the browser at all. A recording is different: its bitrate has to be
+ * budgeted before the take starts, out of a fixed 4 MB, so length is bought
+ * directly with quality. Letting the recorder inherit the graph's minute would
+ * spend a 3.5x drop in bitrate without anyone choosing it.
+ *
+ * So the recorder asks its own question — how long can this be and still be
+ * worth using as a reference — and the answer is a little over 20 seconds.
+ */
+const MAX_RECORD_SECONDS = Math.floor(
+  (MAX_UPLOAD_BYTES * 8 * 0.8) / (MIN_RECORD_BITS_PER_SECOND + 96_000),
+);
+
 interface Probe {
   width: number;
   height: number;
@@ -564,7 +597,12 @@ export function VideoUpload({
         open={captureOpen}
         onClose={() => setCaptureOpen(false)}
         subtitle={label}
-        maxSeconds={Math.min(maxSeconds, budgetSeconds ?? maxSeconds)}
+        maxSeconds={Math.min(
+          maxSeconds,
+          budgetSeconds ?? maxSeconds,
+          // Its own ceiling, not the graph's. See MAX_RECORD_SECONDS.
+          MAX_RECORD_SECONDS,
+        )}
         maxBytes={MAX_UPLOAD_BYTES}
         // Straight into the same handler a file picked off disk goes through,
         // so the measurements, the size guard, the upload and the preview are
