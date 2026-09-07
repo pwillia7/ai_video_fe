@@ -65,14 +65,33 @@ export function RewriteKeyButton({
     void refresh();
   }, [refresh]);
 
-  // Nothing to say until the first answer, and nothing to offer on an install
-  // that has no gateway pack in it — there is no config.json to write to.
-  if (!gateway?.installed) return null;
-
-  const configured = gateway.configured === true;
-  const label = configured
-    ? "Change the key the prompt rewrite runs on"
-    : "No rewrite key set — generations will fail until one is";
+  /**
+   * Rendered whatever the gateway says, including nothing at all.
+   *
+   * It used to hide itself unless the pack was installed, which was right when
+   * the only thing behind it was the key: with no `config.json` to write to
+   * there was nothing to offer. It stopped being right once the modal also held
+   * which models the picker shows — that is a preference stored in this
+   * browser, and it needs neither the pack, nor a key, nor ComfyUI to be
+   * answering. Gating it on any of those made it vanish exactly when this
+   * machine is offline, which is most of the time on some setups.
+   *
+   * The key half still hides itself; see the modal.
+   */
+  const installed = gateway?.installed === true;
+  const configured = gateway?.configured === true;
+  /**
+   * Amber only for the one state that stops a generation: a pack that is there
+   * and has no key. Unknown is not a warning — the connection pill is already
+   * saying the box is unreachable, and saying it twice in a control about
+   * something else is noise.
+   */
+  const warn = installed && !configured;
+  const label = !installed
+    ? "Which models the prompt rewrite offers"
+    : configured
+      ? "Change the key the prompt rewrite runs on"
+      : "No rewrite key set — generations will fail until one is";
 
   return (
     <>
@@ -83,13 +102,24 @@ export function RewriteKeyButton({
         aria-label={label}
         className={`grid size-8 place-items-center rounded-md border transition-colors duration-150
           ${
-            configured
-              ? "border-border-default bg-surface text-fg-muted hover:border-border-strong hover:text-fg"
-              : "border-warning/50 bg-warning/10 text-warning hover:border-warning"
+            warn
+              ? "border-warning/50 bg-warning/10 text-warning hover:border-warning"
+              : "border-border-default bg-surface text-fg-muted hover:border-border-strong hover:text-fg"
           }`}
       >
-        <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
-          <circle cx="5.5" cy="8" r="2.75" stroke="currentColor" strokeWidth="1.3" />
+        <svg
+          viewBox="0 0 16 16"
+          className="size-3.5"
+          fill="none"
+          aria-hidden="true"
+        >
+          <circle
+            cx="5.5"
+            cy="8"
+            r="2.75"
+            stroke="currentColor"
+            strokeWidth="1.3"
+          />
           <path
             d="M8.25 8H14M11.5 8v2.25M13 8v1.75"
             stroke="currentColor"
@@ -121,7 +151,7 @@ function RewriteKeyModal({
 }: {
   open: boolean;
   onClose: () => void;
-  gateway: Gateway;
+  gateway: Gateway | null;
   onSaved: (next: Gateway) => void;
   tier: GatewayTier;
   onTierChange: (tier: GatewayTier) => void;
@@ -151,7 +181,9 @@ function RewriteKeyModal({
       setKey("");
       onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save the key.");
+      setError(
+        cause instanceof Error ? cause.message : "Could not save the key.",
+      );
     } finally {
       setSaving(false);
     }
@@ -163,90 +195,103 @@ function RewriteKeyModal({
       onClose={onClose}
       title="Rewrite key"
       subtitle={
-        gateway.configured
-          ? "A key is set. Entering another replaces it."
-          : "No key set — the prompt rewrite cannot run without one."
+        !gateway?.installed
+          ? "The gateway pack is not answering, so the key cannot be set from here. What the picker offers still can."
+          : gateway.configured
+            ? "A key is set. Entering another replaces it."
+            : "No key set — the prompt rewrite cannot run without one."
       }
       footer={
         <div className="flex items-center justify-end gap-2">
           <Button variant="quiet" size="sm" onClick={onClose} disabled={saving}>
-            Cancel
+            {gateway?.installed ? "Cancel" : "Done"}
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => void save()}
-            disabled={saving || key.trim().length < 8}
-          >
-            {saving ? "Saving…" : "Save key"}
-          </Button>
+          {gateway?.installed ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void save()}
+              disabled={saving || key.trim().length < 8}
+            >
+              {saving ? "Saving…" : "Save key"}
+            </Button>
+          ) : null}
         </div>
       }
     >
-      <p className="text-[13px] leading-relaxed text-fg-muted">
-        Every workflow expands what you type into a full shot description before
-        the video model sees it, and that runs on the{" "}
-        <a
-          href="https://vercel.com/dashboard"
-          target="_blank"
-          rel="noreferrer"
-          className="text-accent underline underline-offset-2"
-        >
-          Vercel AI Gateway
-        </a>
-        . Create a key there under AI Gateway → API Keys; every team gets $5 of
-        credit a month, and the free models in the Rewrite model list cost
-        nothing against it.
-      </p>
-
       {/*
-        A form around one field, for the reason Chrome states in the console:
-        "Password field is not contained in a form". A password input outside
-        one is a field its password manager cannot offer to fill or save, and
-        this modal lives in the DOM from page load, so the notice is there on
-        every visit whether or not anyone opens it.
-
-        It also buys the behaviour anyone typing a key into a box expects, which
-        the modal did not have: Enter submits.
+        The key half, which does need the pack: without one there is no
+        config.json to write to and the save would have nowhere to go. The
+        picker setting below does not, so it stays either way.
       */}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!saving && key.trim().length >= 8) void save();
-        }}
-      >
-        {/*
-          The username half of a password form, which Chrome asks for next:
-          "Password forms should have (optionally hidden) username fields for
-          accessibility". There is no account here — the key is the whole
-          credential — so this names the thing the key belongs to, which is
-          also what makes a password manager offer to save it under a useful
-          label rather than under the site alone.
+      {gateway?.installed ? (
+        <>
+          <p className="text-[13px] leading-relaxed text-fg-muted">
+            Every workflow expands what you type into a full shot description
+            before the video model sees it, and that runs on the{" "}
+            <a
+              href="https://vercel.com/dashboard"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent underline underline-offset-2"
+            >
+              Vercel AI Gateway
+            </a>
+            . Create a key there under AI Gateway → API Keys; every team gets $5
+            of credit a month, and the free models in the Rewrite model list
+            cost nothing against it.
+          </p>
+
+          {/*
+          A form around one field, for the reason Chrome states in the console:
+          "Password field is not contained in a form". A password input outside
+          one is a field its password manager cannot offer to fill or save, and
+          this modal lives in the DOM from page load, so the notice is there on
+          every visit whether or not anyone opens it.
+
+          It also buys the behaviour anyone typing a key into a box expects, which
+          the modal did not have: Enter submits.
         */}
-        <input
-          type="text"
-          name="username"
-          autoComplete="username"
-          value="Vercel AI Gateway"
-          readOnly
-          tabIndex={-1}
-          aria-hidden="true"
-          className="sr-only"
-        />
-        <Field
-          id={id}
-          label="Gateway API key"
-          help="Sent straight to your ComfyUI machine and written next to the node pack. It is not stored here and cannot be read back."
-        >
-          <PasswordInput
-            id={id}
-            value={key}
-            onChange={setKey}
-            placeholder="vck_…"
-            disabled={saving}
-          />
-        </Field>
-      </form>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!saving && key.trim().length >= 8) void save();
+            }}
+          >
+            {/*
+            The username half of a password form, which Chrome asks for next:
+            "Password forms should have (optionally hidden) username fields for
+            accessibility". There is no account here — the key is the whole
+            credential — so this names the thing the key belongs to, which is
+            also what makes a password manager offer to save it under a useful
+            label rather than under the site alone.
+          */}
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              value="Vercel AI Gateway"
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+            />
+            <Field
+              id={id}
+              label="Gateway API key"
+              help="Sent straight to your ComfyUI machine and written next to the node pack. It is not stored here and cannot be read back."
+            >
+              <PasswordInput
+                id={id}
+                value={key}
+                onChange={setKey}
+                placeholder="vck_…"
+                disabled={saving}
+              />
+            </Field>
+          </form>
+        </>
+      ) : null}
 
       {error ? (
         <p className="text-[13px] text-danger" role="alert">
@@ -266,14 +311,13 @@ function RewriteKeyModal({
         help={
           freeModelsExist()
             ? "A team with no card on it still gets $5 of credit a month, so a paid model is not refused — it is billed against an allowance that runs out. Say free to be offered only the models that cost nothing."
-            : "Every model in the gateway's catalog costs something today, so this changes nothing until a free one appears. A team with no card still gets $5 of credit a month."
+            : "Nothing in the gateway's catalog is free today, so free changes nothing for now — the answer is kept and takes effect when one appears. A team with no card still gets $5 of credit a month."
         }
       >
         <Select
           id={`${id}-tier`}
           value={tier}
           onChange={(next) => onTierChange(next as GatewayTier)}
-          disabled={!freeModelsExist()}
           options={[
             {
               value: "paid",
@@ -287,12 +331,12 @@ function RewriteKeyModal({
         />
       </Field>
 
-      {gateway.configPath ? (
+      {gateway?.configPath ? (
         <p className="text-[12px] break-all text-fg-subtle">
           Written to <span className="font-mono">{gateway.configPath}</span> on
-          the ComfyUI machine. Setting <span className="font-mono">AI_GATEWAY_API_KEY</span>{" "}
-          in that machine&rsquo;s environment does the same job and takes
-          precedence.
+          the ComfyUI machine. Setting{" "}
+          <span className="font-mono">AI_GATEWAY_API_KEY</span> in that
+          machine&rsquo;s environment does the same job and takes precedence.
         </p>
       ) : null}
     </Modal>

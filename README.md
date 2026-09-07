@@ -211,11 +211,19 @@ a per-browser setting rather than a per-install one — two people pointed at th
 same ComfyUI can hold different keys — which is why the narrowing happens in the
 browser and not when the workflow is built.
 
-The control disables itself when narrowing would leave nothing, and says so.
-That is the state today: every model in the catalog costs something, so there is
-no free list to switch to. Narrowing is abandoned rather than applied whenever
-it would empty the picker — a dropdown with nothing in it is worse than one
-offering more than was asked for.
+It is answerable whether or not a key has been set from this app, and whether or
+not ComfyUI is answering at all. The key may well have been set on the ComfyUI
+machine instead — `AI_GATEWAY_API_KEY` in that machine's environment does the
+same job and takes precedence over the file — in which case this app never sees
+a key being set and has no business asking for one before it will take an
+answer. So only the *key* half of that modal waits on the pack; the picker
+setting is a preference in this browser and is offered on its own.
+
+Narrowing is abandoned rather than applied whenever it would empty the picker —
+a dropdown with nothing in it is worse than one offering more than was asked
+for. That is the state today: every model in the catalog costs something, so
+saying **free** changes nothing for now. The answer is still kept, and takes
+effect the day a free model appears.
 
 Every option accepts images, because four of the six graphs show the rewrite a
 picture (the upload, the last frame of the clip being extended, the reference
