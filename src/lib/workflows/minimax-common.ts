@@ -1326,7 +1326,6 @@ export function referenceVideo({
   audioParam,
   trackParam,
   slots,
-  frames,
 }: {
   /** The control holding the clip. Nothing to say without one. */
   videoParam: string;
@@ -1336,8 +1335,6 @@ export function referenceVideo({
   trackParam: string;
   /** How many picture slots the graph wires, for counting the filled ones. */
   slots: number;
-  /** How many frames the director is shown. Must match the graph's sampler. */
-  frames: number;
 }): DirectorAppendix {
   return (values) => {
     if (!String(values[videoParam] ?? "").trim()) return "";
@@ -1350,8 +1347,8 @@ export function referenceVideo({
     // looking at rather than in terms of the graph.
     const placement =
       pictures === 0
-        ? `The ${frames} images you are shown are frames sampled evenly across it, in playback order.`
-        : `After the ${pictures === 1 ? "reference picture" : `${pictures} reference pictures`}, you are shown ${frames} further images. Those are frames sampled evenly across <Video 1>, in playback order.`;
+        ? `The images you are shown are all frames sampled evenly across it, in playback order.`
+        : `After the ${pictures === 1 ? "reference picture" : `${pictures} reference pictures`}, you are shown a handful of further images. Those are frames sampled evenly across <Video 1>, in playback order.`;
 
     /**
      * The soundtrack's own paragraph, and the one place the numbering has to be
@@ -1377,7 +1374,7 @@ overall_soundscape and non_diegetic_music are written for the new scene, from th
 
 The user has supplied a clip as a reference. The model is given it as <Video 1>.
 
-${placement} They are one clip seen at intervals, not further pictures: they have no <Picture N> number of their own, and citing one as a picture invents a reference that does not exist. Read them together, as motion.
+${placement} They are one clip seen at intervals, not further pictures: they have no <Picture N> number of their own, and citing one as a picture invents a reference that does not exist. Read them together, as motion, and take their number as an artefact of sampling rather than as anything about the clip.
 
 WHAT THE CLIP IS FOR
 

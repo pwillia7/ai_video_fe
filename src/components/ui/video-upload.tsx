@@ -72,14 +72,44 @@ function probe(file: File): Promise<Probe> {
       fn();
     };
 
-    video.onloadedmetadata = () =>
-      done(() =>
-        resolve({
-          width: video.videoWidth,
-          height: video.videoHeight,
-          seconds: video.duration,
-        }),
-      );
+    /**
+     * Report what the element knows, once it knows it.
+     *
+     * A file written by MediaRecorder reports `Infinity` here and always will:
+     * it is a fragmented container whose header was written before the length
+     * was known and never rewritten. Seeking past the end forces the element to
+     * scan for the real duration, which is the long-standing way to get a
+     * number out of one — and without it a recording skips both duration checks
+     * below, because they are guarded on the value being finite. That is how a
+     * fifteen-second clip got past a six-second cap.
+     */
+    const settle = () => {
+      if (Number.isFinite(video.duration)) {
+        done(() =>
+          resolve({
+            width: video.videoWidth,
+            height: video.videoHeight,
+            seconds: video.duration,
+          }),
+        );
+        return;
+      }
+
+      video.ontimeupdate = () => {
+        video.ontimeupdate = null;
+        done(() =>
+          resolve({
+            width: video.videoWidth,
+            height: video.videoHeight,
+            seconds: video.duration,
+          }),
+        );
+      };
+      // Any time past the end will do; the element clamps to what it finds.
+      video.currentTime = 1e101;
+    };
+
+    video.onloadedmetadata = settle;
     video.onerror = () =>
       done(() =>
         reject(
@@ -322,13 +352,30 @@ export function VideoUpload({
               controls
               playsInline
               preload="metadata"
-              onLoadedMetadata={(event) =>
-                applySpec({
-                  width: event.currentTarget.videoWidth,
-                  height: event.currentTarget.videoHeight,
-                  seconds: event.currentTarget.duration,
-                })
-              }
+              // Same `Infinity` problem as `probe`, and it matters more here:
+              // this is what measures a clip restored from a previous session,
+              // and that measurement is what decides how many frames of it the
+              // model is given. Seeking past the end makes the element go and
+              // find the real duration.
+              onLoadedMetadata={(event) => {
+                const el = event.currentTarget;
+                const report = () =>
+                  applySpec({
+                    width: el.videoWidth,
+                    height: el.videoHeight,
+                    seconds: el.duration,
+                  });
+                if (Number.isFinite(el.duration)) {
+                  report();
+                  return;
+                }
+                el.ontimeupdate = () => {
+                  el.ontimeupdate = null;
+                  report();
+                  el.currentTime = 0;
+                };
+                el.currentTime = 1e101;
+              }}
               onError={() => {
                 onChange("");
                 applySpec(null);

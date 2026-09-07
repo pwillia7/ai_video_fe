@@ -1306,34 +1306,39 @@ among several and the target is a new scene — `referenceVideo` in
 director carrying Remix's instinct re-cuts the source instead of building what
 was asked for.
 
-The wiring is six nodes. A `LoadVideo` (170) holds the clip. A
-`VideoFrameSample` (174) resamples it to 24 fps and a `GetVideoComponents` (175)
-splits out the frames for `ref_videos.ref_video_0`. A separate
-`GetVideoComponents` (171) on the raw clip supplies the soundtrack for
-`ref_video_audios.ref_video_audio_0`, because sampling frames drops the audio.
-And a second `VideoFrameSample`/`GetVideoComponents` pair (172, 173) takes five
-frames spread evenly across it for the director to look at, exactly as Remix
-does — the rewrite stage is shown images, so there is no such thing as showing
-it a video.
+The wiring is four nodes. A `LoadVideo` (170) holds the clip and a
+`GetVideoComponents` (171) decodes it — frames out of output 0, soundtrack out
+of output 1 for `ref_video_audios.ref_video_audio_0`. A
+`GetImageRangeFromBatch` (174) cuts the first `MAX_CLIP_SECONDS × 24` frames out
+of that batch for `ref_videos.ref_video_0`, and a `VHS_SelectEveryNthImage`
+(172) strides the same batch down to about five frames for the director to look
+at — the rewrite stage is shown images, so there is no such thing as showing it
+a video.
 
-**24 fps is not a preference, and the resample is not optional.** There is no
-resampling anywhere in `nodes_minimax_h3.py`: whatever batch reaches
-`ref_videos.ref_video_0` is *interpreted* as 24 fps, and the node's own tooltip
-says so. Hand it a 60 fps clip untouched and the model is told a 5-second
-reference runs 12.5 seconds — every judgement it makes about how fast something
-moves is wrong by the ratio, and the frames it keeps are the first 40% of what
-was attached.
+**24 fps is not a preference.** There is no resampling anywhere in
+`nodes_minimax_h3.py`: whatever batch reaches `ref_videos.ref_video_0` is
+*interpreted* as 24 fps, and the node's own tooltip says so. Hand it a 60 fps
+clip untouched and the model is told a 5-second reference runs 12.5 seconds —
+every judgement it makes about how fast something moves is wrong by the ratio.
 
-Sampling evenly across the whole clip is what makes the count *be* the rate: N
-frames spread over D seconds read back as N/24 seconds, so asking for exactly
-`D × 24` reproduces the filmed speed whatever the camera did. `refVideoFrames`
-does that arithmetic from the clip's measured length, which the upload control
-reports the same way it reports a reference track's. It deliberately does **not**
-round the count down to one H3 accepts — the node wants five above a multiple of
-17 and trims to it — because rounding down would keep the same span of clip in
-fewer frames and stretch it, so a 2-second clip would come back moving 1.2×
-too fast. Letting the node trim costs at most sixteen frames off the end and
-nothing off the speed.
+**Every frame is selected out of the decoded batch, never out of the video, and
+that is not a stylistic choice.** ComfyUI's own frame samplers ask the container
+how many frames it has, and a file written by a browser's `MediaRecorder` cannot
+answer: it is a *fragmented* MP4, written by a streaming encoder that never goes
+back to fill in the header. Its `mvhd` duration is `0` and every sample table —
+`stsz`, `stts`, `stco`, `stsc` — has zero entries. `get_frame_count` falls back
+to decoding and counting, but bounds that loop by the container's own duration,
+so it returns **1**. `VideoFrameSample` then samples one frame and the reference
+node rejects the run for having fewer than five. `GetVideoComponents` is the one
+step that does not care, because it decodes by iterating; everything after it
+works on a real `IMAGE` batch and the bookkeeping stops mattering.
+
+The cost of selecting by index rather than by time is that the frames keep
+whatever spacing the camera gave them, so the recorder asks `getUserMedia` for
+24 fps and a recorded clip plays at its real speed. An *uploaded* clip at some
+other rate is still read as 24 — a 30 fps upload comes back about a fifth slow.
+That is the safe direction to be wrong in for a reference, and the reason the
+in-app recorder is the better way to get one.
 
 **Those five frames join the same batch as the reference pictures**, which is
 the one thing about this that needed saying out loud. `REFERENCE_DIRECTOR`
@@ -1384,11 +1389,10 @@ Three limits worth knowing:
   param, checked in the browser before the upload starts. Unlike Remix and
   Extend nothing hands a clip to this slot server-side, so every one of them
   goes through the browser and the 4 MB cap really binds.
-- **With the sound off, nothing decodes the clip in full.** Node 171 exists only
-  to pull the soundtrack out, and it is the one node here that reads every
-  frame; the resampled path decodes only the frames it selects. So `finalize`
-  removes 171 along with the input when the toggle is off, which takes the whole
-  decode out of the run rather than leaving ComfyUI to notice it is unreachable.
+- **The clip is decoded in full either way.** Node 171 supplies both the frames
+  and the sound, and it is the only step that reads a `MediaRecorder` file
+  correctly, so turning the sound off drops the input but not the node. Bounded
+  by the six-second cap, that decode is cheap next to the sampling.
 
 **Or record one.** The camera button under the clip slot opens `VideoCapture`,
 which records with the device's own camera and microphone and hands the file to

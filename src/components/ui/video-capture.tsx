@@ -9,6 +9,13 @@ import { Modal } from "@/components/ui/modal";
 type Facing = "environment" | "user";
 
 /**
+ * The rate to record at, which is the rate MiniMax H3 reads a reference video
+ * at. See the workflow's own REF_VIDEO_FPS — duplicated rather than imported
+ * because nothing under src/lib/workflows may be pulled into a client bundle.
+ */
+const REF_VIDEO_FPS = 24;
+
+/**
  * The container this browser will record into, best first.
  *
  * MP4 leads for one reason: what comes out of here is uploaded to ComfyUI and
@@ -169,6 +176,13 @@ export function VideoCapture({
             facingMode: { ideal: facing },
             width: { ideal: 1280 },
             height: { ideal: 720 },
+            // 24, because that is the rate H3 reads a reference video at and
+            // nothing downstream can resample a recording to it: the frames are
+            // cut out of a decoded batch by index, so their spacing is whatever
+            // the camera produced. Recording at the target rate is what makes a
+            // recorded clip play at its real speed — at 30 it would come back
+            // a fifth slow, at 60 half speed.
+            frameRate: { ideal: REF_VIDEO_FPS },
           },
           // The soundtrack is half the point of attaching a clip rather than a
           // still, so the microphone is asked for with the camera.

@@ -104,10 +104,8 @@ const AUDIO_PARAM = "reference_audio";
  */
 const VIDEO_NODE = "170";
 const VIDEO_SPLIT_NODE = "171";
-const VIDEO_SAMPLE_NODE = "172";
-const VIDEO_SAMPLE_SPLIT_NODE = "173";
-const VIDEO_RESAMPLE_NODE = "174";
-const VIDEO_RESAMPLE_SPLIT_NODE = "175";
+const VIDEO_PEEK_NODE = "172";
+const VIDEO_RANGE_NODE = "174";
 const VIDEO_INPUT = "ref_videos.ref_video_0";
 const VIDEO_AUDIO_INPUT = "ref_video_audios.ref_video_audio_0";
 const VIDEO_PARAM = "reference_video";
@@ -174,6 +172,18 @@ const refVideoFrames = (values: Record<string, ParamValue>): number => {
   );
   return Math.max(5, Math.round(seconds * REF_VIDEO_FPS));
 };
+
+/**
+ * The stride that thins that batch down to roughly VIDEO_SAMPLE_FRAMES for the
+ * director to look at.
+ *
+ * A stride rather than a count because the node that does this without asking
+ * the container anything takes every nth image. The result is within one of the
+ * number asked for, which is why `referenceVideo` describes what the director
+ * is shown as a handful rather than counting them out.
+ */
+const refVideoStride = (values: Record<string, ParamValue>): number =>
+  Math.max(1, Math.ceil(refVideoFrames(values) / VIDEO_SAMPLE_FRAMES));
 
 /**
  * How many frames of the clip the director is shown.
@@ -461,7 +471,7 @@ const graph: ComfyGraph = {
       // a clip and an unrelated sound. `ref_audios` below is the other thing,
       // and both can be given at once. All of them go on any run that does not
       // have them; see `finalize`.
-      "ref_videos.ref_video_0": ["175", 0],
+      "ref_videos.ref_video_0": ["174", 0],
       "ref_video_audios.ref_video_audio_0": ["171", 1],
 
       // The one reference that is not a picture. It comes through the trim
@@ -542,53 +552,45 @@ const graph: ComfyGraph = {
     inputs: { video: ["170", 0] },
     _meta: { title: "Get Video Components" },
   },
+  // What the director is shown: a handful of frames spread across the same
+  // capped batch the model gets, taken by stride for the same reason 174 exists
+  // — nothing here may ask the container how long it is. `select_every_nth` is
+  // written per run alongside 174's count; see `refVideoStride`.
   "172": {
-    class_type: "VideoFrameSample",
+    class_type: "VHS_SelectEveryNthImage",
     inputs: {
-      num_frames: VIDEO_SAMPLE_FRAMES,
-      strategy: "uniform",
-      // Unused while the strategy is "uniform" — evenly spaced frames are not
-      // a random draw — and fixed rather than exposed for the same reason the
-      // director's own rewrite is cached: nothing here should change between
-      // two runs of the same clip.
-      seed: 0,
-      video: ["170", 0],
+      images: ["174", 0],
+      select_every_nth: Math.ceil(
+        (MAX_CLIP_SECONDS * REF_VIDEO_FPS) / VIDEO_SAMPLE_FRAMES,
+      ),
+      skip_first_images: 0,
     },
-    _meta: { title: "Sample Video Frame" },
-  },
-  "173": {
-    class_type: "GetVideoComponents",
-    inputs: { video: ["172", 0] },
-    _meta: { title: "Get Video Components" },
+    _meta: { title: "Select Every Nth Image" },
   },
 
-  // The clip as the model gets it: resampled to 24 fps and capped.
+  // The clip as the model gets it: the first MAX_CLIP_SECONDS of frames.
   //
-  // "uniform" rather than "head" for both of the reasons that matter here. It
-  // spreads the frames across the whole clip, so what the model is shown is the
-  // whole of what was attached rather than the start of it; and it is the
-  // strategy that decodes only the frames it selects, where "head" hands on a
-  // lazy trim that something downstream still has to read in full.
+  // Cut out of the decoded batch rather than out of the video, which is the
+  // whole point of doing it here. Every node that selects frames from a VIDEO
+  // asks it how many it has, and a file written by a browser's MediaRecorder
+  // cannot answer: it is a fragmented MP4 whose header says duration 0 and
+  // whose sample tables are empty, so ComfyUI measures it as one frame and
+  // hands on one frame — which the reference node then rejects for being under
+  // five. `GetVideoComponents` is the one step that does not care, because it
+  // decodes by iterating, so everything after it works on a real IMAGE batch
+  // and the container's bookkeeping stops mattering.
   //
-  // `num_frames` is written per run by the measured length of the clip — see
+  // `num_frames` is written per run from the measured length of the clip; see
   // `refVideoFrames`. The value here is the cap, which is what a submission
   // with no measurement asks for.
   "174": {
-    class_type: "VideoFrameSample",
+    class_type: "GetImageRangeFromBatch",
     inputs: {
+      images: ["171", 0],
+      start_index: 0,
       num_frames: MAX_CLIP_SECONDS * REF_VIDEO_FPS,
-      strategy: "uniform",
-      // Unused while the strategy is "uniform", and fixed for the same reason
-      // as the director's sampler above.
-      seed: 0,
-      video: ["170", 0],
     },
-    _meta: { title: "Sample Video Frame" },
-  },
-  "175": {
-    class_type: "GetVideoComponents",
-    inputs: { video: ["174", 0] },
-    _meta: { title: "Get Video Components" },
+    _meta: { title: "Get Image Range From Batch" },
   },
 
   // The third and fourth reference loaders. Not in the ComfyUI export — the
@@ -675,7 +677,6 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
     audioParam: VIDEO_AUDIO_PARAM,
     trackParam: AUDIO_PARAM,
     slots: REF_NODES.length,
-    frames: VIDEO_SAMPLE_FRAMES,
   }),
   referenceTrack(AUDIO_PARAM),
   words.director,
@@ -743,9 +744,14 @@ const params: ParamDef[] = [
     group: "References",
     targets: [
       {
-        node: VIDEO_RESAMPLE_NODE,
+        node: VIDEO_RANGE_NODE,
         input: "num_frames",
         transform: (_value, values) => refVideoFrames(values),
+      },
+      {
+        node: VIDEO_PEEK_NODE,
+        input: "select_every_nth",
+        transform: (_value, values) => refVideoStride(values),
       },
     ],
   },
@@ -1099,30 +1105,23 @@ export const minimaxH3Reference: WorkflowDef = {
     // there were. Written here rather than declared on the node because which
     // slot that is depends on the submission.
     if (videoAttached(values)) {
-      graph[BATCH_NODE].inputs[batchInput(filled + 1)] = [
-        VIDEO_SAMPLE_SPLIT_NODE,
-        0,
-      ];
+      graph[BATCH_NODE].inputs[batchInput(filled + 1)] = [VIDEO_PEEK_NODE, 0];
       // The soundtrack is the one part of the clip that is optional. Dropping
       // the input leaves the frames wired and the audio unsent, which is
       // exactly "the movement and none of the sound".
+      // Only the input goes. 171 stays either way now: it is where the frames
+      // come from as well as the sound, and it is the only step that reads a
+      // MediaRecorder file correctly.
       if (!videoAudioAttached(values)) {
         delete graph[REFERENCE_NODE].inputs[VIDEO_AUDIO_INPUT];
-        // 171 exists only to pull the soundtrack out, and it is the one node
-        // here that reads every frame of the clip. With no soundtrack wanted it
-        // has no consumer, so removing it takes the full decode out of the run
-        // rather than leaving ComfyUI to notice it is unreachable.
-        delete graph[VIDEO_SPLIT_NODE];
       }
     } else {
       delete graph[REFERENCE_NODE].inputs[VIDEO_INPUT];
       delete graph[REFERENCE_NODE].inputs[VIDEO_AUDIO_INPUT];
       delete graph[VIDEO_NODE];
       delete graph[VIDEO_SPLIT_NODE];
-      delete graph[VIDEO_SAMPLE_NODE];
-      delete graph[VIDEO_SAMPLE_SPLIT_NODE];
-      delete graph[VIDEO_RESAMPLE_NODE];
-      delete graph[VIDEO_RESAMPLE_SPLIT_NODE];
+      delete graph[VIDEO_PEEK_NODE];
+      delete graph[VIDEO_RANGE_NODE];
     }
 
     // With nothing to look at there is nothing to batch, and a BatchImagesNode
