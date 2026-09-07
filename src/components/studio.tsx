@@ -969,9 +969,18 @@ function Workbench({
           document sideways. Capping the minimum at 0 lets the ellipsis do the
           job it was there for.
         */}
+        {/*
+          The form column is the one being worked in — Reference to Video puts
+          26 controls in it — while the right-hand track holds one video and a
+          list. It used to stop at 380px and hand the rest to the stage, which
+          left the controls in a third of the width and the preview in two
+          thirds. It grows to 460 now, and at a wide enough viewport to 520,
+          where the extra goes to the column that has something to put in it.
+        */}
         <div
           className="grid gap-5 lg:min-h-0 lg:flex-1
-            lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]"
+            lg:grid-cols-[minmax(340px,460px)_minmax(0,1fr)]
+            2xl:grid-cols-[minmax(400px,520px)_minmax(0,1fr)]"
         >
           {/* min-w-0: a grid item defaults to min-width:auto and would grow
               past its track to fit wide content such as an image preview.

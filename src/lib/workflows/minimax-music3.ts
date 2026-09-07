@@ -542,6 +542,7 @@ const params: ParamDef[] = [
     help: "How literally the song follows the caption — its genre, its sections, and where it ends. 2.0–2.5 holds a length better than the default; past 3 the music stiffens.",
     group: "Sampling",
     targets: [{ node: ENCODE_NODE, input: "cfg_scale" }],
+    advanced: true,
   },
   {
     id: "sampler_cfg",
@@ -563,6 +564,7 @@ const params: ParamDef[] = [
     help: "How hard the audio stage commits to what the song already is. Changes the sound, not the structure — 1.7 is the value the model ships with.",
     group: "Sampling",
     targets: [{ node: SAMPLER_NODE, input: "cfg" }],
+    advanced: true,
   },
   {
     id: "top_k",
@@ -594,6 +596,7 @@ const params: ParamDef[] = [
     help: "Narrows what the model may pick each frame. Lower holds the length better — the end-of-song token has to rank inside it to be chosen — at the cost of variety. Try 20, then 12; below 10 the music flattens.",
     group: "Sampling",
     targets: [{ node: ENCODE_NODE, input: "top_k" }],
+    advanced: true,
   },
 ];
 

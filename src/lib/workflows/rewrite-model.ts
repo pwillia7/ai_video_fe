@@ -77,6 +77,10 @@ export function rewriteModelParam(
     optionsFrom: { node: directors[0], input: "model", mode: "restrict" },
     help,
     group,
+    // Behind the disclosure: it is reached for when a model refuses a shot,
+    // which is something that happens to a run rather than something chosen for
+    // one, and it sat directly under the prompt on all six workflows.
+    advanced: true,
     targets: directors.map((node) => ({ node, input: "model" })),
   };
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { WorkflowSummary } from "@/lib/workflows/types";
 
 /**
@@ -34,6 +35,65 @@ export function WorkflowPicker({
   onSelect: (id: string) => void;
   disabled?: boolean;
 }) {
+  /**
+   * Collapsed once a workflow is chosen, which is immediately and for the rest
+   * of the session.
+   *
+   * The list is six cards carrying a description each, and it sits above the
+   * form in the column the form is in — so left open it is most of a screen of
+   * navigation scrolled past on the way to the controls, every visit, to reach
+   * the one thing on it that has changed: nothing. Open is still the state for
+   * a first look, and for whenever the choice is actually being made.
+   */
+  const [open, setOpen] = useState(!selectedId);
+
+  /**
+   * Reopening when the choice goes away, and closing when it arrives — which is
+   * what the hand-off buttons do: pressing Remix on a finished clip picks a
+   * workflow from the other side of the page, and the list has no reason to be
+   * standing open afterwards.
+   */
+  const previous = useRef(selectedId);
+  useEffect(() => {
+    if (previous.current !== selectedId) {
+      previous.current = selectedId;
+      if (selectedId) setOpen(false);
+    }
+  }, [selectedId]);
+
+  const current = workflows.find((workflow) => workflow.id === selectedId);
+
+  if (!open && current) {
+    return (
+      <div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen(true)}
+          aria-expanded={false}
+          className="group flex w-full items-center gap-2 rounded-lg border border-border-default
+            bg-bg-subtle p-3 text-left transition-colors duration-150
+            hover:border-border-strong hover:bg-surface-hover
+            disabled:pointer-events-none disabled:opacity-50"
+        >
+          <span className="min-w-0 truncate text-[13px] font-medium tracking-[-0.01em] text-fg">
+            {current.name}
+          </span>
+          {Boolean(turbo[current.id]) && Boolean(current.turbo) ? (
+            <Badge>Turbo</Badge>
+          ) : null}
+          <span className="ml-auto shrink-0 text-[12px] text-fg-subtle">
+            Change
+          </span>
+          <Chevron />
+        </button>
+        <p className="mt-1.5 px-3 text-[12px] leading-relaxed text-fg-muted">
+          {current.description}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div role="radiogroup" aria-label="Workflow" className="flex flex-col gap-2">
       {workflows.map((workflow) => {
@@ -109,6 +169,26 @@ function Badge({ children }: { children: React.ReactNode }) {
     >
       {children}
     </span>
+  );
+}
+
+/** Points down, because opening the list grows the column downwards. */
+function Chevron() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      className="size-3.5 shrink-0 text-fg-subtle"
+      fill="none"
+    >
+      <path
+        d="M4 6l4 4 4-4"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
