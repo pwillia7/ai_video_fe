@@ -3,8 +3,8 @@
  * Do not edit: run the script. The curation, and why it is these, is in
  * ../rewrite-catalog.ts.
  *
- * Synced 2026-09-06: 373 models in the catalog,
- * 10 families declared, 10 offered.
+ * Synced 2026-09-07: 371 models in the catalog,
+ * 10 families declared, 9 offered.
  */
 import type { OfferedModel } from "../rewrite-catalog";
 
@@ -29,13 +29,6 @@ export const REWRITE_MODELS: OfferedModel[] = [
     vision: true,
     free: false,
     pricePerMillion: 1.2,
-  },
-  {
-    id: "minimax/minimax-m3-free",
-    label: "MiniMax M3 (Free) — free",
-    vision: true,
-    free: true,
-    pricePerMillion: 0,
   },
   {
     id: "zai/glm-5.3-flash",
