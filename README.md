@@ -1275,32 +1275,44 @@ the ones a picture takes — `fully_copy`, `partially_copy`, `reference`,
 `weak_reference` — and the director was picking one by judging how sweeping it
 thought the request was. The control is the user saying it outright:
 
-| Answer | Marker | What carries over |
-| --- | --- | --- |
-| Everything — the recording as it is | `fully_copy` | dialogue, music and ambience |
-| Voices only — same delivery, new words | `partially_copy` | timbre, accent and pacing; the words are written fresh |
-| Music and ambience only — new dialogue | `partially_copy` | the score and the room |
-| Mood only — a feel, not the recording | `reference` | energy and density; nothing audible |
-| Nothing — write the audio fresh | `weak_reference` | nothing |
+The answers are the cells of a grid — what is said, and how it sounds — plus the
+music and room tone underneath both:
 
-They are roles rather than amounts, which is how MiniMax frames a reference:
-[tell the model what to take from it](https://www.rundiffusion.com/minimax-h3-prompt-guide),
-with voice referencing described as guiding timbre and delivery while the words
-come from the prompt. There is no documented dial for *degree* of reuse, so
-offering one would be inventing a control the model does not have.
+| Answer | Marker | Words | Voices | Music and room |
+| --- | --- | --- | --- | --- |
+| Keep it exactly | `fully_copy` | kept | kept | kept |
+| Same voices, new words | `partially_copy` | new | kept | kept |
+| Same words, new voices | `partially_copy` | kept | new | kept |
+| New words and voices | `partially_copy` | new | new | kept |
+| Nothing — the whole soundtrack fresh | `weak_reference` | new | new | new |
 
-Remix defaults to **Everything**, which is what its director assumed before the
-control existed; a reference clip defaults to **Mood only**, because there the
-clip is a reference rather than the thing being rebuilt. The block is written to
+*Same voices, new words* is the one worth knowing about: it is
+[voice referencing](https://www.rundiffusion.com/minimax-h3-prompt-guide), where
+the reference guides timbre and delivery while the lines come from the prompt.
+*Same words, new voices* is its mirror, and the one case where **Words in the
+clip** stops being optional — the director has to write lines it has never
+heard, so the transcript is the only copy of them there is.
+
+They name what to take rather than how much of it, which is how MiniMax frames a
+reference — there is no documented dial for *degree* of reuse, so offering one
+would be inventing a control the model does not have.
+
+Remix defaults to **Keep it exactly**, which is what its director assumed before
+the control existed. A reference clip defaults to **New words and voices**:
+there the clip is a reference rather than the thing being rebuilt, and switching
+its soundtrack on at all is a choice to use it for something — so the room and
+any music carry, and the speech does not. The block is written to
 *lift* the standing preservation rules rather than sit beside them — REMIX_DIRECTOR
 spends a page on holding `<Audio 1>`, and an appendix that merely disagreed
 would be a director told two things.
 
-**Words in the clip** stands down with it. That control exists so the model does
-not sing its own words over speech it cannot hear, which is a problem only while
-that speech is being reused — so on every answer but the first the transcript is
+**Words in the clip** follows that grid. It exists so the model does not sing its
+own words over speech it cannot hear, which is a problem only while those words
+are being reused — so on the three answers that write new ones the transcript is
 withheld from the prompt as well as from the brief, rather than the prompt
-carrying the very lines the rest of it says to replace.
+carrying the very lines the rest of it says to replace. Which answers those are
+is derived from the list rather than written down twice, so a sixth cannot be
+added without deciding it.
 
 - **It is not the output soundtrack.** H3 generates its own audio; the track
   conditions it. `referenceTrack` in `minimax-common.ts` tells the director so,

@@ -115,6 +115,13 @@ const VIDEO_PARAM = "reference_video";
 const VIDEO_AUDIO_PARAM = "reference_video_audio";
 const VIDEO_KEEP_PARAM = "reference_video_keep";
 const VIDEO_AUDIO_KEEP_PARAM = "reference_video_audio_keep";
+/**
+ * A clip attached here is a reference rather than the thing being rebuilt, so
+ * its sound is atmosphere by default: the room and any music carry, the speech
+ * does not. Turning the soundtrack on at all is a choice to use it for
+ * something, which is why this is not the answer that keeps nothing.
+ */
+const VIDEO_AUDIO_KEEP_DEFAULT = "speech" as const;
 
 /**
  * The most detail a reference clip is given, in megapixels.
@@ -690,7 +697,7 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
     param: VIDEO_AUDIO_KEEP_PARAM,
     // Unlike Remix, a clip here is a reference rather than the thing being
     // rebuilt, so its sound is a mood by default rather than a track to reuse.
-    fallback: "mood",
+    fallback: VIDEO_AUDIO_KEEP_DEFAULT,
     attached: videoAudioAttached,
   }),
 ]);
@@ -779,7 +786,7 @@ const params: ParamDef[] = [
   audioKeepParam(director, {
     id: VIDEO_AUDIO_KEEP_PARAM,
     label: "What to keep from the clip's sound",
-    fallback: "mood",
+    fallback: VIDEO_AUDIO_KEEP_DEFAULT,
     // Only a question about a soundtrack the model is actually being given.
     revealedBy: [VIDEO_PARAM, VIDEO_AUDIO_PARAM],
     help: "What the new soundtrack owes the clip's own. Turn it up to reuse what is in it.",

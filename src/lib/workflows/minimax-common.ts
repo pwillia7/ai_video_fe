@@ -1356,6 +1356,7 @@ export function wordsParam({
   help,
   group,
   revealedBy,
+  hiddenBy,
   targets,
 }: {
   id: string;
@@ -1370,6 +1371,11 @@ export function wordsParam({
    * reused.
    */
   revealedBy: ParamCondition | ParamCondition[];
+  /**
+   * And what stands it down again. For the graph that asks what the recording
+   * contributes: the answers that write new words have no use for the old ones.
+   */
+  hiddenBy?: ParamCondition | ParamCondition[];
   targets: ParamTarget[];
 }): ParamDef {
   return {
@@ -1383,6 +1389,7 @@ export function wordsParam({
     help,
     group,
     revealedBy,
+    hiddenBy,
     targets,
   };
 }
@@ -1481,34 +1488,64 @@ Where the user's own text says something more specific about a picture, follow t
  * offering one would be inventing a control the model does not have.
  */
 const AUDIO_KEEP_MODES = {
-  everything: {
-    label: "Everything — the recording as it is",
+  exact: {
+    label: "Keep it exactly — same words, same voices, same music",
     marker: "fully_copy",
-    note: "Dialogue, music and ambience all carry over as they are. Change only what the transformation makes impossible — a new location or a new medium changes what a scene sounds like even when nothing was said about audio.",
+    reusesWords: true,
+    note: "Dialogue, delivery, music and ambience all carry over as they are. Change only what the transformation makes impossible — a new location or a new medium changes what a scene sounds like even when nothing was said about audio.",
   },
-  voices: {
-    label: "Voices only — same delivery, new words",
+  voice: {
+    label: "Same voices, new words",
     marker: "partially_copy",
-    note: "What carries over is how it is spoken: the timbre, the accent, the pacing and the delivery. The words do not. Write the actual lines the target video needs, inside <d> tags, and say plainly that the voice of <Audio 1> is what speaks them. Do not carry the source's music or its room over.",
+    reusesWords: false,
+    note: "What carries over is how it is spoken: the timbre, the accent and the pacing. The words do not. Write the lines the target video needs, inside <d> tags, and say that the voice heard in the reference is what speaks them. Its music and room carry over too.",
   },
-  music: {
-    label: "Music and ambience only — new dialogue",
+  words: {
+    label: "Same words, new voices",
     marker: "partially_copy",
-    note: "The score and the room carry over; the speech does not. Write the actual lines the target video needs, inside <d> tags, and do not describe the source's speech as being reused or audible.",
+    reusesWords: true,
+    note: "The lines survive and everything about how they sound does not — a different speaker, a different delivery, whatever the new scene calls for. Write the lines out inside <d> tags and say plainly that the voice performing them is the scene's rather than the reference's.",
   },
-  mood: {
-    label: "Mood only — a feel, not the recording",
-    marker: "reference",
-    note: "Only the character of the sound survives — its energy, its density, whether it is close or distant. Nothing audible in it is reused. Write the soundscape and the score for the new scene, and write any speech it needs.",
+  speech: {
+    label: "New words and voices — music and room carry over",
+    marker: "partially_copy",
+    reusesWords: false,
+    note: "The score and the ambience survive; nothing of the speech does. Write the lines the target video needs, inside <d> tags, and do not describe the reference's own speech as reused or audible.",
   },
-  fresh: {
-    label: "Nothing — write the audio fresh",
+  none: {
+    label: "Nothing — write the whole soundtrack fresh",
     marker: "weak_reference",
-    note: "The audio of the target video owes the recording nothing. Do not describe anything from it as reused, audible or carried over, and write the soundscape, the score and any speech entirely from the user's text and what is on screen.",
+    reusesWords: false,
+    note: "The audio of the target video owes the recording nothing — not its words, not its voices, not its music, not its room. Do not describe anything from it as reused, audible or carried over, and write the soundscape, the score and any speech entirely from the user's text and what is on screen.",
   },
 } as const;
 
 type AudioKeepMode = keyof typeof AUDIO_KEEP_MODES;
+
+/**
+ * The answers that reuse what was said, for the control that asks the user to
+ * type it out.
+ *
+ * Derived from the modes rather than listed, so a sixth answer cannot be added
+ * without deciding this about it. Returned as `hiddenBy` conditions because
+ * "any one of these hides it" is what that field means, and two of the five
+ * answers keep the words — which `revealedBy` could not say without a value
+ * list it does not have.
+ */
+export function audioKeepHidesWords(param: string): ParamCondition[] {
+  return Object.entries(AUDIO_KEEP_MODES)
+    .filter(([, mode]) => !mode.reusesWords)
+    .map(([value]) => ({ param, is: value }));
+}
+
+/** Whether this submission reuses the words in the recording. */
+export function audioKeepReusesWords(
+  values: Record<string, ParamValue>,
+  param: string,
+  fallback: AudioKeepMode,
+): boolean {
+  return audioKeepMode(values[param], fallback).reusesWords;
+}
 
 const audioKeepMode = (
   value: ParamValue | undefined,

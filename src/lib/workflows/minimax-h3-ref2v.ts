@@ -7,7 +7,9 @@ import {
   directorBypassFor,
   directorTarget,
   audioKeep,
+  audioKeepHidesWords,
   audioKeepParam,
+  audioKeepReusesWords,
   clipDurationParam,
   h3Bf16Models,
   h3ContentLora,
@@ -85,6 +87,8 @@ const DIRECTOR_FRAMES = 5;
 const VIDEO_PARAM = "reference_video";
 const WORDS_PARAM = "clip_words";
 const AUDIO_KEEP_PARAM = "clip_audio_keep";
+/** A remix keeps its clip whole unless told otherwise. */
+const AUDIO_KEEP_DEFAULT = "exact" as const;
 
 /**
  * Whether this run reuses the speech that is already in the clip.
@@ -95,7 +99,7 @@ const AUDIO_KEEP_PARAM = "clip_audio_keep";
  * not being carried over.
  */
 const keepsClipSpeech = (values: Record<string, ParamValue>): boolean =>
-  String(values[AUDIO_KEEP_PARAM] ?? "everything") === "everything";
+  audioKeepReusesWords(values, AUDIO_KEEP_PARAM, AUDIO_KEEP_DEFAULT);
 
 const graph: ComfyGraph = {
   "92": {
@@ -351,7 +355,7 @@ const director = directorTarget(ids, REMIX_DIRECTOR, [
     param: AUDIO_KEEP_PARAM,
     // A remix keeps the clip's sound unless told otherwise, which is what the
     // director already assumed before this control existed.
-    fallback: "everything",
+    fallback: AUDIO_KEEP_DEFAULT,
     // The clip is required here, so its audio is always attached.
     attached: () => true,
   }),
@@ -384,7 +388,7 @@ const params: ParamDef[] = [
   audioKeepParam(director, {
     id: AUDIO_KEEP_PARAM,
     label: "What to keep from the clip's sound",
-    fallback: "everything",
+    fallback: AUDIO_KEEP_DEFAULT,
     group: "Source",
     help: "The clip's own audio is given to the model whatever this says. This decides what the new soundtrack owes it — turn it down to have the sound change with the picture.",
   }),
@@ -392,11 +396,13 @@ const params: ParamDef[] = [
   wordsParam({
     id: WORDS_PARAM,
     label: "Words in the clip",
-    help: "Optional. What is said or sung in the clip's own audio. Nothing here can hear it, so without this the model writes its own words over the ones already there.",
+    help: "What is said or sung in the clip's own audio. Nothing here can hear it, so without this the model writes its own words over the ones already there — and with the voices being replaced, these are the only copy of the lines there is.",
     // Beside the clip they belong to rather than in a section of their own.
     group: "Source",
-    // And only while they are wanted — see `keepsClipSpeech`.
-    revealedBy: [VIDEO_PARAM, { param: AUDIO_KEEP_PARAM, is: "everything" }],
+    // And only while they are wanted: the answers that write new words have no
+    // use for the old ones. See `keepsClipSpeech`.
+    revealedBy: VIDEO_PARAM,
+    hiddenBy: audioKeepHidesWords(AUDIO_KEEP_PARAM),
     targets: [promptText, director],
   }),
 
