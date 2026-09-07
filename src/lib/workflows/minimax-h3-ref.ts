@@ -21,6 +21,7 @@ import {
   h3Patches,
   h3StepSampler,
   h3Turbo,
+  aspectRatioParam,
   leadingReferences,
   literalPromptParam,
   promptParam,
@@ -881,7 +882,12 @@ const params: ParamDef[] = [
     label: "Reference handling",
     type: "select",
     default: "match",
-    options: [{ value: "match", label: "match" }],
+    // Both, so a ComfyUI too busy to answer leaves a choice rather than a
+    // single-entry dropdown. See ASPECT_RATIOS for why that matters.
+    options: [
+      { value: "match", label: "match" },
+      { value: "max", label: "max" },
+    ],
     optionsFrom: { node: REFERENCE_NODE, input: "ref_image_size" },
     help: "max keeps more likeness, and is slower.",
     group: "References",
@@ -900,18 +906,7 @@ const params: ParamDef[] = [
   rewriteModelParam([ids.director]),
 
   durationParam(ids, director),
-  {
-    id: "aspect_ratio",
-    label: "Aspect ratio",
-    type: "select",
-    default: "9:16 (Portrait Widescreen)",
-    options: [
-      { value: "9:16 (Portrait Widescreen)", label: "9:16 (Portrait Widescreen)" },
-    ],
-    optionsFrom: { node: "115", input: "aspect_ratio" },
-    group: "Output",
-    targets: [{ node: "115", input: "aspect_ratio" }],
-  },
+  aspectRatioParam("115"),
   {
     id: "megapixels",
     label: "Frame size",

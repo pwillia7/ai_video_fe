@@ -311,6 +311,58 @@ async function main() {
     }
   }
 
+  /**
+   * What each `optionsFrom` dropdown falls back to when this machine cannot be
+   * reached, against what it actually offers.
+   *
+   * The fallback is not documentation. ComfyUI answers /object_info on the same
+   * loop it generates on, so the moment it is worth asking is the moment it is
+   * slowest to answer, and a failed lookup is cached for a minute — during
+   * which the control shows only what the workflow file declared. A list that
+   * has drifted short is a choice the user silently loses, which is how the
+   * aspect ratio spent a while offering nothing but portrait.
+   *
+   * Only "replace" dropdowns. A "restrict" one is curated on purpose: being a
+   * subset of the live list is the whole point of it, and it has its own check
+   * above.
+   */
+  console.log("\nDropdown fallbacks");
+  const thinFallbacks: string[] = [];
+  for (const workflow of WORKFLOWS) {
+    for (const param of workflow.params) {
+      if (param.type !== "select" || !param.optionsFrom) continue;
+      if (param.optionsFrom.mode === "restrict") continue;
+
+      const node = workflow.graph[param.optionsFrom.node];
+      const live = enumValuesFor(
+        schemas.get(node?.class_type ?? "") ?? null,
+        param.optionsFrom.input,
+      );
+      if (!live || live.length === 0) continue;
+
+      const declared = new Set(param.options.map((option) => option.value));
+      const missing = live.filter((value) => !declared.has(value));
+      const label = `${workflow.id} ${param.id}`;
+      if (missing.length === 0) {
+        console.log(`  ok       ${label} — all ${live.length} offered`);
+      } else {
+        thinFallbacks.push(label);
+        console.log(
+          `  THIN     ${label} — declares ${declared.size} of ${live.length}, ` +
+            `missing ${missing.join(", ")}`,
+        );
+      }
+    }
+  }
+
+  if (thinFallbacks.length > 0) {
+    console.log(
+      `\n${thinFallbacks.length} dropdown(s) fall back to less than this machine offers. ` +
+        "Add the missing values to `options` in the workflow file — that list is what\n" +
+        "the control shows whenever ComfyUI cannot be reached.",
+    );
+  }
+
   if (staleModels.length > 0) {
     console.log(
       `\n${staleModels.length} offered model(s) are no longer in the gateway catalog. ` +

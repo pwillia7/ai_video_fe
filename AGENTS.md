@@ -51,8 +51,15 @@ afternoon.
   `src/lib/workflows/`.
 - **`pnpm check:nodes`** asks a real ComfyUI whether the classes and model files
   the graphs name are installed, whether every model the rewrite picker offers is
-  still in the gateway's catalog, and whether that machine has a gateway key at
-  all. Needs `COMFY_URL`.
+  still in the gateway's catalog, whether that machine has a gateway key at all,
+  and whether each dynamic dropdown's declared `options` still cover what the
+  install offers. Needs `COMFY_URL`.
+- **A dynamic dropdown's declared `options` are its fallback, not a comment.**
+  `optionsFrom` fills a select from the live schema, but ComfyUI answers
+  `/object_info` on the loop it generates on — so the moment worth asking is the
+  slowest to answer, and a failed lookup is cached for a minute. Whatever the
+  workflow file declares is what the user sees for that minute. Declare the
+  whole list; `check:nodes` says when one has drifted short.
 - **The prompt rewrite runs on the Vercel AI Gateway, and the model is a
   control.** `pnpm sync:models` rebuilds the offered list from the gateway's live
   catalog into `src/lib/workflows/generated/` — it also runs before `next build`.

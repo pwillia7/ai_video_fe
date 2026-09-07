@@ -12,6 +12,7 @@ import {
   h3ContentLora,
   h3StepSampler,
   h3Turbo,
+  aspectRatioParam,
   literalPromptParam,
   promptParam,
   samplingParams,
@@ -227,18 +228,7 @@ const params: ParamDef[] = [
   rewriteModelParam([ids.director]),
 
   durationParam(ids, director),
-  {
-    id: "aspect_ratio",
-    label: "Aspect ratio",
-    type: "select",
-    default: "9:16 (Portrait Widescreen)",
-    options: [
-      { value: "9:16 (Portrait Widescreen)", label: "9:16 (Portrait Widescreen)" },
-    ],
-    optionsFrom: { node: "115", input: "aspect_ratio" },
-    group: "Output",
-    targets: [{ node: "115", input: "aspect_ratio" }],
-  },
+  aspectRatioParam("115"),
   {
     id: "megapixels",
     label: "Frame size",

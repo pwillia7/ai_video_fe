@@ -1395,6 +1395,50 @@ ${sound}`;
   };
 }
 
+/**
+ * Every aspect ratio ComfyUI's `ResolutionSelector` offers, in its own order
+ * and spelled exactly as it spells them — a queued COMBO value is validated
+ * against that list, so these strings are the interface and not labels.
+ *
+ * Declared in full rather than left to `optionsFrom` to discover, because a
+ * declared list is not documentation: it is what the control falls back to when
+ * the live lookup fails, and the lookup fails for the most ordinary reason
+ * there is. ComfyUI answers `/object_info` on the same loop it generates on, so
+ * a busy machine is a slow one to ask, and a failure is cached for a minute.
+ * With one entry declared, that minute is a run the user cannot choose the
+ * shape of; with all of them, it is a dropdown that is merely not verified.
+ */
+export const ASPECT_RATIOS = [
+  "1:1 (Square)",
+  "2:3 (Portrait Photo)",
+  "3:2 (Photo)",
+  "3:4 (Portrait Standard)",
+  "4:3 (Standard)",
+  "9:16 (Portrait Widescreen)",
+  "16:9 (Widescreen)",
+  "21:9 (Ultrawide)",
+] as const;
+
+/**
+ * The output shape control, for the graphs that choose one.
+ *
+ * Only two do. Image to Video, Extend and Remix all take their dimensions from
+ * what was handed to them — the upload's shape, the last frame's, the clip's —
+ * so a control there would be offering a choice the graph then overrules.
+ */
+export function aspectRatioParam(node: string): SelectParam {
+  return {
+    id: "aspect_ratio",
+    label: "Aspect ratio",
+    type: "select",
+    default: "9:16 (Portrait Widescreen)",
+    options: ASPECT_RATIOS.map((value) => ({ value, label: value })),
+    optionsFrom: { node, input: "aspect_ratio" },
+    group: "Output",
+    targets: [{ node, input: "aspect_ratio" }],
+  };
+}
+
 export function samplingParams(
   ids: Pick<MinimaxNodeIds, "noise" | "scheduler">,
   {
