@@ -63,15 +63,30 @@ export function GenerationStage({
         />
       ) : job.phase === "error" ? (
         <Failure job={job} onShowSettings={onShowSettings} />
-      ) : job.phase === "cancelled" || job.phase === "unknown" ? (
-        <Closed job={job} />
-      ) : (
+      ) : job.phase === "queued" || job.phase === "running" ? (
         <InFlight
           job={job}
           now={now}
           estimateSeconds={estimateSeconds}
           onCancel={onCancel}
         />
+      ) : (
+        /*
+          Everything else, named or not.
+          
+          This used to be the other way round — in-flight was the fallback, and
+          any state the branches above did not name was drawn as a run still
+          going: "Generating", a progress curve, a live timer counting from
+          whenever it was submitted, and a Cancel button for a job nothing was
+          working on. A `done` whose outputs are empty lands exactly there, and
+          nothing ever reaps it: `expireStale` only reconsiders a job that is
+          queued or running, so it sat at "Generating" for as long as the
+          history kept it. One had been counting for twenty-four hours.
+
+          A run is only in flight while something says it is. Anything else is
+          over, whatever it is, and Closed says so.
+        */
+        <Closed job={job} />
       )}
     </div>
   );
@@ -150,7 +165,10 @@ function InFlight({
   estimateSeconds: number | null;
   onCancel: (promptId: string) => void;
 }) {
-  const copy = PHASE_COPY[job.phase] ?? PHASE_COPY.running;
+  // Only queued and running reach here now, so the lookup cannot miss — but a
+  // fallback that says "Generating" about an unknown state is how the branch
+  // above went wrong, so this one names what it actually has.
+  const copy = PHASE_COPY[job.phase] ?? PHASE_COPY.queued;
   const elapsedMs = now - job.submittedAt;
 
   // Progress is measured from when rendering began, not when the job was
@@ -248,18 +266,33 @@ function Failure({
 }
 
 function Closed({ job }: { job: Job }) {
+  // `done` reaching here means the run finished and left nothing behind — the
+  // branch above takes every done job that has an output. Worth its own words:
+  // "no longer tracked" would be wrong about a job ComfyUI finished, and
+  // silence would leave the panel looking broken.
+  const empty = job.phase === "done";
   return (
     <Frame dashed>
       <div className="flex items-center gap-2">
         <Dot tone="warning" />
         <span className="text-sm font-medium text-fg">
-          {job.phase === "cancelled" ? "Cancelled" : "No longer tracked"}
+          {job.phase === "cancelled"
+            ? "Cancelled"
+            : empty
+              ? "Nothing came back"
+              : "No longer tracked"}
         </span>
       </div>
       {job.phase === "unknown" ? (
         <p className="mx-auto max-w-xs text-[13px] leading-relaxed text-fg-subtle">
           ComfyUI no longer has a record of this job. It was probably restarted
           since.
+        </p>
+      ) : null}
+      {empty ? (
+        <p className="mx-auto max-w-xs text-[13px] leading-relaxed text-fg-subtle">
+          The run finished without saving a file. If the output directory has
+          been cleared since, that is where it went.
         </p>
       ) : null}
     </Frame>
