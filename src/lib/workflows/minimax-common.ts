@@ -865,35 +865,69 @@ const KEEP_MODES = {
 } as const;
 
 /**
- * The fifth answer, which only a clip can give: keep how it moves and nothing
- * about what is moving.
+ * What a reference *clip* can be asked to carry, which is not what a picture
+ * carries.
  *
- * Offered on the reference clip and not on a picture, because a still has no
- * motion to contribute. It is the setting for a clip attached as a study of a
- * gait, a gesture or a camera move rather than of a subject.
+ * MiniMax's own guidance is blunt about it: a reference video pins motion,
+ * camera, grade and grain — **not identity**. Identity comes from a still, and
+ * a clip attached in the hope of holding a face will not hold one. So these are
+ * a different set of axes from KEEP_MODES rather than a reuse of them, and the
+ * first version of this control was wrong for reusing them: it offered
+ * "identity, proportions, costume, accessories, markings", none of which is
+ * something a clip decides, and defaulted to the one the model cannot do.
+ *
+ * `marker` still has to come out of the four the format defines.
+ * `attribute_transfer` is the honest one for motion — the facets move onto
+ * whoever the scene casts, which is exactly what transferring a walk is.
  */
-const MOTION_KEEP = {
-  label: "Motion only — how it moves, not who",
-  facets: "movement, timing and performance",
-  marker: "weak_reference",
-  note: "The clip contributes how something moves and nothing else. Do not put the person or the place in it into the video, do not describe anyone as looking like them, and do not treat what is on screen in it as a character, an object or a location the scene contains. What carries over is the manner of the movement.",
+type KeepMode = keyof typeof KEEP_MODES;
+
+const VIDEO_KEEP_MODES = {
+  motion_camera: {
+    label: "Motion and camera — how it moves and how it is shot",
+    facets: "movement, pacing, timing and camera behaviour",
+    marker: "attribute_transfer",
+    note: "The way things move and the way the camera moves carry over onto whatever the scene casts. Do not copy the person, the clothing or the place from the clip.",
+    example:
+      "<Video 1> provides the measured walking pace and the slow half-orbit camera move.",
+  },
+  motion: {
+    label: "Motion only — how it moves",
+    facets: "movement, pacing and timing",
+    marker: "attribute_transfer",
+    note: "Only the manner and rhythm of the movement carries over. The camera is the scene's to choose, and so is everything about who or what is moving — do not copy the person, the clothing or the place from the clip.",
+    example:
+      "<Video 1> provides the measured walking pace and the two-step turn.",
+  },
+  look: {
+    label: "Look only — grade, grain and palette",
+    facets: "grade, grain, palette and rendering",
+    marker: "weak_reference",
+    note: "The clip contributes a treatment and nothing else. Nothing in it is a character, an object or a location the scene contains, and none of its movement carries over.",
+    example:
+      "<Video 1> provides the cool blue grade and the heavy 16mm grain.",
+  },
+  everything: {
+    label: "Motion, camera and look",
+    facets: "movement, pacing, timing, camera behaviour, grade, grain and palette",
+    marker: "partially_preserved",
+    note: "How it moves, how it is shot and how it is graded all carry over. Who and what is on screen does not — do not copy the person, the clothing or the place from the clip.",
+    example:
+      "<Video 1> provides the measured walking pace, the slow half-orbit camera move and the cool blue grade.",
+  },
 } as const;
 
-const VIDEO_KEEP_MODES = { ...KEEP_MODES, motion: MOTION_KEEP };
-
-type KeepMode = keyof typeof KEEP_MODES;
 type VideoKeepMode = keyof typeof VIDEO_KEEP_MODES;
 
 /**
- * What a reference clip pins.
+ * What a reference clip pins by default.
  *
- * Its own default is weaker than a picture's. A picture is nearly always
- * attached to hold a subject exactly; a clip is attached because motion is
- * wanted, and defaulting it to "everything" makes the model reproduce the clip
- * — which is what `ref_videos` conditioning already leans towards without any
- * help from the instructions.
+ * Motion and camera, because that is what MiniMax says a reference video is
+ * for, and because the alternative failure is the expensive one: a clip left to
+ * pin everything makes the model reproduce it, which `ref_videos` conditioning
+ * already leans towards without help from the instructions.
  */
-const DEFAULT_VIDEO_KEEP: VideoKeepMode = "identity";
+const DEFAULT_VIDEO_KEEP: VideoKeepMode = "motion_camera";
 
 function videoKeepMode(
   value: ParamValue | undefined,
@@ -919,7 +953,7 @@ export function referenceVideoKeepParam(
       value,
       label: mode.label,
     })),
-    help: "What the clip pins. Everything else is the scene's to decide — turn this down when the prompt describes something the clip does not contain.",
+    help: "What the clip pins. A clip cannot hold a face — attach a reference image for that, and the clip moves it.",
     group: "References",
     revealedBy,
     targets: [director],
@@ -1452,9 +1486,19 @@ WHAT THE CLIP CONTRIBUTES
 
 The user has said what it pins: keep ${mode.facets}. Its marker in retention_analysis is ${mode.marker}. ${mode.note}
 
-Cite it in subject_definitions the way you would cite a picture, naming those facets and what they look like — "<Subject 1> is the ... in <Video 1>, preserving ${mode.facets}: ..." — and nothing beyond them. What a clip supplies that a still cannot is movement: how someone walks, gestures, performs, how something behaves over time. Where the setting above keeps that, it is the part worth describing precisely.
+A clip does not pin identity. It carries motion, camera, grade and grain. A face, a build and a costume come from a reference picture or from the user's own words, never from <Video 1> — so do not write that anyone in this video looks like whoever appears in the clip, and do not describe them from it.
 
-Give <Video 1> a standalone line only when the clip is acting as concrete footage — a shot to match, an action to reproduce beat for beat — and only when the user has asked for that.
+So <Video 1> takes its own line in subject_definitions, saying what it provides rather than who is in it, and naming only the facets above:
+
+${mode.example}
+${
+  pictures > 0
+    ? `
+With pictures attached as well, the two are combined by transfer: the subject comes from the picture and the movement comes from the clip. "Transfer the two-step turn from <Video 1> to the woman in <Picture 1>, preserving her identity."
+`
+    : ""
+}
+A reference clip drags the look of the source with it whether or not it was asked to. Where the user's text calls for lighting, a palette or a style the clip does not have — a different time of day, a different medium, a different era — write that look explicitly and firmly in the style line before [Shot 1], and do not also describe the clip's own grade. The two cannot both be had, and the one the user typed is the one that wins.
 
 In summary, add "video reference" to the task-type prefix with " + ".
 

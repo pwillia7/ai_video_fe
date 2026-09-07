@@ -1348,16 +1348,29 @@ through the run. `resolution_steps` is 32 because the reference node rounds its
 own canvas to multiples of 32, and landing on one is what stops it resampling a
 second time.
 
-**What to keep from the clip** is the control the clip was missing. Each
-reference picture has one; the clip did not, so the director was left to decide
-for itself how much of a webcam recording belonged in the video — and it decided
-"all of it". It offers the same four answers a picture does plus one only a clip
-can give, **Motion only**, and it defaults to *Identity only* rather than the
-*Everything* a picture defaults to: a still is nearly always attached to hold a
-subject exactly, where a clip is attached because movement is wanted.
+**What to keep from the clip** is the control the clip was missing, and its
+options are deliberately *not* the ones a reference picture gets. MiniMax's own
+guidance is blunt: a reference video pins motion, camera, grade and grain —
+[not identity](https://www.atlascloud.ai/blog/tips/minimax-h3-reference-to-video).
+Identity comes from a still. So the answers here are **Motion and camera** (the
+default, and what a clip is actually for), **Motion only**, **Look only**, and
+all three together; there is no "keep the person", because a clip cannot hold
+one. Attach a reference image for that and let the clip move it — which is the
+combination the guides recommend, and which the director is told to write as a
+transfer: *"Transfer the two-step turn from `<Video 1>` to the woman in
+`<Picture 1>`, preserving her identity."*
 
-Turn it down when the prompt describes something the clip does not contain. The
-director is told the same thing in words — that the user's text says what the
+Two things follow from that guidance and are written into the director. `<Video
+1>` takes its own line in `subject_definitions` stating what it *provides*
+rather than who is in it — *"`<Video 1>` provides the measured walking pace and
+the slow half-orbit camera move"* — since it is not a subject. And a clip drags
+the source's grade with it whether or not it was asked to: *"you cannot ask one
+call for the same look and the opposite light."* Where the user's text calls for
+lighting, a palette or an era the clip does not have, the director is told to
+put that look firmly in the style line before `[Shot 1]` and not to describe the
+clip's own grade at all.
+
+The director is also told, above all of it, that the user's text says what the
 target video is, that the clip is a reference brought into it rather than the
 thing being edited, and that where the text describes a subject the clip does
 not contain, the text wins outright.
