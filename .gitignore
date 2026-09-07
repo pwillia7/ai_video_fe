@@ -12,3 +12,7 @@ build
 *.tsbuildinfo
 next-env.d.ts
 .env*
+
+# Browser-automation scratch: console logs and page snapshots from
+# Playwright MCP runs. Debugging output, not part of the app.
+.playwright-mcp/
