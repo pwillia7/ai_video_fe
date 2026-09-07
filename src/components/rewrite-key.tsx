@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
-import { PasswordInput } from "@/components/ui/inputs";
+import { PasswordInput, Select } from "@/components/ui/inputs";
+import {
+  freeModelsExist,
+  modelsForTier,
+  type GatewayTier,
+} from "@/lib/workflows/rewrite-model";
 import { Modal } from "@/components/ui/modal";
 import { api } from "@/lib/client";
 
@@ -36,7 +41,13 @@ interface Gateway {
  * nothing generates at all, and that is worth a warning in the header. With one
  * set it is a quiet way back in to change it.
  */
-export function RewriteKeyButton() {
+export function RewriteKeyButton({
+  tier,
+  onTierChange,
+}: {
+  tier: GatewayTier;
+  onTierChange: (tier: GatewayTier) => void;
+}) {
   const [gateway, setGateway] = useState<Gateway | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -93,6 +104,8 @@ export function RewriteKeyButton() {
         onClose={() => setOpen(false)}
         gateway={gateway}
         onSaved={setGateway}
+        tier={tier}
+        onTierChange={onTierChange}
       />
     </>
   );
@@ -103,11 +116,15 @@ function RewriteKeyModal({
   onClose,
   gateway,
   onSaved,
+  tier,
+  onTierChange,
 }: {
   open: boolean;
   onClose: () => void;
   gateway: Gateway;
   onSaved: (next: Gateway) => void;
+  tier: GatewayTier;
+  onTierChange: (tier: GatewayTier) => void;
 }) {
   const id = useId();
   const [key, setKey] = useState("");
@@ -236,6 +253,39 @@ function RewriteKeyModal({
           {error}
         </p>
       ) : null}
+
+      {/*
+        Which kind of key this is, which the app has no way of finding out — the
+        key lives on the ComfyUI host and the status route answers with a
+        boolean. It changes nothing about the key and nothing about the run; all
+        it does is decide which models the Rewrite model picker offers.
+      */}
+      <Field
+        id={`${id}-tier`}
+        label="What kind of key is it?"
+        help={
+          freeModelsExist()
+            ? "A team with no card on it still gets $5 of credit a month, so a paid model is not refused — it is billed against an allowance that runs out. Say free to be offered only the models that cost nothing."
+            : "Every model in the gateway's catalog costs something today, so this changes nothing until a free one appears. A team with no card still gets $5 of credit a month."
+        }
+      >
+        <Select
+          id={`${id}-tier`}
+          value={tier}
+          onChange={(next) => onTierChange(next as GatewayTier)}
+          disabled={!freeModelsExist()}
+          options={[
+            {
+              value: "paid",
+              label: `Paid — every model (${modelsForTier("paid").length})`,
+            },
+            {
+              value: "free",
+              label: `Free credits only — no-cost models (${modelsForTier("free").length})`,
+            },
+          ]}
+        />
+      </Field>
 
       {gateway.configPath ? (
         <p className="text-[12px] break-all text-fg-subtle">

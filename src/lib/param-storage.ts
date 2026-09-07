@@ -1,5 +1,6 @@
 "use client";
 
+import type { GatewayTier } from "@/lib/workflows/rewrite-model";
 import { effectiveWorkflow } from "@/lib/workflows/turbo";
 import {
   defaultValuesFor,
@@ -73,7 +74,33 @@ const ALTERNATE_BASE_KEY = "sorant-patch-alternate-base";
  */
 const TIER_KEY = "sorant-patch-tier";
 
+/**
+ * Which kind of AI Gateway key this browser is pointed at.
+ *
+ * A statement about the key rather than about any workflow, so it is stored per
+ * device like Low VRAM below — and unlike the key itself, which never touches
+ * this app: that lives on the ComfyUI host. What it decides here is only which
+ * models the rewrite picker offers.
+ */
+const GATEWAY_TIER_KEY = "sorant-gateway-tier";
+
 export type StoredModes = Record<string, boolean>;
+
+export function readStoredGatewayTier(): GatewayTier {
+  try {
+    return localStorage.getItem(GATEWAY_TIER_KEY) === "free" ? "free" : "paid";
+  } catch {
+    return "paid";
+  }
+}
+
+export function writeStoredGatewayTier(tier: GatewayTier): void {
+  try {
+    localStorage.setItem(GATEWAY_TIER_KEY, tier);
+  } catch {
+    // As elsewhere here — a storage failure costs the preference, nothing more.
+  }
+}
 
 export function readStoredLowVram(): boolean {
   try {
@@ -328,6 +355,27 @@ export function clampValues(
 ): Record<string, ParamValue> {
   const clamped = { ...values };
   for (const param of workflow.params) {
+    if (param.type === "select") {
+      // A select's options are no more fixed than a slider's range. The live
+      // ComfyUI list decides most of them, and the rewrite picker is narrowed
+      // further by which key this browser says it holds — so a stored value can
+      // stop being offered between one visit and the next, which happened the
+      // day MiniMax retired the free tier of M3.
+      //
+      // Left alone it renders as a select showing nothing, and submits the
+      // value it is not showing. Falling back to the default is the same answer
+      // the range clamp gives: land on something legal rather than on nothing.
+      const value = clamped[param.id];
+      if (
+        typeof value === "string" &&
+        param.options.length > 0 &&
+        !param.options.some((option) => option.value === value)
+      ) {
+        clamped[param.id] = param.default;
+      }
+      continue;
+    }
+
     if (param.type !== "slider" && param.type !== "number") continue;
     const value = clamped[param.id];
     if (typeof value !== "number") continue;

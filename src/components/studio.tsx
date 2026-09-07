@@ -39,7 +39,9 @@ import {
   hydrateStrengths,
   hydrateTurbo,
   mergeWithDefaults,
+  readStoredGatewayTier,
   readStoredLowVram,
+  writeStoredGatewayTier,
   writeStoredLowVram,
   writeStoredParams,
   writeStoredAlternateBase,
@@ -50,6 +52,7 @@ import {
   writeStoredTurbo,
 } from "@/lib/param-storage";
 import { workflowLabel } from "@/lib/workflows/modes";
+import { tierParams, type GatewayTier } from "@/lib/workflows/rewrite-model";
 import { effectiveWorkflow } from "@/lib/workflows/turbo";
 import {
   CLIP_ACTIONS,
@@ -173,14 +176,36 @@ export function Studio() {
 }
 
 function Workbench({
-  workflows,
+  workflows: offered,
   problems,
 }: {
   workflows: WorkflowSummary[];
   problems?: string[];
 }) {
-  const [selectedId, setSelectedId] = useState(workflows[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState(offered[0]?.id ?? "");
   const jobs = useJobs();
+
+  /**
+   * Which kind of gateway key this browser says it holds, and the workflows as
+   * that answer leaves them — the rewrite picker narrowed to the models a free
+   * key can be spent on, everything else untouched.
+   *
+   * Read lazily for the same reason as the block below: Workbench only mounts
+   * after the client-side load, so there is no server render to mismatch.
+   *
+   * Applied here rather than server-side because the key is not the install's:
+   * two people pointed at the same ComfyUI can hold different ones, and the
+   * app never sees either.
+   */
+  const [gatewayTier, setGatewayTier] = useState(readStoredGatewayTier);
+  const workflows = useMemo(
+    () =>
+      offered.map((workflow) => ({
+        ...workflow,
+        params: tierParams(workflow.params, gatewayTier),
+      })),
+    [offered, gatewayTier],
+  );
 
   // Both of these are read lazily rather than in an effect: Workbench only
   // mounts after the client-side load, so there is no server render to
@@ -385,6 +410,37 @@ function Workbench({
       }));
     },
     [picked, selectedId],
+  );
+
+  /**
+   * Saying which kind of key this is re-narrows the rewrite picker, so every
+   * workflow's stored model has to be checked against what it now offers.
+   *
+   * Every workflow rather than the selected one, unlike the turbo handler above:
+   * the picker is on all of them, and a stored model that stopped being offered
+   * would otherwise sit unnoticed until that workflow was next opened. See
+   * `clampValues`, which is what drops it.
+   */
+  const onGatewayTierChange = useCallback(
+    (tier: GatewayTier) => {
+      setGatewayTier(tier);
+      writeStoredGatewayTier(tier);
+      setValuesByWorkflow((previous) => {
+        const next = { ...previous };
+        for (const workflow of offered) {
+          const narrowed = {
+            ...workflow,
+            params: tierParams(workflow.params, tier),
+          };
+          next[workflow.id] = clampValues(
+            effectiveWorkflow(narrowed, turboByWorkflow[workflow.id]),
+            previous[workflow.id] ?? {},
+          );
+        }
+        return next;
+      });
+    },
+    [offered, turboByWorkflow],
   );
 
   /**
@@ -846,7 +902,10 @@ function Workbench({
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <ConnectionPill />
-            <RewriteKeyButton />
+            <RewriteKeyButton
+              tier={gatewayTier}
+              onTierChange={onGatewayTierChange}
+            />
             <NotifyToggle />
             <ThemeToggle />
           </div>

@@ -1,4 +1,5 @@
 import { REWRITE_MODELS } from "./generated/gateway-models";
+import type { OfferedModel } from "./rewrite-catalog";
 import type { SelectParam } from "./types";
 
 export type { OfferedModel } from "./rewrite-catalog";
@@ -61,7 +62,7 @@ export function rewriteModelParam(
   directors: string[],
   {
     group = "Prompt",
-    help = "Only rewrites your prompt — it never touches the video. Free and paid are marked, at dollars per million words out. Switch models if one refuses a shot.",
+    help = "Only rewrites your prompt — it never touches the video. Priced in dollars per million words out, and free where it is free. Switch models if one refuses a shot; the key button says which of them your key can be spent on.",
   }: { group?: string; help?: string } = {},
 ): SelectParam {
   return {
@@ -116,6 +117,92 @@ const MAX_IMAGE_SIDE = 1024;
  * node this replaced called it `images`, so the wrong key is one that used to
  * be right, which is the kind that survives review.
  */
+/**
+ * Which kind of AI Gateway key the app is being pointed at.
+ *
+ * Not something this app can find out. The key lives on the ComfyUI host and is
+ * never sent here — the status route answers with a boolean and nothing else —
+ * so whether it carries credit is the user's to state. It decides only what the
+ * rewrite picker offers.
+ *
+ * "free" is a Vercel team with no card on it. Such a team still gets $5 of
+ * credit a month, so a paid model is not *refused* on one; it is billed against
+ * an allowance that runs out mid-month and then fails a run. Someone who would
+ * rather not find that out at generation time can say so here and be offered
+ * only the models that cost nothing.
+ */
+export type GatewayTier = "free" | "paid";
+
+/** The models a key of this kind can be spent on without thinking about it. */
+export function modelsForTier(tier: GatewayTier): OfferedModel[] {
+  return tier === "free" ? REWRITE_MODELS.filter((m) => m.free) : REWRITE_MODELS;
+}
+
+/**
+ * The same params with the rewrite picker narrowed to what this key can spend.
+ *
+ * Applied in the browser rather than when the workflow is built, because the
+ * answer belongs to the person at the keyboard and not to the install: two
+ * people pointed at the same ComfyUI can hold different keys.
+ *
+ * **Unchanged when the filter would empty the list**, which is not a
+ * hypothetical — a catalog with no free model in it at all is the state today,
+ * MiniMax having retired the free tier of M3. A picker with nothing in it is
+ * worse than one offering more than was asked for, so the narrowing is
+ * abandoned and `freeModelsExist` is what the form uses to say so.
+ */
+export function tierParams<T extends { id: string }>(
+  params: T[],
+  tier: GatewayTier,
+): T[] {
+  const allowed = modelsForTier(tier);
+  if (allowed.length === 0 || allowed.length === REWRITE_MODELS.length) {
+    return params;
+  }
+  return narrowPicker(
+    params,
+    new Set(allowed.map((model) => model.id)),
+  );
+}
+
+/**
+ * The narrowing itself, split out from the decision about what to narrow to.
+ *
+ * Separate because the decision cannot currently be exercised: with no free
+ * model in the catalog, `tierParams` returns early on every input, and a branch
+ * that no state of the world reaches is a branch nothing checks.
+ */
+export function narrowPicker<T extends { id: string }>(
+  params: T[],
+  ids: Set<string>,
+): T[] {
+  return params.map((param) => {
+    if (param.id !== REWRITE_MODEL) return param;
+    const picker = param as T & {
+      options?: Array<{ value: string; label: string }>;
+      default?: string;
+    };
+    const options = (picker.options ?? []).filter((option) =>
+      ids.has(option.value),
+    );
+    if (options.length === 0) return param;
+    // The default moves with the list. A form reset, or a workflow opened for
+    // the first time, has to land on something the picker is showing.
+    return {
+      ...picker,
+      options,
+      default: ids.has(String(picker.default))
+        ? picker.default
+        : options[0].value,
+    };
+  });
+}
+
+/** Whether narrowing to a free key would leave anything to pick. */
+export function freeModelsExist(): boolean {
+  return REWRITE_MODELS.some((model) => model.free);
+}
+
 export const REWRITE_IMAGE_INPUT = "image";
 
 export const REWRITE_CLASSES: string[] = [

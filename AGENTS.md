@@ -61,8 +61,10 @@ afternoon.
   workflow file declares is what the user sees for that minute. Declare the
   whole list; `check:nodes` says when one has drifted short.
 - **The prompt rewrite runs on the Vercel AI Gateway, and the model is a
-  control.** `pnpm sync:models` rebuilds the offered list from the gateway's live
-  catalog into `src/lib/workflows/generated/` — it also runs before `next build`.
+  control** — narrowed in the browser by which kind of key the user says they
+  hold, since the key is on the ComfyUI host and this app never sees it.
+  `pnpm sync:models` rebuilds the offered list from the gateway's live catalog
+  into `src/lib/workflows/generated/` — it also runs before `next build`.
   The curation is `rewrite-catalog.ts`; never hand-edit the generated file, and
   never hardcode a model id in a graph: the node validates it against the live
   catalog, so a stale one is a rejected run.

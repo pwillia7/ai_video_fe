@@ -179,19 +179,43 @@ mechanism (`Environment=` in the unit file) rather than a login shell.
 `pnpm check:nodes` reports whether the pack can see a key at all, which is the
 one thing about the rewrite that can be checked without spending a render.
 
+The same modal asks **what kind of key it is**. Nothing about the key itself
+turns on the answer — it changes no request and reaches no server — it only
+decides which models the rewrite picker offers. See
+[choosing the rewrite model](#choosing-the-rewrite-model).
+
 ### Choosing the rewrite model
 
 **Rewrite model**, under the prompt box on every workflow, picks which model
 expands what you type. It never touches the video — that is always MiniMax H3 —
 and it disappears from the form when the rewrite is switched off.
 
-The list is ten models, one per provider family, each labelled with what it
-costs per million words out and marked **free** where it is free. It is built at
-build time from the gateway's own catalog by `pnpm sync:models`, so a provider's
-point release is picked up by re-running that rather than by editing a graph,
-and a retired model drops out of the list instead of failing a queued run. The
-curation — which families, and why those — is in
+The list is one model per provider family, each labelled with what it costs per
+million words out and marked **free** where it is free. It is built at build
+time from the gateway's own catalog by `pnpm sync:models`, so a provider's point
+release is picked up by re-running that rather than by editing a graph, and a
+retired model drops out of the list instead of failing a queued run — which is
+not hypothetical: MiniMax retired the free tier of M3 and the list went from ten
+to nine. The curation — which families, and why those — is in
 `src/lib/workflows/rewrite-catalog.ts`.
+
+**What kind of key is it?**, in the key modal, narrows that list. A Vercel team
+with no card on it still gets $5 of credit a month, so a paid model is not
+*refused* on a free key — it is billed against an allowance that runs out
+mid-month and then fails a run. Saying **free** offers only the models that cost
+nothing.
+
+It is a statement, not a discovery: the key lives on the ComfyUI host and the
+status route answers with a boolean, so the app cannot tell. That also makes it
+a per-browser setting rather than a per-install one — two people pointed at the
+same ComfyUI can hold different keys — which is why the narrowing happens in the
+browser and not when the workflow is built.
+
+The control disables itself when narrowing would leave nothing, and says so.
+That is the state today: every model in the catalog costs something, so there is
+no free list to switch to. Narrowing is abandoned rather than applied whenever
+it would empty the picker — a dropdown with nothing in it is worse than one
+offering more than was asked for.
 
 Every option accepts images, because four of the six graphs show the rewrite a
 picture (the upload, the last frame of the clip being extended, the reference
