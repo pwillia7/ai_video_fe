@@ -1269,6 +1269,39 @@ Three further things are deliberately *not* true of it:
   measurement — a form submitted before the player has its metadata — the start
   is passed through, which is the risk every run took before the control
   existed.
+**What to keep from the clip's sound** decides what the generated audio owes an
+attached recording. H3's format carries its own markers for this, separate from
+the ones a picture takes — `fully_copy`, `partially_copy`, `reference`,
+`weak_reference` — and the director was picking one by judging how sweeping it
+thought the request was. The control is the user saying it outright:
+
+| Answer | Marker | What carries over |
+| --- | --- | --- |
+| Everything — the recording as it is | `fully_copy` | dialogue, music and ambience |
+| Voices only — same delivery, new words | `partially_copy` | timbre, accent and pacing; the words are written fresh |
+| Music and ambience only — new dialogue | `partially_copy` | the score and the room |
+| Mood only — a feel, not the recording | `reference` | energy and density; nothing audible |
+| Nothing — write the audio fresh | `weak_reference` | nothing |
+
+They are roles rather than amounts, which is how MiniMax frames a reference:
+[tell the model what to take from it](https://www.rundiffusion.com/minimax-h3-prompt-guide),
+with voice referencing described as guiding timbre and delivery while the words
+come from the prompt. There is no documented dial for *degree* of reuse, so
+offering one would be inventing a control the model does not have.
+
+Remix defaults to **Everything**, which is what its director assumed before the
+control existed; a reference clip defaults to **Mood only**, because there the
+clip is a reference rather than the thing being rebuilt. The block is written to
+*lift* the standing preservation rules rather than sit beside them — REMIX_DIRECTOR
+spends a page on holding `<Audio 1>`, and an appendix that merely disagreed
+would be a director told two things.
+
+**Words in the clip** stands down with it. That control exists so the model does
+not sing its own words over speech it cannot hear, which is a problem only while
+that speech is being reused — so on every answer but the first the transcript is
+withheld from the prompt as well as from the brief, rather than the prompt
+carrying the very lines the rest of it says to replace.
+
 - **It is not the output soundtrack.** H3 generates its own audio; the track
   conditions it. `referenceTrack` in `minimax-common.ts` tells the director so,
   because left alone it writes a `non_diegetic_music` section inventing a score

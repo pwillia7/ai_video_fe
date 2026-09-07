@@ -1,11 +1,13 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { hideDirectorOnly } from "./director";
 import { rewriteModelParam, rewriteNode } from "./rewrite-model";
-import type { ParamDef, WorkflowDef } from "./types";
+import type { ParamDef, ParamValue, WorkflowDef } from "./types";
 import {
   CLIP_WORDS,
   directorBypassFor,
   directorTarget,
+  audioKeep,
+  audioKeepParam,
   clipDurationParam,
   h3Bf16Models,
   h3ContentLora,
@@ -82,6 +84,18 @@ const SOURCE_FPS = 24;
 const DIRECTOR_FRAMES = 5;
 const VIDEO_PARAM = "reference_video";
 const WORDS_PARAM = "clip_words";
+const AUDIO_KEEP_PARAM = "clip_audio_keep";
+
+/**
+ * Whether this run reuses the speech that is already in the clip.
+ *
+ * Only the answer that keeps the recording whole does. "Voices only" keeps how
+ * it is spoken and replaces what is said, and the three below it keep less than
+ * that — so on any of them the words the user typed out describe audio that is
+ * not being carried over.
+ */
+const keepsClipSpeech = (values: Record<string, ParamValue>): boolean =>
+  String(values[AUDIO_KEEP_PARAM] ?? "everything") === "everything";
 
 const graph: ComfyGraph = {
   "92": {
@@ -324,9 +338,24 @@ const words = wordsBlocks({
   sourceParam: VIDEO_PARAM,
   wordsParam: WORDS_PARAM,
   source: CLIP_WORDS,
+  // Only while the clip's own speech is being reused. Every other answer
+  // replaces it, and a transcript of the old lines would then be the prompt
+  // carrying exactly what the rest of the brief says to write anew.
+  when: (values) => keepsClipSpeech(values),
 });
 
-const director = directorTarget(ids, REMIX_DIRECTOR, [words.director]);
+const director = directorTarget(ids, REMIX_DIRECTOR, [
+  words.director,
+  // Last, so it lands after the standing preservation rules it overrides.
+  audioKeep({
+    param: AUDIO_KEEP_PARAM,
+    // A remix keeps the clip's sound unless told otherwise, which is what the
+    // director already assumed before this control existed.
+    fallback: "everything",
+    // The clip is required here, so its audio is always attached.
+    attached: () => true,
+  }),
+]);
 
 /** Written by the prompt and by the words below. See `promptTarget`. */
 const promptText = promptTarget(ids, [words.prompt]);
@@ -352,13 +381,22 @@ const params: ParamDef[] = [
   // prompt director. See clipDurationParam for why it exists at all.
   clipDurationParam(director),
 
+  audioKeepParam(director, {
+    id: AUDIO_KEEP_PARAM,
+    label: "What to keep from the clip's sound",
+    fallback: "everything",
+    group: "Source",
+    help: "The clip's own audio is given to the model whatever this says. This decides what the new soundtrack owes it — turn it down to have the sound change with the picture.",
+  }),
+
   wordsParam({
     id: WORDS_PARAM,
     label: "Words in the clip",
     help: "Optional. What is said or sung in the clip's own audio. Nothing here can hear it, so without this the model writes its own words over the ones already there.",
     // Beside the clip they belong to rather than in a section of their own.
     group: "Source",
-    revealedBy: VIDEO_PARAM,
+    // And only while they are wanted — see `keepsClipSpeech`.
+    revealedBy: [VIDEO_PARAM, { param: AUDIO_KEEP_PARAM, is: "everything" }],
     targets: [promptText, director],
   }),
 
