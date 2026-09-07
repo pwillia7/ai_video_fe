@@ -403,6 +403,17 @@ export interface WorkflowDef {
   /** Rough wall-clock estimate, used only to pace the progress hint. */
   estimatedSeconds?: number;
   /**
+   * How many sampling passes this submission makes, where that is not always
+   * one. Remix cuts a long clip into chunks and samples each of them.
+   *
+   * It is the estimate's multiplier and the bucket the learned median is
+   * grouped by, for the same reason `modeKey` already separates turbo from
+   * plain: four passes take about four times as long, so a number that
+   * described one of them describes neither if they are pooled. Left off, a
+   * workflow is one pass and everything behaves as it did.
+   */
+  passes?: (values: Record<string, ParamValue>) => number;
+  /**
    * Set when the graph produces a soundtrack. Browsers only permit autoplay on
    * muted media, so an audio workflow must not autoplay — otherwise the sound
    * it just spent minutes generating is silently thrown away.

@@ -3,7 +3,7 @@ import {
   applyBypass,
   bypassApplies,
   bypassProblems,
-  promptConsumer,
+  promptConsumers,
 } from "@/lib/workflows/director";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import {
@@ -318,8 +318,8 @@ export function applyParams(
   // Where a trigger would go, worked out once from the same link the bypass
   // rewires. Undefined on a graph with no director, which refuses a LoRA that
   // needs one rather than applying its weights with nothing to activate them.
-  const promptInput = workflow.directorBypass
-    ? (promptConsumer(graph, workflow.directorBypass) ?? undefined)
+  const promptInputs = workflow.directorBypass
+    ? promptConsumers(graph, workflow.directorBypass)
     : undefined;
   for (const patch of patches) {
     // Resolved here rather than read straight off the request, because the
@@ -333,7 +333,7 @@ export function applyParams(
       strength: chosen ? mode.strengths?.[chosen] : undefined,
       alternateBase: chosen ? mode.alternateBase?.[chosen] : undefined,
       tier: chosen ? mode.tier?.[chosen] : undefined,
-      promptInput,
+      promptInputs,
     });
   }
 
@@ -684,20 +684,20 @@ function patchProblems(workflow: WorkflowDef): string[] {
 
   // The same place a run would put a trigger, so the checks below fail for a
   // graph that genuinely has nowhere to put one rather than for not being told.
-  const promptInput = workflow.directorBypass
-    ? (promptConsumer(workflow.graph, workflow.directorBypass) ?? undefined)
+  const promptInputs = workflow.directorBypass
+    ? promptConsumers(workflow.graph, workflow.directorBypass)
     : undefined;
 
   for (const patch of patches) {
     attempt(patch.label, " on its own", (graph) =>
-      applyPatch(graph, patch, { promptInput }),
+      applyPatch(graph, patch, { promptInputs }),
     );
     problems.push(...patchBaseProblems(patch, workflow.graph));
   }
 
   attempt("The switches", " together", (graph) => {
     if (workflow.turbo) applyTurbo(graph, workflow.turbo);
-    for (const patch of patches) applyPatch(graph, patch, { promptInput });
+    for (const patch of patches) applyPatch(graph, patch, { promptInputs });
   });
 
   return problems;

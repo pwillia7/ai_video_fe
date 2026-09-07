@@ -59,6 +59,8 @@ interface GenerateResponse {
   /** Which LoRA each content switch applied, and at what. */
   loras?: Job["loras"];
   estimatedSeconds: number | null;
+  /** How many sampling passes the run makes. See Job.passes. */
+  passes?: number;
 }
 
 export interface JobsController {
@@ -391,6 +393,7 @@ export function useJobs(): JobsController {
           outputs: [],
           resolved: response.resolved,
           estimatedSeconds: response.estimatedSeconds,
+          passes: response.passes,
         };
 
         setJobs((previous) => [job, ...previous]);

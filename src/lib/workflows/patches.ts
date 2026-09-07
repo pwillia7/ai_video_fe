@@ -386,12 +386,14 @@ export interface PatchOptions {
    * in front of.
    *
    * Passed in rather than found here, because only the workflow knows it — it
-   * is the same link `directorBypass` rewires, and `promptConsumer` derives it
+   * is the same link `directorBypass` rewires, and `promptConsumers` derives it
    * from that rather than from a second declaration that could drift. Without
    * it a LoRA that declares a trigger is refused, since applying its weights
    * with no trigger is the silent-no-op this whole field exists to prevent.
+   *
+   * Several where the graph samples more than once from one brief.
    */
-  promptInput?: { node: string; input: string };
+  promptInputs?: Array<{ node: string; input: string }>;
 }
 
 /** What a run actually got from one patch, once the choice is resolved. */
@@ -467,7 +469,7 @@ export function applyPatch(
       patch.label,
       choice.prompt,
       options.tier,
-      options.promptInput,
+      options.promptInputs,
     );
   }
 
@@ -576,20 +578,40 @@ function applyPatchPrompt(
   label: string,
   prompt: PatchPrompt,
   tier: string | undefined,
-  promptInput: { node: string; input: string } | undefined,
+  promptInputs: Array<{ node: string; input: string }> | undefined,
 ): { text: string; tier?: string } {
-  if (!promptInput) {
+  if (!promptInputs || promptInputs.length === 0) {
     throw new Error(
       `${label} needs a trigger in the prompt, but this workflow does not say where the prompt reaches the model.`,
     );
   }
-  const consumer = graph[promptInput.node];
-  if (!consumer || !(promptInput.input in consumer.inputs)) {
-    throw new Error(
-      `${label} writes its trigger into node ${promptInput.node}.${promptInput.input}, which ${
-        consumer ? `${consumer.class_type} does not accept` : "this graph does not have"
-      }.`,
-    );
+  for (const target of promptInputs) {
+    const node = graph[target.node];
+    if (!node || !(target.input in node.inputs)) {
+      throw new Error(
+        `${label} writes its trigger into node ${target.node}.${target.input}, which ${
+          node ? `${node.class_type} does not accept` : "this graph does not have"
+        }.`,
+      );
+    }
+  }
+
+  /**
+   * What every one of them is reading, which has to be the same thing for one
+   * join to serve them all — they are consumers of a single director output, so
+   * it always is, and a graph where it stopped being true would be one where
+   * this quietly rewrote some of them to carry another's prompt.
+   */
+  const first = graph[promptInputs[0].node].inputs[promptInputs[0].input];
+  for (const target of promptInputs) {
+    if (
+      JSON.stringify(graph[target.node].inputs[target.input]) !==
+      JSON.stringify(first)
+    ) {
+      throw new Error(
+        `${label} would join a trigger onto ${promptInputs.length} inputs that do not all read the same prompt.`,
+      );
+    }
   }
   if (graph[PROMPT_NODE_ID]) {
     throw new Error(
@@ -604,12 +626,14 @@ function applyPatchPrompt(
       string_a: text,
       // Whatever fed the model before — the director's rewrite, or the raw
       // prompt once bypass has rewired it.
-      string_b: consumer.inputs[promptInput.input],
+      string_b: first,
       delimiter: ", ",
     },
     _meta: { title: "LoRA trigger" },
   };
-  consumer.inputs[promptInput.input] = [PROMPT_NODE_ID, 0];
+  for (const target of promptInputs) {
+    graph[target.node].inputs[target.input] = [PROMPT_NODE_ID, 0];
+  }
 
   return { text, tier: patchTier(prompt, tier)?.id };
 }
@@ -738,7 +762,7 @@ export function patchBaseProblems(
 export function patchVariants(
   graph: ComfyGraph,
   patch: PatchDef,
-  promptInput?: { node: string; input: string },
+  promptInputs?: Array<{ node: string; input: string }>,
 ): Array<{ suffix: string; graph: ComfyGraph; optional: boolean }> {
   const options = patch.choices?.options;
   if (!options?.length) {
@@ -752,7 +776,7 @@ export function patchVariants(
     // on a correctly set-up machine and train everyone to ignore it.
     variants.push({
       suffix: `, ${option.label.toLowerCase()}`,
-      graph: patchGraph(graph, patch, { choice: option.id, promptInput }),
+      graph: patchGraph(graph, patch, { choice: option.id, promptInputs }),
       optional: true,
     });
     const base = patchBaseFor(option.bases, graph);
@@ -762,7 +786,7 @@ export function patchVariants(
         graph: patchGraph(graph, patch, {
           choice: option.id,
           alternateBase: true,
-          promptInput,
+          promptInputs,
         }),
         optional: true,
       });

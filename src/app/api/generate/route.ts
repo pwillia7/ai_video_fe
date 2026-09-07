@@ -121,6 +121,10 @@ export async function POST(request: Request) {
       alternateBase,
     });
 
+    // Read off the resolved values rather than the request, so a length the
+    // form did not send falls to the same default the graph was built with.
+    const passes = workflow.passes?.(resolved) ?? 1;
+
     const clientId = crypto.randomUUID();
     const result = await queuePrompt(graph, clientId);
 
@@ -138,15 +142,33 @@ export async function POST(request: Request) {
       // own median for this workflow and these modes as soon as it has one, so
       // the fact that neither number describes both switches at once costs a
       // rough progress bar on the first run in a combination and nothing after.
-      estimatedSeconds:
+      estimatedSeconds: scaleEstimate(
         enabledPatches(workflow.patches, applied)
           .map((patch) => patch.estimatedSeconds)
           .findLast((seconds) => seconds !== undefined) ??
-        (turbo ? workflow.turbo?.estimatedSeconds : undefined) ??
-        workflow.estimatedSeconds ??
-        null,
+          (turbo ? workflow.turbo?.estimatedSeconds : undefined) ??
+          workflow.estimatedSeconds ??
+          null,
+        passes,
+      ),
+      // How many sampling passes this graph makes, so the client learns its
+      // median from runs that did the same amount of work. See `passes`.
+      passes,
     });
   } catch (error) {
     return errorResponse(error);
   }
+}
+
+/**
+ * The static estimate for a run that samples more than once.
+ *
+ * Linear, because the passes are sequential and each is a full sampling run —
+ * the loaders and the VAEs are shared, but nothing about the work is. It is
+ * only ever the number shown before this device has finished one of these; the
+ * learned median replaces it, and buckets by the same count.
+ */
+function scaleEstimate(seconds: number | null, passes: number): number | null {
+  if (seconds === null) return null;
+  return Math.round(seconds * Math.max(1, passes));
 }

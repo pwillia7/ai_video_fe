@@ -62,6 +62,28 @@ import {
  * Remix button (`clipTarget` below) or by an upload — see video-upload.tsx
  * for the limits that keeps within, which matter more here than elsewhere
  * because the clip decides what gets generated.
+ *
+ * ## Past fifteen seconds
+ *
+ * The model takes at most 362 frames in one pass, so a longer clip is cut into
+ * pieces, each rebuilt as its own video, and the pieces put back together. The
+ * arithmetic is `chunkPlan`; the stacks it prunes are `chunkNodes`; the
+ * reassembly is nodes 170 to 173.
+ *
+ * **The soundtrack is what makes this work rather than merely run.** H3 writes
+ * picture and audio together, so four passes invent four unrelated
+ * soundtracks — a score that restarts every fifteen seconds is a seam no amount
+ * of care at the cut can hide, and it is audible in a way the picture's seam is
+ * not. So the generated audio is thrown away and the source's own is muxed over
+ * the result: each chunk loader already carries exactly its own span of it,
+ * because VHS cuts the audio to the same window it cuts the frames to, and
+ * concatenating those spans in order rebuilds the original track with neither
+ * gap nor repeat. A track that was continuous before anything was generated
+ * stays continuous.
+ *
+ * Which is also why chunking lives here and not on the graphs that invent a
+ * video from nothing: a remix has a real soundtrack to fall back on and they do
+ * not. The picture's seams remain, and are the accepted cost.
  */
 const ids: Omit<MinimaxNodeIds, "duration"> = {
   prompt: { node: "138", input: "value" },
@@ -84,6 +106,180 @@ const SOURCE_FPS = 24;
 
 /** Roughly how many frames the director is shown. See node 157. */
 const DIRECTOR_FRAMES = 5;
+
+/**
+ * The longest single pass the model was trained for, in frames at SOURCE_FPS.
+ *
+ * The node states it: "trained range is ~124-362". 362 frames is 15.08 seconds
+ * and sits on the 17k+5 grid the sampler snaps to, so it is both the ceiling
+ * and a clean number to cut at.
+ */
+const CHUNK_FRAMES = 362;
+
+/**
+ * How many of those a run may string together.
+ *
+ * Four is a minute, which is past what the 4 MB upload ceiling can carry at any
+ * watchable bitrate — so in practice this bites on clips arriving through the
+ * Remix button, where a previous generation is copied server-side and has no
+ * size limit. Each chunk is a full sampling pass, so the cost is linear: about
+ * five minutes a chunk in turbo.
+ */
+const MAX_CHUNKS = 4;
+
+/**
+ * The longest clip this graph will take, in seconds: every chunk full.
+ *
+ * Derived rather than typed, so raising MAX_CHUNKS raises the control with it
+ * instead of leaving a form that refuses clips the graph could now rebuild.
+ */
+const MAX_SECONDS = Math.floor((MAX_CHUNKS * CHUNK_FRAMES) / SOURCE_FPS);
+
+/** Ids for chunk i. Chunk 0 keeps the ids the exported graph already used. */
+const chunkId = (base: string, index: number) =>
+  index === 0 ? base : `${base}c${index}`;
+
+const LOADER = "154";
+const SIZE = "163";
+const REFERENCE = "136";
+const GUIDER = "126";
+const SAMPLER = "125";
+const DECODE = "122";
+/** Where the pieces are put back together. */
+const BATCH_NODE = "170";
+const audioJoinId = (index: number) => `17${index}`;
+
+/**
+ * One chunk's worth of graph: load a slice, condition on it, sample it, decode
+ * it.
+ *
+ * Six nodes, because everything else is genuinely shared. The noise and the
+ * scheduler are the interesting ones to share rather than clone: neither reads
+ * the latent, so one of each serves every chunk — and one seed across all of
+ * them is a small push towards their looking like each other, which is the
+ * whole difficulty with cutting a video into pieces. It also means the seed and
+ * step controls keep targeting the single node they always did.
+ */
+function chunkNodes(index: number): ComfyGraph {
+  const id = (base: string) => chunkId(base, index);
+  return {
+    [id(LOADER)]: {
+      class_type: "VHS_LoadVideo",
+      inputs: {
+        video: "",
+        force_rate: SOURCE_FPS,
+        custom_width: 0,
+        custom_height: 0,
+        frame_load_cap: CHUNK_FRAMES,
+        // The only thing that distinguishes one chunk from the next. VHS cuts
+        // the audio to the same span — `lazy_get_audio(video, skip/fps,
+        // cap/fps)` — which is what lets the soundtrack be reassembled from the
+        // pieces rather than decoded again from the whole file.
+        skip_first_frames: index * CHUNK_FRAMES,
+        select_every_nth: 1,
+      },
+      _meta: { title: `Load Video (chunk ${index + 1})` },
+    },
+    [id(SIZE)]: {
+      class_type: "GetImageSizeAndCount",
+      inputs: { image: [id(LOADER), 0] },
+      _meta: { title: "Get Image Size & Count" },
+    },
+    [id(REFERENCE)]: {
+      class_type: "MiniMaxH3ReferenceToVideo",
+      inputs: {
+        prompt: ["145", 0],
+        width: [id(SIZE), 1],
+        height: [id(SIZE), 2],
+        length: [id(SIZE), 3],
+        ref_image_size: "match",
+        clip: ["128", 0],
+        vae: ["119", 0],
+        audio_vae: ["120", 0],
+        "ref_videos.ref_video_0": [id(LOADER), 0],
+        "ref_video_audios.ref_video_audio_0": [id(LOADER), 2],
+      },
+      _meta: { title: "MiniMax H3 Reference to Video" },
+    },
+    [id(GUIDER)]: {
+      class_type: "BasicGuider",
+      inputs: { model: ["127", 0], conditioning: [id(REFERENCE), 0] },
+      _meta: { title: "Basic Guider" },
+    },
+    [id(SAMPLER)]: {
+      class_type: "SamplerCustomAdvanced",
+      inputs: {
+        noise: ["129", 0],
+        guider: [id(GUIDER), 0],
+        sampler: ["123", 0],
+        sigmas: ["124", 0],
+        latent_image: [id(REFERENCE), 1],
+      },
+      _meta: { title: "SamplerCustomAdvanced" },
+    },
+    [id(DECODE)]: {
+      class_type: "VAEDecode",
+      inputs: { samples: [id(SAMPLER), 0], vae: ["119", 0] },
+      _meta: { title: "VAE Decode" },
+    },
+  };
+}
+
+/**
+ * The shortest pass worth making, in frames.
+ *
+ * The other end of the node's "trained range is ~124-362". Nothing enforces it
+ * — a shorter pass samples and returns something — but what comes back has left
+ * the range the weights were fitted on, and it is the reason chunks are spread
+ * rather than packed. See `chunkPlan`.
+ */
+const MIN_CHUNK_FRAMES = 124;
+
+/**
+ * How the clip is divided: how many passes, and how much of it each one loads.
+ *
+ * **Spread evenly rather than packed to the ceiling**, which is the whole of
+ * the arithmetic below. Packing takes 362 frames at a time and gives the last
+ * pass the remainder, so a clip that runs a half-second past a boundary ends in
+ * a ten-frame chunk — an eighth of the model's trained minimum, sampled as its
+ * own video and then batched onto the end of a good one. Dividing the frames
+ * across the passes instead puts the worst case at just over half a chunk
+ * (a hair past one boundary is two passes of ~7.5s each), which is inside the
+ * range everywhere.
+ *
+ * The frame count comes from the duration the browser measured, which is the
+ * one number here that can be wrong — a MediaRecorder file misreports its own
+ * length, which is why node 157 works its stride out from what the loader
+ * actually returned rather than from this. So this is used only to *place* the
+ * cuts, never to decide where the video ends: the last pass keeps the full
+ * ceiling as its cap and stops when the file does. An under-measured clip
+ * therefore comes back whole, with a last chunk longer than its siblings,
+ * rather than truncated at a length nothing verified.
+ */
+function chunkPlan(values: Record<string, ParamValue>): {
+  count: number;
+  frames: number;
+} {
+  const seconds = Math.max(0, Number(values.source_seconds ?? 0));
+  // Nothing measured yet: one pass, which is both the safe answer and what
+  // every run did before this existed.
+  if (seconds <= 0) return { count: 1, frames: CHUNK_FRAMES };
+
+  const total = Math.ceil(seconds * SOURCE_FPS);
+  const count = Math.min(MAX_CHUNKS, Math.max(1, Math.ceil(total / CHUNK_FRAMES)));
+  if (count === 1) return { count, frames: CHUNK_FRAMES };
+
+  // Rounded up, so the cuts between them cover the measured length rather than
+  // stopping a frame or two short of it.
+  const frames = Math.ceil(total / count);
+  return {
+    count,
+    // Both ends: a clip past the four-chunk ceiling divides into pieces bigger
+    // than a pass, and the floor is there for a measurement that came back
+    // absurdly small rather than for any division of a real clip.
+    frames: Math.min(CHUNK_FRAMES, Math.max(MIN_CHUNK_FRAMES, frames)),
+  };
+}
 const VIDEO_PARAM = "reference_video";
 const WORDS_PARAM = "clip_words";
 const AUDIO_KEEP_PARAM = "clip_audio_keep";
@@ -102,6 +298,54 @@ const keepsClipSpeech = (values: Record<string, ParamValue>): boolean =>
   audioKeepReusesWords(values, AUDIO_KEEP_PARAM, AUDIO_KEEP_DEFAULT);
 
 const graph: ComfyGraph = {
+  // Every chunk's stack, all MAX_CHUNKS of them, declared rather than cloned at
+  // run time. `finalize` deletes the ones a given clip does not reach, which is
+  // the same pruning every optional input in this app goes through — and it
+  // means `check:workflows` validates the whole thing standing still.
+  ...Object.assign({}, ...Array.from({ length: MAX_CHUNKS }, (_, i) => chunkNodes(i))),
+
+  /**
+   * The pieces put back together: pictures end to end, and the source's own
+   * sound over the top of them.
+   *
+   * The sound is the reason chunking works at all. H3 writes picture and audio
+   * in one pass, so four passes mean four separately invented soundtracks, and
+   * no amount of care at the joins hides a score restarting every fifteen
+   * seconds. Taking the audio from the source instead — which each chunk loader
+   * already carries for its own span — gives a track that was continuous before
+   * anything was generated and stays that way.
+   *
+   * Which is also why this only applies to a remix: the clip brings its own
+   * sound. A workflow inventing audio from nothing has nothing to fall back on.
+   */
+  "170": {
+    class_type: "BatchImagesNode",
+    inputs: Object.fromEntries(
+      Array.from({ length: MAX_CHUNKS }, (_, i) => [
+        `images.image${i}`,
+        [chunkId(DECODE, i), 0],
+      ]),
+    ),
+    _meta: { title: "Batch Images" },
+  },
+  ...Object.fromEntries(
+    // One join per seam: the first pairs chunks 1 and 2, and each after it
+    // takes what the last one produced. `finalize` picks the one that ends the
+    // chain this run needs and drops the rest.
+    Array.from({ length: MAX_CHUNKS - 1 }, (_, i) => [
+      audioJoinId(i + 1),
+      {
+        class_type: "AudioConcatenate",
+        inputs: {
+          direction: "right",
+          audio1: i === 0 ? [chunkId(LOADER, 0), 2] : [audioJoinId(i), 0],
+          audio2: [chunkId(LOADER, i + 1), 2],
+        },
+        _meta: { title: "Audio Concatenate" },
+      },
+    ]),
+  ),
+
   "92": {
     class_type: "SaveVideo",
     inputs: {
@@ -128,11 +372,6 @@ const graph: ComfyGraph = {
     inputs: { samples: ["125", 0], vae: ["120", 0] },
     _meta: { title: "VAE Decode Audio" },
   },
-  "122": {
-    class_type: "VAEDecode",
-    inputs: { samples: ["125", 0], vae: ["119", 0] },
-    _meta: { title: "VAE Decode" },
-  },
   "123": {
     class_type: "KSamplerSelect",
     inputs: { sampler_name: "res_multistep" },
@@ -147,22 +386,6 @@ const graph: ComfyGraph = {
       model: ["127", 0],
     },
     _meta: { title: "BasicScheduler" },
-  },
-  "125": {
-    class_type: "SamplerCustomAdvanced",
-    inputs: {
-      noise: ["129", 0],
-      guider: ["126", 0],
-      sampler: ["123", 0],
-      sigmas: ["124", 0],
-      latent_image: ["136", 1],
-    },
-    _meta: { title: "SamplerCustomAdvanced" },
-  },
-  "126": {
-    class_type: "BasicGuider",
-    inputs: { model: ["127", 0], conditioning: ["136", 0] },
-    _meta: { title: "Basic Guider" },
   },
   "127": {
     class_type: "UNETLoader",
@@ -196,39 +419,6 @@ const graph: ComfyGraph = {
     },
     _meta: { title: "Create Video" },
   },
-  "136": {
-    class_type: "MiniMaxH3ReferenceToVideo",
-    inputs: {
-      prompt: ["145", 0],
-      // All three measured off the clip: outputs 1, 2 and 3 of node 163 are
-      // width, height and frame count.
-      width: ["163", 1],
-      height: ["163", 2],
-      length: ["163", 3],
-      ref_image_size: "match",
-      clip: ["128", 0],
-      vae: ["119", 0],
-      audio_vae: ["120", 0],
-      // No ref_images here — the clip is the only reference the sampler gets.
-      //
-      // The soundtrack goes in `ref_video_audios`, not `ref_audios`, because it
-      // is this clip's own audio rather than a second reference that happens to
-      // be sound. The node pairs `ref_video_audio_N` with `ref_video_N` by
-      // index and emits one fused `video_audio` conditioning block for the two;
-      // `ref_audios` would emit a `video` block and an unrelated `audio` one,
-      // which is a different thing to hand the model — a clip and a sound
-      // beside it, rather than a clip that sounds like this.
-      //
-      // The labels are the same either way. References are presented as images,
-      // then each video preceded by its own soundtrack, then standalone audio,
-      // numbered 1-based per type — so with one video and nothing else this is
-      // <Video 1> and <Audio 1> in both wirings, and REMIX_DIRECTOR's names for
-      // them still hold.
-      "ref_videos.ref_video_0": ["154", 0],
-      "ref_video_audios.ref_video_audio_0": ["154", 2],
-    },
-    _meta: { title: "MiniMax H3 Reference to Video" },
-  },
   "138": {
     class_type: "PrimitiveStringMultiline",
     inputs: { value: "" },
@@ -256,39 +446,6 @@ const graph: ComfyGraph = {
     title: "AI Gateway - Rewrite Prompt",
   }),
 
-  // The clip, read at 24 fps.
-  //
-  // VHS's loader rather than ComfyUI's own, for the two reasons the reference
-  // workflow moved to it. `force_rate` matters more here than anywhere: this
-  // graph takes the output's *frame count* from the source (node 163) and
-  // writes the result at 24 fps, so a clip at any other rate came back the
-  // wrong length — a 30 fps ten-second clip is 300 frames, and 300 frames at 24
-  // fps is a twelve-and-a-half-second remix, a quarter long and slowed to
-  // match. Nothing noticed because the usual source is a generation from this
-  // app, which is already 24.
-  //
-  // And VHS reads a file the core loader cannot measure: a browser's
-  // MediaRecorder writes a fragmented MP4 whose header says duration 0 and
-  // whose sample tables are empty. See minimax-h3-ref.ts, where that is what
-  // reduced a fifteen-second clip to a single frame.
-  //
-  // No `frame_load_cap`: a remix is the whole clip by definition, which is what
-  // separates it from a clip attached as a reference.
-  //
-  // Outputs: 0 is the frames, 1 is how many there are, 2 is the soundtrack.
-  "154": {
-    class_type: "VHS_LoadVideo",
-    inputs: {
-      video: "",
-      force_rate: SOURCE_FPS,
-      custom_width: 0,
-      custom_height: 0,
-      frame_load_cap: 0,
-      skip_first_frames: 0,
-      select_every_nth: 1,
-    },
-    _meta: { title: "Load Video" },
-  },
 
   // A handful of frames spread across the clip, for the director to look at.
   //
@@ -315,13 +472,6 @@ const graph: ComfyGraph = {
     _meta: { title: "Math Expression" },
   },
 
-  // Reads the clip's full frame sequence, not the five-frame sample: the count
-  // has to be the length of the source, not the size of the director's peek.
-  "163": {
-    class_type: "GetImageSizeAndCount",
-    inputs: { image: ["154", 0] },
-    _meta: { title: "Get Image Size & Count" },
-  },
 };
 
 /**
@@ -373,8 +523,13 @@ const params: ParamDef[] = [
     type: "video",
     default: "",
     required: true,
-    help: "Its size and length become the new video's. Up to 768×1344, 20s, 4 MB.",
+    help: `Its size and length become the new video's. Up to 768×1344, ${MAX_SECONDS}s, 4 MB. Past ${(CHUNK_FRAMES / SOURCE_FPS).toFixed(0)}s it is rebuilt in passes of about that long and stitched back together, so a long clip costs a pass per piece.`,
     group: "Source",
+    // Four passes' worth, which is this graph's own ceiling rather than the
+    // upload path's 20s — a clip arriving through the Remix button is copied
+    // server-side and is only ever limited by this. Anything longer would be
+    // silently truncated at the last chunk, so it is refused instead.
+    maxSeconds: MAX_SECONDS,
     targets: [{ node: VIDEO_NODE, input: "video" }],
     // The clip is the only thing that knows how long the output will be, so
     // the control that loads it reports that onward to the param below.
@@ -434,6 +589,12 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
   name: "Remix",
   description: "Rebuilds a clip you have already made into a new take.",
   estimatedSeconds: 480,
+  /**
+   * One per chunk. 480 is a single pass, so a clip that needs four of them is
+   * four times the wait — the number the clock starts from, and the bucket its
+   * learned replacement is grouped by. See `chunkPlan`.
+   */
+  passes: (values) => chunkPlan(values).count,
   hasAudio: true,
   graph,
   // A control that only ever wrote the director's instructions goes out of
@@ -512,4 +673,102 @@ export const minimaxH3ReferenceVideo: WorkflowDef = {
     sourceParam: "reference_video",
     carry: ["prompt"],
   },
+
+  /**
+   * Cut the graph down to the chunks this clip actually needs.
+   *
+   * A clip inside one chunk queues exactly the graph this workflow always
+   * queued: one pass, and the audio the model generated with it. Everything
+   * below is what happens past fifteen seconds.
+   */
+  finalize(graph, values) {
+    const { count: chunks, frames } = chunkPlan(values);
+
+    // Where each surviving pass cuts. The stored graph packs them at the
+    // ceiling; this is what spreads them. The last one keeps the ceiling as its
+    // cap so it runs to the end of the file whatever the measurement said —
+    // see `chunkPlan`.
+    for (let index = 0; index < chunks; index += 1) {
+      const loader = graph[chunkId(LOADER, index)].inputs;
+      loader.skip_first_frames = index * frames;
+      loader.frame_load_cap = index === chunks - 1 ? CHUNK_FRAMES : frames;
+    }
+
+    // Whatever is past the end goes: its stack, its slot in the batch, and the
+    // join that would have appended its sound.
+    for (let index = chunks; index < MAX_CHUNKS; index += 1) {
+      for (const base of [LOADER, SIZE, REFERENCE, GUIDER, SAMPLER, DECODE]) {
+        delete graph[chunkId(base, index)];
+      }
+      delete graph[BATCH_NODE].inputs[`images.image${index}`];
+    }
+    // A run needs one join per seam, so joins 1 to chunks-1 stay and the chain
+    // starts deleting at `chunks`. One chunk has no seams and loses all of
+    // them, which is the loop starting at 1.
+    for (let join = chunks; join < MAX_CHUNKS; join += 1) {
+      delete graph[audioJoinId(join)];
+    }
+
+    if (chunks === 1) {
+      // Nothing to join. The batch of one and the whole audio chain go, and the
+      // output reads the single decode and the generated audio, exactly as it
+      // did before any of this existed.
+      delete graph[BATCH_NODE];
+      graph["130"].inputs.images = [chunkId(DECODE, 0), 0];
+      return;
+    }
+
+    graph["130"].inputs.images = [BATCH_NODE, 0];
+    // The source's own sound, reassembled from the spans each loader carries,
+    // in place of the audio the model made. See node 170's note for why.
+    graph["130"].inputs.audio = [audioJoinId(chunks - 1), 0];
+    // Which leaves nothing reading the audio decode.
+    delete graph["121"];
+  },
+  /**
+   * Every chunk count, because each one is a different graph.
+   *
+   * The lengths are picked to land either side of the boundaries rather than in
+   * the middle of a band: 15 is inside one chunk, 15.5 is just past it. What
+   * this is really checking is that the pruning and the rewiring agree — that
+   * the batch has exactly the slots the surviving decodes fill, that the join
+   * `130` reads is the last one still standing, and that the single-chunk case
+   * still queues the graph this workflow queued before chunking existed.
+   *
+   * The last two run with the director switched off, since bypass sweeps
+   * unreachable nodes *after* this prunes and the two passes have to agree
+   * about what is still reachable — with the director gone, the frames sampled
+   * for it are read by nothing and go, and every chunk's reference node has to
+   * be left reading the raw prompt instead.
+   */
+  finalizeCases: [
+    {
+      name: "a clip inside one chunk",
+      values: { [VIDEO_PARAM]: "clip.mp4", source_seconds: 8 },
+    },
+    {
+      name: "a clip exactly at the chunk ceiling",
+      values: { [VIDEO_PARAM]: "clip.mp4", source_seconds: 15 },
+    },
+    {
+      name: "a clip just past one chunk",
+      values: { [VIDEO_PARAM]: "clip.mp4", source_seconds: 15.5 },
+    },
+    {
+      name: "a clip over three chunks",
+      values: { [VIDEO_PARAM]: "clip.mp4", source_seconds: 40 },
+    },
+    {
+      name: "a clip past the four-chunk ceiling",
+      values: { [VIDEO_PARAM]: "clip.mp4", source_seconds: 200 },
+    },
+    {
+      name: "one chunk with the director off",
+      values: { [VIDEO_PARAM]: "clip.mp4", source_seconds: 8, [bypass.param]: true },
+    },
+    {
+      name: "four chunks with the director off",
+      values: { [VIDEO_PARAM]: "clip.mp4", source_seconds: 55, [bypass.param]: true },
+    },
+  ],
 };

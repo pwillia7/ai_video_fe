@@ -82,6 +82,15 @@ export interface Job {
   >;
   hasAudio: boolean;
   /**
+   * How many sampling passes the run made — Remix cuts a long clip into chunks
+   * and samples each one. Recorded for the same reason `turbo` and `patches`
+   * are, and it is the largest factor of the three: four passes take about four
+   * times as long, so pooling them with single-pass runs would teach a median
+   * that describes neither. Undefined on history from before this existed and
+   * on every workflow that only ever samples once, which read as one.
+   */
+  passes?: number;
+  /**
    * Marked by the user as worth keeping. Purely an organising flag — it sorts
    * the entry into its own section at the top of the history and protects it
    * from the bulk clears and from eviction, but changes nothing about the file
@@ -388,7 +397,13 @@ export function learnedEstimateSeconds(jobs: Job[], job: Job): number | null {
  * Sorted so two runs with the same switches on match however they were stored.
  */
 function modeKey(job: Job): string {
-  return [job.turbo ? "turbo" : "", ...(job.patches ?? [])].sort().join("|");
+  return [
+    // Outside the sort, because it is a count rather than a switch and sorting
+    // it in among the names would put "2" and "turbo" in an order that depends
+    // on the number.
+    `x${job.passes ?? 1}`,
+    ...[job.turbo ? "turbo" : "", ...(job.patches ?? [])].sort(),
+  ].join("|");
 }
 
 export function formatDuration(ms: number): string {
