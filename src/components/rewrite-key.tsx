@@ -182,19 +182,54 @@ function RewriteKeyModal({
         nothing against it.
       </p>
 
-      <Field
-        id={id}
-        label="Gateway API key"
-        help="Sent straight to your ComfyUI machine and written next to the node pack. It is not stored here and cannot be read back."
+      {/*
+        A form around one field, for the reason Chrome states in the console:
+        "Password field is not contained in a form". A password input outside
+        one is a field its password manager cannot offer to fill or save, and
+        this modal lives in the DOM from page load, so the notice is there on
+        every visit whether or not anyone opens it.
+
+        It also buys the behaviour anyone typing a key into a box expects, which
+        the modal did not have: Enter submits.
+      */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!saving && key.trim().length >= 8) void save();
+        }}
       >
-        <PasswordInput
-          id={id}
-          value={key}
-          onChange={setKey}
-          placeholder="vck_…"
-          disabled={saving}
+        {/*
+          The username half of a password form, which Chrome asks for next:
+          "Password forms should have (optionally hidden) username fields for
+          accessibility". There is no account here — the key is the whole
+          credential — so this names the thing the key belongs to, which is
+          also what makes a password manager offer to save it under a useful
+          label rather than under the site alone.
+        */}
+        <input
+          type="text"
+          name="username"
+          autoComplete="username"
+          value="Vercel AI Gateway"
+          readOnly
+          tabIndex={-1}
+          aria-hidden="true"
+          className="sr-only"
         />
-      </Field>
+        <Field
+          id={id}
+          label="Gateway API key"
+          help="Sent straight to your ComfyUI machine and written next to the node pack. It is not stored here and cannot be read back."
+        >
+          <PasswordInput
+            id={id}
+            value={key}
+            onChange={setKey}
+            placeholder="vck_…"
+            disabled={saving}
+          />
+        </Field>
+      </form>
 
       {error ? (
         <p className="text-[13px] text-danger" role="alert">

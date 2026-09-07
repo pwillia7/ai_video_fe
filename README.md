@@ -1402,7 +1402,16 @@ Three limits worth knowing:
   a batch-dimension mismatch on a run carrying more than one kind of reference
   block, and a clip is that as much as a track is. Remix, which is nothing but a
   video reference through this same node class, already runs on the bf16 pair.
-- **Twenty seconds, and the length is not what decides the cost.** A reference
+- **Fifteen seconds reach the model; twenty may be uploaded.** MiniMax documents
+  a reference video at 2–15s, and that fifteen is a budget shared with reference
+  audio rather than a per-file limit, so `frame_load_cap` stops there and
+  nothing past it is decoded. The upload limit is higher on purpose: a longer
+  file is truncated rather than refused, since the reference node truncates to
+  the generated video's frame count anyway and turning someone away to trim a
+  clip by hand buys nothing. The in-app recorder stops at the budget rather than
+  the upload limit — footage past it is discarded, and recording it would only
+  spend the bitrate allowance on frames nothing will see.
+- **The length is not what decides the cost.** A reference
   video is encoded to latent frames that ride through *every* sampling step
   alongside the ones being generated, so its cost is added to the sequence for
   the whole run rather than paid once at the start. But the node truncates a

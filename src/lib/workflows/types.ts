@@ -242,6 +242,17 @@ export interface VideoParam extends ParamBase {
   minSeconds?: number;
   maxSeconds?: number;
   /**
+   * How much of the clip actually reaches the model, where that is less than
+   * what may be uploaded. Anything past it is truncated rather than refused.
+   *
+   * Two jobs, both about not wasting what the user gives: it caps the in-app
+   * recorder, since footage past the budget is discarded and recording it only
+   * spends the bitrate allowance on frames nothing will see; and it is what the
+   * upload control says out loud, so a longer file being accepted does not read
+   * as a longer file being used.
+   */
+  budgetSeconds?: number;
+  /**
    * Id of a `measured` param this control fills in with the loaded clip's
    * running time. Named here rather than the other way round because the video
    * control is what has the clip in hand.

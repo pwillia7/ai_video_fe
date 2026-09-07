@@ -141,26 +141,35 @@ const REF_MAX_MEGAPIXELS = 0.5;
 const REF_VIDEO_FPS = 24;
 
 /**
- * The longest clip that may be attached, in seconds.
+ * How much of a clip actually conditions the model, in seconds.
  *
- * A limit on the upload rather than on the conditioning, because the reference
- * node imposes its own and it is the one that decides the cost: it truncates a
- * reference to the generated video's own frame count, so what the model carries
- * is `min(clip, video)` however long the file is. A 20-second clip on a
- * 5-second video costs exactly what a 5-second clip costs.
+ * MiniMax documents a reference video at 2-15s, and the fifteen is a budget
+ * shared with reference audio rather than a per-file limit. Past it is outside
+ * what they describe rather than outside what the node takes, so this is where
+ * the graph stops handing frames over: `frame_load_cap` counts frames at the
+ * forced rate, and anything beyond is never decoded.
  *
- * Which means the expensive case is not a long clip, it is a clip as long as
- * the video — and that doubles the sequence the sampler works through, since a
- * reference is encoded to latent frames that ride alongside the generated ones
- * through every step. That ceiling is 2x and it is reachable at any length: six
- * seconds of reference on a five-second video already sits there. So this
- * number does not protect against it, and pretending otherwise by keeping it
- * small only costs the long-video runs, where a short reference really is
- * cheap — three seconds against twenty is 1.1x.
+ * Not the same number as the upload limit below, deliberately. A longer file is
+ * fine to bring — the reference node truncates a clip to the generated video's
+ * own frame count in any case, so `min(clip, budget, video)` is what the model
+ * ever sees — and refusing one at the door would only send someone away to trim
+ * it by hand for no gain.
+ */
+const REF_BUDGET_SECONDS = 15;
+
+/**
+ * The longest clip that may be uploaded, in seconds.
  *
- * 20 matches what Remix and Extend accept. MiniMax documents a reference video
- * at 2-15s, so past fifteen is outside what they describe rather than outside
- * what the node takes.
+ * Larger than the budget on purpose: what is past it is truncated rather than
+ * rejected. Twenty is what Remix and Extend already accept, so a clip that
+ * works for those works here.
+ *
+ * Worth being clear about what neither number protects. The expensive case is
+ * not a long clip, it is a clip as long as the video — the reference is encoded
+ * to latent frames that ride alongside the generated ones through every
+ * sampling step, so a reference matching the output doubles the sequence, and
+ * that 2x ceiling is reachable at any length. Six seconds of reference against
+ * a five-second video already sits on it.
  */
 const MAX_CLIP_SECONDS = 20;
 
@@ -533,7 +542,7 @@ const graph: ComfyGraph = {
       // height here would set one axis without regard to the other.
       custom_width: 0,
       custom_height: 0,
-      frame_load_cap: MAX_CLIP_SECONDS * REF_VIDEO_FPS,
+      frame_load_cap: REF_BUDGET_SECONDS * REF_VIDEO_FPS,
       skip_first_frames: 0,
       select_every_nth: 1,
     },
@@ -714,7 +723,8 @@ const params: ParamDef[] = [
     default: "",
     minSeconds: 1,
     maxSeconds: MAX_CLIP_SECONDS,
-    help: `Optional. A clip shows how someone moves, which a still cannot. Up to ${MAX_CLIP_SECONDS}s, and only as much of it as the video is long is used — a clip about as long as the video is what makes a run slow. Pins the run to 4 steps.`,
+    budgetSeconds: REF_BUDGET_SECONDS,
+    help: `Optional. A clip shows how someone moves, which a still cannot. The first ${REF_BUDGET_SECONDS}s reach the model, and only as much of that as the video is long — a clip about as long as the video is what makes a run slow. Pins the run to 4 steps.`,
     group: "References",
     targets: [
       { node: VIDEO_NODE, input: "video" },

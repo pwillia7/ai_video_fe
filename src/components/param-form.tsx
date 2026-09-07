@@ -414,6 +414,7 @@ function Control({
             }
             minSeconds={param.minSeconds}
             maxSeconds={param.maxSeconds}
+            budgetSeconds={param.budgetSeconds}
             disabled={readOnly}
             describedBy={describedBy}
           />

@@ -188,6 +188,7 @@ export function VideoUpload({
   onMeasure,
   minSeconds = 0,
   maxSeconds = MAX_SECONDS,
+  budgetSeconds,
   disabled,
   describedBy,
 }: {
@@ -205,6 +206,8 @@ export function VideoUpload({
   /** See `VideoParam`. Both default to what any clip has to stay inside. */
   minSeconds?: number;
   maxSeconds?: number;
+  /** See `VideoParam`. Without one, all of an accepted clip is used. */
+  budgetSeconds?: number;
   disabled?: boolean;
   describedBy?: string;
 }) {
@@ -478,8 +481,10 @@ export function VideoUpload({
                   </span>
                   <span className="text-[12px] text-fg-subtle">
                     Up to {MAX_SHORT_EDGE}×{MAX_LONG_EDGE}, {maxSeconds}s and{" "}
-                    {MAX_UPLOAD_BYTES / 1024 / 1024} MB — or hit Remix or Extend
-                    on a finished generation
+                    {MAX_UPLOAD_BYTES / 1024 / 1024} MB
+                    {budgetSeconds && budgetSeconds < maxSeconds
+                      ? ` — the first ${budgetSeconds}s of it is used`
+                      : " — or hit Remix or Extend on a finished generation"}
                   </span>
                 </>
               )}
@@ -509,7 +514,7 @@ export function VideoUpload({
         open={captureOpen}
         onClose={() => setCaptureOpen(false)}
         subtitle={label}
-        maxSeconds={maxSeconds}
+        maxSeconds={Math.min(maxSeconds, budgetSeconds ?? maxSeconds)}
         maxBytes={MAX_UPLOAD_BYTES}
         // Straight into the same handler a file picked off disk goes through,
         // so the measurements, the size guard, the upload and the preview are
