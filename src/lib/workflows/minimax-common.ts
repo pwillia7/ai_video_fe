@@ -1070,6 +1070,57 @@ export function referenceSlot({
   ];
 }
 
+/**
+ * Close a gap in the reference slots, promoting later pictures into it.
+ *
+ * The slots are a chain: each is revealed by the one before it having a
+ * picture, and `leadingReferences` counts from the first and stops at the first
+ * empty. Both assume the filled slots are contiguous, and clearing one in the
+ * middle breaks that assumption in the worst way — with pictures in slots 1 and
+ * 2, clearing the first leaves the second holding a picture and hidden (its
+ * opener is empty) while the third shows (its opener is not). The form then
+ * reads as one empty slot and a third, and at submit the surviving picture is
+ * counted as absent and dropped.
+ *
+ * So a cleared slot is closed rather than left open: whatever was below moves
+ * up, with the facet setting that describes it, and the slot that falls off the
+ * end resets. That is what "delete the first of two" means to anyone doing it.
+ *
+ * Values for a graph with no such slots come back untouched.
+ */
+export function compactReferenceSlots(
+  values: Record<string, ParamValue>,
+): Record<string, ParamValue> {
+  // How many the graph declares, read off the submission rather than passed in:
+  // the count lives in the workflow file as a list of loader nodes, and a second
+  // copy of it here would be one to keep in step.
+  let count = 0;
+  while (values[imageParamId(count + 1)] !== undefined) count += 1;
+  if (count === 0) return values;
+
+  const filled: Array<{ image: ParamValue; keep: ParamValue }> = [];
+  for (let index = 1; index <= count; index += 1) {
+    const image = values[imageParamId(index)];
+    if (typeof image !== "string" || image.trim() === "") continue;
+    filled.push({ image, keep: values[keepParamId(index)] ?? DEFAULT_KEEP });
+  }
+
+  const next = { ...values };
+  for (let index = 1; index <= count; index += 1) {
+    const slot = filled[index - 1];
+    next[imageParamId(index)] = slot?.image ?? "";
+    // An emptied slot forgets what it was for as well. A facet left behind
+    // would silently describe the next picture uploaded into that slot.
+    next[keepParamId(index)] = slot?.keep ?? DEFAULT_KEEP;
+  }
+  return next;
+}
+
+/** Whether a param id is one of those slots, for deciding when to compact. */
+export function isReferenceImage(id: string): boolean {
+  return /^reference_image_\d+$/.test(id);
+}
+
 const titleOrdinal = (index: number) => {
   const word = ordinal(index);
   return `${word[0].toUpperCase()}${word.slice(1)}`;

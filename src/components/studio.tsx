@@ -53,6 +53,10 @@ import {
 } from "@/lib/param-storage";
 import { workflowLabel } from "@/lib/workflows/modes";
 import { tierParams, type GatewayTier } from "@/lib/workflows/rewrite-model";
+import {
+  compactReferenceSlots,
+  isReferenceImage,
+} from "@/lib/workflows/minimax-common";
 import { effectiveWorkflow } from "@/lib/workflows/turbo";
 import {
   CLIP_ACTIONS,
@@ -514,9 +518,24 @@ function Workbench({
         setClipSource(null);
         setClipNotice(null);
       }
+
+      // Clearing a reference picture closes its slot rather than leaving a hole
+      // in the chain — see `compactReferenceSlots`, which is a no-op on every
+      // graph that has no such slots and on every change that leaves no gap.
+      if (selected && isReferenceImage(id)) {
+        setValuesByWorkflow((previous) => ({
+          ...previous,
+          [selectedId]: compactReferenceSlots({
+            ...(previous[selectedId] ?? {}),
+            [id]: value,
+          }),
+        }));
+        return;
+      }
+
       setValue(id, value);
     },
-    [selected, setValue],
+    [selected, selectedId, setValue],
   );
 
   const resetToDefaults = useCallback(() => {

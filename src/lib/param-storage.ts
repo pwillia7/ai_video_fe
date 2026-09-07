@@ -1,5 +1,6 @@
 "use client";
 
+import { compactReferenceSlots } from "@/lib/workflows/minimax-common";
 import type { GatewayTier } from "@/lib/workflows/rewrite-model";
 import { effectiveWorkflow } from "@/lib/workflows/turbo";
 import {
@@ -337,7 +338,11 @@ export function mergeWithDefaults(
     values[param.id] = saved;
   }
 
-  return clampValues(workflow, values);
+  // On the way in as well as on every change, because a gap already written to
+  // storage outlives the change that made it: the form would load straight back
+  // into a picture held in a hidden slot and dropped at submit. See
+  // `compactReferenceSlots`.
+  return clampValues(workflow, compactReferenceSlots(values));
 }
 
 /**
