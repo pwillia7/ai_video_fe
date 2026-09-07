@@ -26,6 +26,8 @@ import {
   literalPromptParam,
   promptParam,
   promptTarget,
+  audioKeep,
+  audioKeepParam,
   referenceFacets,
   referenceVideo,
   referenceVideoKeepParam,
@@ -112,6 +114,7 @@ const VIDEO_AUDIO_INPUT = "ref_video_audios.ref_video_audio_0";
 const VIDEO_PARAM = "reference_video";
 const VIDEO_AUDIO_PARAM = "reference_video_audio";
 const VIDEO_KEEP_PARAM = "reference_video_keep";
+const VIDEO_AUDIO_KEEP_PARAM = "reference_video_audio_keep";
 
 /**
  * The most detail a reference clip is given, in megapixels.
@@ -682,6 +685,14 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   }),
   referenceTrack(AUDIO_PARAM),
   words.director,
+  // Last, so it lands after everything else that speaks for the sound.
+  audioKeep({
+    param: VIDEO_AUDIO_KEEP_PARAM,
+    // Unlike Remix, a clip here is a reference rather than the thing being
+    // rebuilt, so its sound is a mood by default rather than a track to reuse.
+    fallback: "mood",
+    attached: videoAudioAttached,
+  }),
 ]);
 
 /**
@@ -765,6 +776,14 @@ const params: ParamDef[] = [
       director,
     ],
   },
+  audioKeepParam(director, {
+    id: VIDEO_AUDIO_KEEP_PARAM,
+    label: "What to keep from the clip's sound",
+    fallback: "mood",
+    // Only a question about a soundtrack the model is actually being given.
+    revealedBy: [VIDEO_PARAM, VIDEO_AUDIO_PARAM],
+    help: "What the new soundtrack owes the clip's own. Turn it up to reuse what is in it.",
+  }),
   {
     id: AUDIO_PARAM,
     label: "Reference track",

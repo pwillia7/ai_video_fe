@@ -6,6 +6,7 @@ import type { TurboSpec } from "./turbo";
 import { isSet } from "./types";
 import type {
   ImageParam,
+  ParamCondition,
   ParamDef,
   ParamPin,
   ParamTarget,
@@ -1195,12 +1196,24 @@ export function wordsBlocks({
   sourceParam,
   wordsParam,
   source,
+  when,
 }: {
   /** The control holding the audio. No audio, no words — see `words` below. */
   sourceParam: string;
   /** The control holding what the user typed out. */
   wordsParam: string;
   source: WordsSource;
+  /**
+   * A further condition on the words being wanted at all.
+   *
+   * For the graph that also asks what the recording contributes: these blocks
+   * exist so the model does not sing its own words over speech it cannot hear,
+   * which is a problem only while that speech is being reused. Told to write
+   * the audio fresh, or to take the voice and not the words, a transcript of
+   * the old ones is not merely unnecessary — it is the prompt carrying the very
+   * lines the rest of the brief says to replace.
+   */
+  when?: (values: Record<string, ParamValue>) => boolean;
 }): { prompt: PromptAppendix; director: DirectorAppendix } {
   /**
    * Only when there is audio to have words. The control that holds them is
@@ -1210,6 +1223,7 @@ export function wordsBlocks({
    */
   const words = (values: Record<string, ParamValue>): string => {
     if (!String(values[sourceParam] ?? "").trim()) return "";
+    if (when && !when(values)) return "";
     return String(values[wordsParam] ?? "").trim();
   };
 
@@ -1298,8 +1312,13 @@ export function wordsParam({
   help: string;
   /** Whichever section the audio it describes is in — it belongs beside it. */
   group: string;
-  /** The control holding the audio: no audio, nothing to have words. */
-  revealedBy: string;
+  /**
+   * The control holding the audio: no audio, nothing to have words. A list
+   * where something further has to hold too — on the graph that also asks what
+   * that audio contributes, the words are only wanted while its speech is being
+   * reused.
+   */
+  revealedBy: ParamCondition | ParamCondition[];
   targets: ParamTarget[];
 }): ParamDef {
   return {
@@ -1392,6 +1411,132 @@ The user has said, per image, which facets it controls. This is not a hint to we
 ${lines.join("\n\n")}
 
 Where the user's own text says something more specific about a picture, follow the text for the detail and these settings for the facets: the text can tell you which coat, this tells you whether the coat is preserved at all. If the two genuinely contradict each other, the user's text wins — they wrote it more recently than they set a dropdown.`;
+  };
+}
+
+/**
+ * What an attached recording contributes to the audio that gets generated.
+ *
+ * H3's format carries its own markers for this, separate from the ones a
+ * picture takes: `fully_copy`, `partially_copy`, `reference`, `weak_reference`.
+ * REMIX_DIRECTOR already writes one — it infers which from how sweeping it
+ * judges the request to be, which is a guess about intent made from the prompt
+ * alone. This control is the user saying it outright instead.
+ *
+ * The options are roles rather than amounts, which is how MiniMax's own
+ * guidance frames a reference: "tell the model what to take from it", with
+ * voice referencing described as guiding timbre and delivery while the words
+ * come from the prompt. There is no documented dial for degree of reuse, so
+ * offering one would be inventing a control the model does not have.
+ */
+const AUDIO_KEEP_MODES = {
+  everything: {
+    label: "Everything — the recording as it is",
+    marker: "fully_copy",
+    note: "Dialogue, music and ambience all carry over as they are. Change only what the transformation makes impossible — a new location or a new medium changes what a scene sounds like even when nothing was said about audio.",
+  },
+  voices: {
+    label: "Voices only — same delivery, new words",
+    marker: "partially_copy",
+    note: "What carries over is how it is spoken: the timbre, the accent, the pacing and the delivery. The words do not. Write the actual lines the target video needs, inside <d> tags, and say plainly that the voice of <Audio 1> is what speaks them. Do not carry the source's music or its room over.",
+  },
+  music: {
+    label: "Music and ambience only — new dialogue",
+    marker: "partially_copy",
+    note: "The score and the room carry over; the speech does not. Write the actual lines the target video needs, inside <d> tags, and do not describe the source's speech as being reused or audible.",
+  },
+  mood: {
+    label: "Mood only — a feel, not the recording",
+    marker: "reference",
+    note: "Only the character of the sound survives — its energy, its density, whether it is close or distant. Nothing audible in it is reused. Write the soundscape and the score for the new scene, and write any speech it needs.",
+  },
+  fresh: {
+    label: "Nothing — write the audio fresh",
+    marker: "weak_reference",
+    note: "The audio of the target video owes the recording nothing. Do not describe anything from it as reused, audible or carried over, and write the soundscape, the score and any speech entirely from the user's text and what is on screen.",
+  },
+} as const;
+
+type AudioKeepMode = keyof typeof AUDIO_KEEP_MODES;
+
+const audioKeepMode = (
+  value: ParamValue | undefined,
+  fallback: AudioKeepMode,
+): (typeof AUDIO_KEEP_MODES)[AudioKeepMode] =>
+  AUDIO_KEEP_MODES[String(value ?? fallback) as AudioKeepMode] ??
+  AUDIO_KEEP_MODES[fallback];
+
+/** The "what to keep" control for an attached recording. */
+export function audioKeepParam(
+  director: ParamTarget,
+  {
+    id,
+    label,
+    fallback,
+    revealedBy,
+    help,
+    group,
+  }: {
+    id: string;
+    label: string;
+    /** What this graph means by leaving it alone. */
+    fallback: AudioKeepMode;
+    revealedBy?: ParamCondition | ParamCondition[];
+    help?: string;
+    /** Where it sits. Beside the thing it describes, which differs per graph. */
+    group?: string;
+  },
+): SelectParam {
+  return {
+    id,
+    label,
+    type: "select",
+    default: fallback,
+    options: Object.entries(AUDIO_KEEP_MODES).map(([value, mode]) => ({
+      value,
+      label: mode.label,
+    })),
+    help:
+      help ??
+      "What the attached sound contributes. Turn it down to have the audio change with the picture.",
+    group: group ?? "References",
+    revealedBy,
+    targets: [director],
+  };
+}
+
+/**
+ * What to tell the director about that choice.
+ *
+ * Written as a block that *lifts* rules rather than one that sits beside them,
+ * because REMIX_DIRECTOR spends a page on preserving <Audio 1> by default and
+ * an appendix that merely disagreed would be a director told two things. Same
+ * reasoning, and the same shape, as `WordsSource.reconciles`.
+ */
+export function audioKeep({
+  param,
+  fallback,
+  attached,
+  label = "<Audio 1>",
+}: {
+  param: string;
+  fallback: AudioKeepMode;
+  /** Whether there is any attached sound this run. No sound, nothing to say. */
+  attached: (values: Record<string, ParamValue>) => boolean;
+  /** What the recording is called in the format. */
+  label?: string;
+}): DirectorAppendix {
+  return (values) => {
+    if (!attached(values)) return "";
+    const mode = audioKeepMode(values[param], fallback);
+
+    return `WHAT ${label} CONTRIBUTES
+
+The user has said what the attached sound is for, and this decides its marker: ${label} is ${mode.marker}. ${mode.note}
+
+This setting outranks anything above about preserving or reusing that recording, including any marker a judgement about how sweeping the request is would otherwise have produced. Where the two disagree, this is the answer — it is what the user asked for, and the rest was inferred.
+
+You have not heard it, so none of this is a description of what is in it. It decides what you may say is carried over, and nothing about what that sounds like.`;
   };
 }
 
