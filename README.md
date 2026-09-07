@@ -1306,12 +1306,34 @@ among several and the target is a new scene — `referenceVideo` in
 director carrying Remix's instinct re-cuts the source instead of building what
 was asked for.
 
-The wiring is four nodes. A `LoadVideo` (170) and a `GetVideoComponents` (171)
-split the clip: frames to `ref_videos.ref_video_0`, soundtrack to
-`ref_video_audios.ref_video_audio_0`. A `VideoFrameSample` (172) and a second
-`GetVideoComponents` (173) take five frames spread evenly across it for the
-director to look at, exactly as Remix does — the rewrite stage is shown images,
-so there is no such thing as showing it a video.
+The wiring is six nodes. A `LoadVideo` (170) holds the clip. A
+`VideoFrameSample` (174) resamples it to 24 fps and a `GetVideoComponents` (175)
+splits out the frames for `ref_videos.ref_video_0`. A separate
+`GetVideoComponents` (171) on the raw clip supplies the soundtrack for
+`ref_video_audios.ref_video_audio_0`, because sampling frames drops the audio.
+And a second `VideoFrameSample`/`GetVideoComponents` pair (172, 173) takes five
+frames spread evenly across it for the director to look at, exactly as Remix
+does — the rewrite stage is shown images, so there is no such thing as showing
+it a video.
+
+**24 fps is not a preference, and the resample is not optional.** There is no
+resampling anywhere in `nodes_minimax_h3.py`: whatever batch reaches
+`ref_videos.ref_video_0` is *interpreted* as 24 fps, and the node's own tooltip
+says so. Hand it a 60 fps clip untouched and the model is told a 5-second
+reference runs 12.5 seconds — every judgement it makes about how fast something
+moves is wrong by the ratio, and the frames it keeps are the first 40% of what
+was attached.
+
+Sampling evenly across the whole clip is what makes the count *be* the rate: N
+frames spread over D seconds read back as N/24 seconds, so asking for exactly
+`D × 24` reproduces the filmed speed whatever the camera did. `refVideoFrames`
+does that arithmetic from the clip's measured length, which the upload control
+reports the same way it reports a reference track's. It deliberately does **not**
+round the count down to one H3 accepts — the node wants five above a multiple of
+17 and trims to it — because rounding down would keep the same span of clip in
+fewer frames and stretch it, so a 2-second clip would come back moving 1.2×
+too fast. Letting the node trim costs at most sixteen frames off the end and
+nothing off the speed.
 
 **Those five frames join the same batch as the reference pictures**, which is
 the one thing about this that needed saying out loud. `REFERENCE_DIRECTOR`
@@ -1347,17 +1369,26 @@ Three limits worth knowing:
   a batch-dimension mismatch on a run carrying more than one kind of reference
   block, and a clip is that as much as a track is. Remix, which is nothing but a
   video reference through this same node class, already runs on the bf16 pair.
-- **Only as much of the clip as the video is long reaches the model.** The node
-  truncates it — `frames[:frame_count]` — so a 15-second reference on a
-  five-second video contributes five seconds. The director is told, so it does
-  not build a description around something that happens late in a long clip.
-- **4 MB, 15 seconds, and a 768px short edge.** The clip slot caps at the 15
-  seconds MiniMax documents for a reference video rather than the 20 that Remix
-  and Extend allow, and floors at 1 second because the node refuses anything
-  under five frames outright — that is `minSeconds`/`maxSeconds` on the param,
-  checked in the browser before the upload starts. Unlike Remix and Extend
-  nothing hands a clip to this slot server-side, so every one of them goes
-  through the browser and the 4 MB cap really binds.
+- **Six seconds, and that cap is the reason this workflow is usable.** A
+  reference video is encoded to latent frames that ride through *every* sampling
+  step alongside the ones being generated, so its cost is not paid once at the
+  start — it is added to the sequence for the whole run. The node's own limit is
+  the generated video's length (`frames[:frame_count]`), which means an
+  unbounded reference roughly doubles the sequence: on a 24 GB card that is a
+  10-second video taking several times as long and a 15-second one running out
+  of memory before the first step. MiniMax documents 2–15s, which is what the
+  node accepts rather than what a 3090 finishes. Six is enough to establish who
+  someone is and how they move, which is what a reference is for.
+- **4 MB and a 768px short edge**, with a 1-second floor because the node
+  refuses anything under five frames outright — `minSeconds`/`maxSeconds` on the
+  param, checked in the browser before the upload starts. Unlike Remix and
+  Extend nothing hands a clip to this slot server-side, so every one of them
+  goes through the browser and the 4 MB cap really binds.
+- **With the sound off, nothing decodes the clip in full.** Node 171 exists only
+  to pull the soundtrack out, and it is the one node here that reads every
+  frame; the resampled path decodes only the frames it selects. So `finalize`
+  removes 171 along with the input when the toggle is off, which takes the whole
+  decode out of the run rather than leaving ComfyUI to notice it is unreachable.
 
 **Or record one.** The camera button under the clip slot opens `VideoCapture`,
 which records with the device's own camera and microphone and hands the file to

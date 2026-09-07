@@ -105,10 +105,74 @@ const VIDEO_NODE = "170";
 const VIDEO_SPLIT_NODE = "171";
 const VIDEO_SAMPLE_NODE = "172";
 const VIDEO_SAMPLE_SPLIT_NODE = "173";
+const VIDEO_RESAMPLE_NODE = "174";
+const VIDEO_RESAMPLE_SPLIT_NODE = "175";
 const VIDEO_INPUT = "ref_videos.ref_video_0";
 const VIDEO_AUDIO_INPUT = "ref_video_audios.ref_video_audio_0";
 const VIDEO_PARAM = "reference_video";
 const VIDEO_AUDIO_PARAM = "reference_video_audio";
+const VIDEO_SECONDS_PARAM = "reference_video_seconds";
+
+/**
+ * The frame rate H3 reads a reference video at.
+ *
+ * Not a preference — the node has no resampling in it. Whatever batch reaches
+ * `ref_videos.ref_video_0` is *interpreted* as 24 fps, and its own tooltip says
+ * so. Hand it a 60 fps clip untouched and the model is told a 5-second
+ * reference runs 12.5 seconds, at which point the frames it keeps are the first
+ * 40% of what the user attached and everything about the motion is wrong.
+ */
+const REF_VIDEO_FPS = 24;
+
+/**
+ * How much of a clip the model is given, in seconds.
+ *
+ * Small on purpose, and the reason this is a cap rather than a control. A
+ * reference video is encoded to latent frames that ride through *every*
+ * sampling step alongside the ones being generated, so its cost is not paid
+ * once at the start — it is added to the sequence for the whole run. The node's
+ * own limit is the generated video's length (`frames[:frame_count]`), which
+ * means an unbounded reference roughly doubles the sequence: on a 24 GB card
+ * that is a 10-second video taking several times as long, and a 15-second one
+ * running out of memory before the first step.
+ *
+ * Six seconds is enough to establish who someone is and how they move, which is
+ * what a reference is for. MiniMax documents 2-15s; that is what the node
+ * accepts, not what a 3090 finishes.
+ */
+const MAX_CLIP_SECONDS = 6;
+
+/**
+ * How many frames to sample out of the attached clip.
+ *
+ * Sampled evenly across the whole of it, which is what makes this number the
+ * playback rate rather than merely the amount: N frames spread over a clip of D
+ * seconds are read back as N/24 seconds, so asking for exactly `D * 24` is what
+ * makes the reference move at the speed it was filmed at, whatever the camera
+ * recorded it at.
+ *
+ * **Deliberately not snapped to a frame count the node accepts.** H3 wants a
+ * count five above a multiple of 17 and trims down to one itself, discarding
+ * the tail. Rounding down here instead would keep the same span of clip and
+ * fewer frames to hold it — the whole thing stretched to fill a shorter
+ * reference, so a 2-second clip would come back moving 1.2x too fast. Letting
+ * the node trim costs at most sixteen frames off the end and nothing at all off
+ * the speed, and the end of a reference is the cheaper thing to lose.
+ *
+ * With nothing measured yet — a form submitted before the browser has read the
+ * clip's metadata — this asks for the cap. That over-samples a short clip,
+ * which duplicates frames rather than inventing them and is the safe way to be
+ * wrong: the alternative rounds down to a reference shorter than the one
+ * attached.
+ */
+const refVideoFrames = (values: Record<string, ParamValue>): number => {
+  const measured = Math.max(0, Number(values[VIDEO_SECONDS_PARAM] ?? 0));
+  const seconds = Math.min(
+    measured > 0 ? measured : MAX_CLIP_SECONDS,
+    MAX_CLIP_SECONDS,
+  );
+  return Math.max(5, Math.round(seconds * REF_VIDEO_FPS));
+};
 
 /**
  * How many frames of the clip the director is shown.
@@ -375,15 +439,28 @@ const graph: ComfyGraph = {
       "ref_images.ref_image_1": ["139", 0],
       "ref_images.ref_image_2": ["165", 0],
       "ref_images.ref_image_3": ["166", 0],
-      // A clip as a reference, on the same footing as the pictures. 171 splits
-      // it, so output 0 is its frames and output 1 is its soundtrack.
+      // A clip as a reference, on the same footing as the pictures.
       //
-      // The soundtrack goes in `ref_video_audios`, which pairs with
-      // `ref_video_0` by index and fuses the two into one conditioning block —
-      // a clip that sounds like this, rather than a clip and an unrelated
-      // sound. `ref_audios` below is the other thing, and both can be given at
-      // once. All three go on any run that does not have them; see `finalize`.
-      "ref_videos.ref_video_0": ["171", 0],
+      // The frames come from 175, which is the clip resampled to 24 fps and
+      // capped — *not* from the raw split at 171. The node reads whatever it is
+      // given as 24 fps and truncates it to the generated video's length, so
+      // handing it the file's own frames both misstates how fast the clip moves
+      // and lets the reference grow to the size of the video being made. See
+      // REF_VIDEO_FPS and MAX_CLIP_SECONDS.
+      //
+      // The soundtrack does come off 171, because sampling frames drops the
+      // audio: `VideoFrameSample` returns picture and frame rate and nothing
+      // else. That is the one thing here that reads every frame of the clip,
+      // which is why it is wired only when the sound is actually wanted — with
+      // the toggle off, `finalize` removes this input and nothing reads 171 at
+      // all, so ComfyUI never decodes the clip in full.
+      //
+      // `ref_video_audios` pairs with `ref_video_0` by index and fuses the two
+      // into one conditioning block — a clip that sounds like this, rather than
+      // a clip and an unrelated sound. `ref_audios` below is the other thing,
+      // and both can be given at once. All of them go on any run that does not
+      // have them; see `finalize`.
+      "ref_videos.ref_video_0": ["175", 0],
       "ref_video_audios.ref_video_audio_0": ["171", 1],
 
       // The one reference that is not a picture. It comes through the trim
@@ -481,6 +558,35 @@ const graph: ComfyGraph = {
   "173": {
     class_type: "GetVideoComponents",
     inputs: { video: ["172", 0] },
+    _meta: { title: "Get Video Components" },
+  },
+
+  // The clip as the model gets it: resampled to 24 fps and capped.
+  //
+  // "uniform" rather than "head" for both of the reasons that matter here. It
+  // spreads the frames across the whole clip, so what the model is shown is the
+  // whole of what was attached rather than the start of it; and it is the
+  // strategy that decodes only the frames it selects, where "head" hands on a
+  // lazy trim that something downstream still has to read in full.
+  //
+  // `num_frames` is written per run by the measured length of the clip — see
+  // `refVideoFrames`. The value here is the cap, which is what a submission
+  // with no measurement asks for.
+  "174": {
+    class_type: "VideoFrameSample",
+    inputs: {
+      num_frames: MAX_CLIP_SECONDS * REF_VIDEO_FPS,
+      strategy: "uniform",
+      // Unused while the strategy is "uniform", and fixed for the same reason
+      // as the director's sampler above.
+      seed: 0,
+      video: ["170", 0],
+    },
+    _meta: { title: "Sample Video Frame" },
+  },
+  "175": {
+    class_type: "GetVideoComponents",
+    inputs: { video: ["174", 0] },
     _meta: { title: "Get Video Components" },
   },
 
@@ -612,14 +718,34 @@ const params: ParamDef[] = [
     type: "video",
     default: "",
     minSeconds: 1,
-    maxSeconds: 15,
-    help: "Optional. A clip shows how someone moves, which a still cannot. Pins the run to 4 steps. Only as much of it as the video is long is used.",
+    maxSeconds: MAX_CLIP_SECONDS,
+    // Nothing else knows how long the clip runs, and the number of frames to
+    // sample out of it is that length times 24. Measured off the loaded player
+    // by the upload control, exactly as the reference track's length is.
+    measures: VIDEO_SECONDS_PARAM,
+    help: `Optional. A clip shows how someone moves, which a still cannot. Up to ${MAX_CLIP_SECONDS}s — it is added to every sampling step, so a long one is what makes a run crawl. Pins the run to 4 steps.`,
     group: "References",
     targets: [
       { node: VIDEO_NODE, input: "file" },
       // The director is told what the clip is and which of the images in front
       // of it are frames of it. See referenceVideo.
       director,
+    ],
+  },
+  {
+    id: VIDEO_SECONDS_PARAM,
+    label: "Clip length",
+    type: "measured",
+    // Nothing measured yet, which `refVideoFrames` reads as "unknown" and
+    // answers with the cap rather than with silence.
+    default: 0,
+    group: "References",
+    targets: [
+      {
+        node: VIDEO_RESAMPLE_NODE,
+        input: "num_frames",
+        transform: (_value, values) => refVideoFrames(values),
+      },
     ],
   },
   {
@@ -987,6 +1113,11 @@ export const minimaxH3Reference: WorkflowDef = {
       // exactly "the movement and none of the sound".
       if (!videoAudioAttached(values)) {
         delete graph[REFERENCE_NODE].inputs[VIDEO_AUDIO_INPUT];
+        // 171 exists only to pull the soundtrack out, and it is the one node
+        // here that reads every frame of the clip. With no soundtrack wanted it
+        // has no consumer, so removing it takes the full decode out of the run
+        // rather than leaving ComfyUI to notice it is unreachable.
+        delete graph[VIDEO_SPLIT_NODE];
       }
     } else {
       delete graph[REFERENCE_NODE].inputs[VIDEO_INPUT];
@@ -995,6 +1126,8 @@ export const minimaxH3Reference: WorkflowDef = {
       delete graph[VIDEO_SPLIT_NODE];
       delete graph[VIDEO_SAMPLE_NODE];
       delete graph[VIDEO_SAMPLE_SPLIT_NODE];
+      delete graph[VIDEO_RESAMPLE_NODE];
+      delete graph[VIDEO_RESAMPLE_SPLIT_NODE];
     }
 
     // With nothing to look at there is nothing to batch, and a BatchImagesNode

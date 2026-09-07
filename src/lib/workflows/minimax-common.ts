@@ -1389,7 +1389,7 @@ Cite it in subject_definitions the way you would cite a picture: "<Subject 1> is
 
 In summary, add "video reference" to the task-type prefix with " + ".
 
-Only as much of the clip as the target video is long reaches the model, and the rest is cut from the end. Do not build the description around something that happens late in a clip that runs longer than the video you are writing.
+The clip is short — a few seconds — and the model is shown all of it. Treat it as a sample of how something looks and moves rather than as a scene with a beginning and an end, and do not write the target video's structure around the order things happen in it.
 
 ${sound}`;
   };
