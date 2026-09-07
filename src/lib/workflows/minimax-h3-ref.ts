@@ -28,6 +28,7 @@ import {
   promptTarget,
   referenceFacets,
   referenceVideo,
+  referenceVideoKeepParam,
   referenceSlot,
   referenceTrack,
   samplingParams,
@@ -110,6 +111,7 @@ const VIDEO_INPUT = "ref_videos.ref_video_0";
 const VIDEO_AUDIO_INPUT = "ref_video_audios.ref_video_audio_0";
 const VIDEO_PARAM = "reference_video";
 const VIDEO_AUDIO_PARAM = "reference_video_audio";
+const VIDEO_KEEP_PARAM = "reference_video_keep";
 
 /**
  * The most detail a reference clip is given, in megapixels.
@@ -666,6 +668,7 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
     videoParam: VIDEO_PARAM,
     audioParam: VIDEO_AUDIO_PARAM,
     trackParam: AUDIO_PARAM,
+    keepParam: VIDEO_KEEP_PARAM,
     slots: REF_NODES.length,
   }),
   referenceTrack(AUDIO_PARAM),
@@ -720,12 +723,27 @@ const params: ParamDef[] = [
       director,
     ],
   },
+  referenceVideoKeepParam(director, {
+    id: VIDEO_KEEP_PARAM,
+    revealedBy: VIDEO_PARAM,
+  }),
   {
     id: VIDEO_AUDIO_PARAM,
     label: "Use the clip's sound",
     type: "toggle",
-    default: true,
-    help: "Gives the model the clip's own soundtrack along with its picture. Turn it off to take the movement and none of the sound.",
+    /**
+     * Off by default, unlike Remix — where the clip *is* the video being
+     * rebuilt and its sound is the baseline.
+     *
+     * Here the clip is a reference brought into a new scene, and attaching its
+     * audio changes what the model is given structurally: the node fuses sound
+     * and picture into one `video_audio` conditioning block, which is the same
+     * shape Remix hands it to say "reproduce this". A run whose prompt asks for
+     * new dialogue is then arguing with its own conditioning. Turn it on when
+     * the clip's sound is wanted in the result.
+     */
+    default: false,
+    help: "Gives the model the clip's own soundtrack along with its picture, and pulls the result towards reproducing the clip. Leave it off unless you want the clip's sound in the video.",
     group: "References",
     // Only a question about a clip that is there.
     revealedBy: VIDEO_PARAM,

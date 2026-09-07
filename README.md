@@ -1348,10 +1348,27 @@ through the run. `resolution_steps` is 32 because the reference node rounds its
 own canvas to multiples of 32, and landing on one is what stops it resampling a
 second time.
 
-**Use the clip's sound** decides whether the soundtrack goes with it. Note which
-slot that is: `ref_video_audios` pairs with `ref_videos` by index and the node
-fuses the two into a single `video_audio` conditioning block, where `ref_audios`
-would emit a `video` block and an unrelated `audio` one — a clip and a sound
+**What to keep from the clip** is the control the clip was missing. Each
+reference picture has one; the clip did not, so the director was left to decide
+for itself how much of a webcam recording belonged in the video — and it decided
+"all of it". It offers the same four answers a picture does plus one only a clip
+can give, **Motion only**, and it defaults to *Identity only* rather than the
+*Everything* a picture defaults to: a still is nearly always attached to hold a
+subject exactly, where a clip is attached because movement is wanted.
+
+Turn it down when the prompt describes something the clip does not contain. The
+director is told the same thing in words — that the user's text says what the
+target video is, that the clip is a reference brought into it rather than the
+thing being edited, and that where the text describes a subject the clip does
+not contain, the text wins outright.
+
+**Use the clip's sound** decides whether the soundtrack goes with it, and it is
+**off by default**, unlike Remix. That default is
+the point rather than a detail: `ref_video_audios` pairs with `ref_videos` by
+index and the node fuses the two into a single `video_audio` conditioning block,
+which is the same shape Remix hands the model to mean *reproduce this*. A run
+whose prompt asks for new dialogue is then arguing with its own conditioning.
+`ref_audios` would instead emit a `video` block and an unrelated `audio` one — a clip and a sound
 beside it, rather than a clip that sounds like this. **Remix was doing the
 second of those and now does the first.** Its labels are unchanged: references
 are presented as images, then each video preceded by its own soundtrack, then

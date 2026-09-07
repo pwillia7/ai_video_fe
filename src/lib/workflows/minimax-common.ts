@@ -864,7 +864,67 @@ const KEEP_MODES = {
   },
 } as const;
 
+/**
+ * The fifth answer, which only a clip can give: keep how it moves and nothing
+ * about what is moving.
+ *
+ * Offered on the reference clip and not on a picture, because a still has no
+ * motion to contribute. It is the setting for a clip attached as a study of a
+ * gait, a gesture or a camera move rather than of a subject.
+ */
+const MOTION_KEEP = {
+  label: "Motion only — how it moves, not who",
+  facets: "movement, timing and performance",
+  marker: "weak_reference",
+  note: "The clip contributes how something moves and nothing else. Do not put the person or the place in it into the video, do not describe anyone as looking like them, and do not treat what is on screen in it as a character, an object or a location the scene contains. What carries over is the manner of the movement.",
+} as const;
+
+const VIDEO_KEEP_MODES = { ...KEEP_MODES, motion: MOTION_KEEP };
+
 type KeepMode = keyof typeof KEEP_MODES;
+type VideoKeepMode = keyof typeof VIDEO_KEEP_MODES;
+
+/**
+ * What a reference clip pins.
+ *
+ * Its own default is weaker than a picture's. A picture is nearly always
+ * attached to hold a subject exactly; a clip is attached because motion is
+ * wanted, and defaulting it to "everything" makes the model reproduce the clip
+ * — which is what `ref_videos` conditioning already leans towards without any
+ * help from the instructions.
+ */
+const DEFAULT_VIDEO_KEEP: VideoKeepMode = "identity";
+
+function videoKeepMode(
+  value: ParamValue | undefined,
+): (typeof VIDEO_KEEP_MODES)[VideoKeepMode] {
+  const key = String(value ?? DEFAULT_VIDEO_KEEP);
+  return (
+    VIDEO_KEEP_MODES[key as VideoKeepMode] ??
+    VIDEO_KEEP_MODES[DEFAULT_VIDEO_KEEP]
+  );
+}
+
+/** The "what to keep" control for a reference clip. See referenceKeepParam. */
+export function referenceVideoKeepParam(
+  director: ParamTarget,
+  { id, revealedBy }: { id: string; revealedBy?: string },
+): SelectParam {
+  return {
+    id,
+    label: "What to keep from the clip",
+    type: "select",
+    default: DEFAULT_VIDEO_KEEP,
+    options: Object.entries(VIDEO_KEEP_MODES).map(([value, mode]) => ({
+      value,
+      label: mode.label,
+    })),
+    help: "What the clip pins. Everything else is the scene's to decide — turn this down when the prompt describes something the clip does not contain.",
+    group: "References",
+    revealedBy,
+    targets: [director],
+  };
+}
 
 const DEFAULT_KEEP: KeepMode = "everything";
 
@@ -1281,7 +1341,7 @@ export function referenceFacets(
 
 No still has been attached. Do not cite <Picture 1> or any other picture, do not write a subject_definitions line that refers to one, and do not describe anyone or anything as being "in" an image you were shown — there are no pictures among your references.
 
-What you were given to look at instead is described below, and it is where the subjects come from.`;
+What you were given to look at instead is described below, along with what it does and does not contribute.`;
       }
 
       return `THERE ARE NO REFERENCE IMAGES
@@ -1325,6 +1385,7 @@ export function referenceVideo({
   videoParam,
   audioParam,
   trackParam,
+  keepParam,
   slots,
 }: {
   /** The control holding the clip. Nothing to say without one. */
@@ -1333,6 +1394,8 @@ export function referenceVideo({
   audioParam: string;
   /** The standalone reference track, which the soundtrack renumbers. */
   trackParam: string;
+  /** The select saying what the clip pins. See referenceVideoKeepParam. */
+  keepParam: string;
   /** How many picture slots the graph wires, for counting the filled ones. */
   slots: number;
 }): DirectorAppendix {
@@ -1342,6 +1405,7 @@ export function referenceVideo({
     const pictures = leadingReferences(values, slots);
     const soundtrack = isSet(values[audioParam]);
     const track = String(values[trackParam] ?? "").trim() !== "";
+    const mode = videoKeepMode(values[keepParam]);
 
     // Where the frames sit in the batch, said in terms of what the director is
     // looking at rather than in terms of the graph.
@@ -1363,7 +1427,9 @@ export function referenceVideo({
 
 Its audio has been given to the model along with its picture, as <Audio 1>${track ? ", which also means the separately attached track is <Audio 2> rather than <Audio 1>" : ""}. You have not heard either of them and you are not being asked to describe them.
 
-So do not invent a score to sit over the one the model already has: write non_diegetic_music as deference, saying that the music is what the reference carries, and name no genre, tempo, key or instrument you have not been told. Sound that belongs to the new scene is still yours to write in overall_soundscape, and it should be sparse enough to sit under a reference rather than compete with one.`
+So do not invent a score to sit over the one the model already has: write non_diegetic_music as deference, saying that the music is what the reference carries, and name no genre, tempo, key or instrument you have not been told. Sound that belongs to the new scene is still yours to write in overall_soundscape, and it should be sparse enough to sit under a reference rather than compete with one.
+
+If the user has asked for particular words to be spoken, write them anyway and write them fully. The reference is not a reason to leave dialogue out — it is a reason to say plainly, in overall_soundscape, that the new speech is what is heard.`
       : `THE CLIP'S SOUNDTRACK IS NOT ATTACHED
 
 The model has been given the clip's picture and none of its sound. Do not cite <Video 1> as a source of audio, do not write that anything from it is audible, and do not refer to a soundtrack it was not given.
@@ -1376,13 +1442,19 @@ The user has supplied a clip as a reference. The model is given it as <Video 1>.
 
 ${placement} They are one clip seen at intervals, not further pictures: they have no <Picture N> number of their own, and citing one as a picture invents a reference that does not exist. Read them together, as motion, and take their number as an artefact of sampling rather than as anything about the clip.
 
-WHAT THE CLIP IS FOR
+THE VIDEO BEING MADE IS THE ONE THE USER DESCRIBED
 
-It is a reference, on the same footing as a photograph, and the target video is a new scene containing what it supplies — not a re-cut of it. Do not carry the clip's own shot structure, edit or camera moves into the description unless the user's text asks for exactly that, and do not treat what happens in it as the thing that happens in the video you are writing.
+This is the rule that outranks everything else here. The user's text says what the target video is; the clip is a reference brought into it, not the thing being edited. The target is a new scene, not a re-cut of the clip — so do not carry the clip's shot structure, its edit or its camera moves into the description unless the text asks for exactly that, and do not treat what happens in it as what happens in the video you are writing.
 
-What it supplies that a still cannot is movement: how someone walks, gestures, performs, how something behaves over time. Where that is part of what the user wants kept, name it in the facets — it is the reason to attach a clip rather than a frame of one.
+Where the user's text describes a subject, a setting or a style the clip does not contain, the text wins outright and the clip does not become that subject. A clip of a person does not make the video about that person when the text asks for someone else; say what the clip actually contributes, per the setting below, and build the rest from the text.
 
-Cite it in subject_definitions the way you would cite a picture: "<Subject 1> is the man in <Video 1>, preserving his identity, proportions, costume and gait: ...". Give <Video 1> a standalone line only when the clip is acting as concrete footage — a shot to match, an action to reproduce beat for beat — and only when the user has asked for that. In retention_analysis it takes a marker on the same terms as any other label.
+WHAT THE CLIP CONTRIBUTES
+
+The user has said what it pins: keep ${mode.facets}. Its marker in retention_analysis is ${mode.marker}. ${mode.note}
+
+Cite it in subject_definitions the way you would cite a picture, naming those facets and what they look like — "<Subject 1> is the ... in <Video 1>, preserving ${mode.facets}: ..." — and nothing beyond them. What a clip supplies that a still cannot is movement: how someone walks, gestures, performs, how something behaves over time. Where the setting above keeps that, it is the part worth describing precisely.
+
+Give <Video 1> a standalone line only when the clip is acting as concrete footage — a shot to match, an action to reproduce beat for beat — and only when the user has asked for that.
 
 In summary, add "video reference" to the task-type prefix with " + ".
 
