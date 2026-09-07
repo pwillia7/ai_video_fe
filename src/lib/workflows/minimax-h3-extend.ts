@@ -1,9 +1,14 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { hideDirectorOnly } from "./director";
 import { rewriteModelParam, rewriteNode } from "./rewrite-model";
-import type { ParamDef, WorkflowDef } from "./types";
+import type { ParamDef, ParamValue, WorkflowDef } from "./types";
 import {
+  MAX_CHUNKS,
+  MAX_CHUNK_SECONDS,
+  CHUNK_FPS,
+  chunkPlan,
   directorBypassFor,
+  effectiveSeconds,
   directorTarget,
   FRAME_EXPRESSION,
   durationParam,
@@ -45,6 +50,24 @@ import {
  * Which also means the file grows with each pass, and so does the time spent
  * decoding and re-encoding it — the sampling cost stays flat, since only the
  * new segment is ever generated.
+ *
+ * ## Past fifteen seconds of added time
+ *
+ * The model generates at most 362 frames in a pass, so a longer addition is
+ * generated in several and chained. This is the *chain* rather than the slice:
+ * the other two graphs that chunk cut a source that already exists and give
+ * each pass its own span, and there is nothing to cut here — the whole point is
+ * footage that does not exist yet. So pass 2 starts from the last frame pass 1
+ * produced, exactly as pass 1 starts from the last frame of the clip, and the
+ * seam between two passes is the same kind this graph was built to survive.
+ *
+ * **The sound is the honest weakness.** Remix and Reference to Video can throw
+ * away what the model invented and put a continuous source track over the top;
+ * there is no such track here past the source's own, which covers only the part
+ * that already existed. Every new segment writes its own score, so a four-pass
+ * extension has four unrelated ones after the first join. That is the trade
+ * this graph makes to generate at all rather than rebuild, and there is no
+ * arrangement of these nodes that avoids it.
  */
 const ids: MinimaxNodeIds = {
   // Node 125, not the video node: what the user types is the *input* to the
@@ -57,6 +80,21 @@ const ids: MinimaxNodeIds = {
 };
 
 const VIDEO_NODE = "126";
+const FIRST_FRAME_NODE = "128";
+const I2V_NODE = "105:104";
+const SAMPLER_NODE = "105:14";
+const GUIDER_NODE = "105:16";
+const DECODE_NODE = "105:10";
+const DECODE_AUDIO_NODE = "105:23";
+const FRAMES_NODE = "105:107";
+const DURATION_NODE = "105:111";
+/** The pass repackaged as a video, and split back into frames and sound. */
+const SEGMENT_NODE = "105:91";
+const SPLIT_NODE = "132";
+/** Where the source and every pass are put back together. */
+const BATCH_NODE = "131";
+const AUDIO_JOIN_NODE = "135";
+const VIDEO_OUT_NODE = "137";
 
 /**
  * The rate the source is read at, and the rate the join is written at.
@@ -68,7 +106,82 @@ const VIDEO_NODE = "126";
  */
 const SOURCE_FPS = 24;
 
-const graph: ComfyGraph = {
+/**
+ * The nodes each pass past the first needs its own copy of.
+ *
+ * Chunking here is a *chain*, not a slice, which is the one place this differs
+ * from the other two graphs that do it. Remix and Reference to Video cut a
+ * source that already exists into spans and hand each pass its own; there is no
+ * such source here — the whole point is footage that does not exist yet. So
+ * pass 2 is conditioned on the last frame pass 1 produced, exactly as pass 1 is
+ * conditioned on the last frame of the clip. The seam between two passes is the
+ * same kind of seam this graph already puts between the source and its
+ * extension, which is the one it was built to survive.
+ *
+ * Sampling cost stays flat per pass: only the new segment is ever generated,
+ * and the source is concatenated on at the end however many passes there were.
+ */
+const CHUNK_NODES = [
+  FIRST_FRAME_NODE,
+  I2V_NODE,
+  SAMPLER_NODE,
+  GUIDER_NODE,
+  DECODE_NODE,
+  DECODE_AUDIO_NODE,
+  FRAMES_NODE,
+  DURATION_NODE,
+  SEGMENT_NODE,
+  SPLIT_NODE,
+  AUDIO_JOIN_NODE,
+];
+
+/** Ids for pass i. Pass 0 keeps the ids the exported graph already used. */
+const chunkId = (base: string, index: number) =>
+  index === 0 ? base : `${base}k${index}`;
+
+/**
+ * One pass's stack, cloned from the ids the export already used.
+ *
+ * Read from the stored nodes rather than written out again, so the copy cannot
+ * drift from the wiring `check:workflows` validates. Links pointing inside the
+ * stack are renamed; everything else — the model, the seed, the prompt, the
+ * frame size — keeps pointing at the single shared copy.
+ *
+ * Two links are then rewired by the caller, and they are the chain itself: what
+ * this pass starts from, and what its sound is appended to.
+ */
+function chunkNodes(base: ComfyGraph, index: number): ComfyGraph {
+  const owned = new Set(CHUNK_NODES);
+  const out: ComfyGraph = {};
+  for (const id of CHUNK_NODES) {
+    const node = base[id];
+    const inputs: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(node.inputs)) {
+      inputs[name] =
+        Array.isArray(value) && typeof value[0] === "string" && owned.has(value[0])
+          ? [chunkId(value[0], index), value[1]]
+          : value;
+    }
+    out[chunkId(id, index)] = {
+      class_type: node.class_type,
+      inputs: inputs as ComfyGraph[string]["inputs"],
+      _meta: { title: `${node._meta?.title ?? node.class_type} (pass ${index + 1})` },
+    };
+  }
+  // The chain. This pass carries on from the last frame the one before it
+  // produced, and its sound goes on the end of what has accumulated so far.
+  out[chunkId(FIRST_FRAME_NODE, index)].inputs.input = [
+    chunkId(SPLIT_NODE, index - 1),
+    0,
+  ];
+  out[chunkId(AUDIO_JOIN_NODE, index)].inputs.audio1 = [
+    chunkId(AUDIO_JOIN_NODE, index - 1),
+    0,
+  ];
+  return out;
+}
+
+const baseGraph: ComfyGraph = {
   // The clip, read at 24 fps.
   //
   // VHS's loader, forcing the rate, because this graph *joins* the source to
@@ -308,12 +421,53 @@ const graph: ComfyGraph = {
 };
 
 /**
+ * The stored graph plus every pass past the first, and the slots that join them
+ * on to the source.
+ *
+ * All MAX_CHUNKS declared rather than cloned at run time: `finalize` deletes
+ * what a submission does not reach, and a graph that stands still is one
+ * `check:workflows` can validate.
+ */
+const graph: ComfyGraph = {
+  ...baseGraph,
+  ...Object.assign(
+    {},
+    ...Array.from({ length: MAX_CHUNKS - 1 }, (_, i) => chunkNodes(baseGraph, i + 1)),
+  ),
+  // The source first, then every pass in order. Slot 0 is the clip itself and
+  // slot 1 is what the stored graph already wired; the rest are the passes that
+  // only exist past fifteen seconds of added time.
+  [BATCH_NODE]: {
+    ...baseGraph[BATCH_NODE],
+    inputs: {
+      ...baseGraph[BATCH_NODE].inputs,
+      ...Object.fromEntries(
+        Array.from({ length: MAX_CHUNKS - 1 }, (_, i) => [
+          `images.image${i + 2}`,
+          [chunkId(SPLIT_NODE, i + 1), 0],
+        ]),
+      ),
+    },
+  },
+};
+
+/**
  * The single target every control that shapes the director's instructions
  * writes. Only the duration does here, but it is built the same way on every
  * graph so that adding a second contributor is a matter of passing this along
  * rather than of noticing that it needed to be.
  */
 const director = directorTarget(ids, EXTEND_DIRECTOR);
+
+/**
+ * How the added time is divided into passes.
+ *
+ * Off the duration control, which on this graph times the *addition* rather
+ * than the finished video — the source is concatenated on afterwards and never
+ * goes near the model, so it costs nothing and counts for nothing here.
+ */
+const addedPlan = (values: Record<string, ParamValue>) =>
+  chunkPlan(effectiveSeconds(Number(values.duration ?? 5)));
 
 const bypass = directorBypassFor(ids);
 
@@ -344,7 +498,8 @@ const params: ParamDef[] = [
   // the file that comes back.
   durationParam(ids, director, {
     label: "Added time",
-    help: "How much new footage to generate. The result is the source clip plus this.",
+    max: MAX_CHUNK_SECONDS,
+    help: "How much new footage to generate. The result is the source clip plus this. Past about 15s it is generated in passes, each carrying on from the last — every pass costs its own render, and each writes its own soundtrack.",
     default: 5,
   }),
 
@@ -376,4 +531,63 @@ export const minimaxH3Extend: WorkflowDef = {
    * again what it just did.
    */
   clipTarget: { action: "extend", accepts: "video", sourceParam: "source_video" },
+
+  /**
+   * One per pass. Four passes is four renders, so it is both the estimate's
+   * multiplier and the bucket the learned median groups by.
+   */
+  passes: (values) => addedPlan(values).count,
+
+  /**
+   * Cut the chain down to the passes this run needs.
+   *
+   * Up to fifteen seconds of added time this queues exactly the graph the
+   * workflow always queued: one segment, joined to the source. Everything here
+   * is what happens past that.
+   */
+  finalize(graph, values) {
+    const { count: chunks, frames } = addedPlan(values);
+
+    for (let index = chunks; index < MAX_CHUNKS; index += 1) {
+      for (const base of CHUNK_NODES) delete graph[chunkId(base, index)];
+      delete graph[BATCH_NODE].inputs[`images.image${index + 1}`];
+    }
+
+    // Each pass generates its own share of the added time rather than all of
+    // it. The param writes the whole request into pass 0's float, which is
+    // right for one pass and four times too long for four.
+    if (chunks > 1) {
+      const share = frames / CHUNK_FPS;
+      for (let index = 0; index < chunks; index += 1) {
+        graph[chunkId(DURATION_NODE, index)].inputs.value = share;
+      }
+    }
+
+    // The sound is whatever the chain accumulated: the source's own track with
+    // every pass appended in order. Nothing here is continuous the way Remix's
+    // audio is — each pass invents its score from nothing, so the joins are
+    // audible. There is no source to fall back on, which is exactly why this
+    // graph gets the chain and not the mux.
+    graph[VIDEO_OUT_NODE].inputs.audio = [chunkId(AUDIO_JOIN_NODE, chunks - 1), 0];
+  },
+
+  /**
+   * Every pass count, because each one is a different chain. The last two hold
+   * the bypass sweep and the pruning to the same account of what is reachable.
+   */
+  finalizeCases: [
+    { name: "one pass", values: { source_video: "clip.mp4", duration: 5 } },
+    { name: "one pass at the ceiling", values: { source_video: "clip.mp4", duration: 15 } },
+    { name: "two passes", values: { source_video: "clip.mp4", duration: 20 } },
+    { name: "three passes", values: { source_video: "clip.mp4", duration: 40 } },
+    { name: "four passes", values: { source_video: "clip.mp4", duration: 58 } },
+    {
+      name: "one pass with the rewrite off",
+      values: { source_video: "clip.mp4", duration: 5, literal_prompt: true },
+    },
+    {
+      name: "four passes with the rewrite off",
+      values: { source_video: "clip.mp4", duration: 58, literal_prompt: true },
+    },
+  ],
 };
