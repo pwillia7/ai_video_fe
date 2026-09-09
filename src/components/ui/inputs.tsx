@@ -107,6 +107,31 @@ export function TextArea({
   );
 }
 
+/**
+ * Options in the order given, run together into the headings they declare.
+ *
+ * A native `optgroup` is the only division a `<select>` has, and it is the
+ * right one here: the rewrite picker's headings say which models can be shown
+ * the user's images, which is a thing about the run rather than a label on the
+ * name. Options with no heading keep their place in the list and are rendered
+ * bare, which is every other select in the app.
+ *
+ * Runs rather than buckets, so the grouping can never reorder the list — a
+ * heading that appears twice renders twice, and the curation's own order is
+ * what the user reads.
+ */
+function groupOptions<T extends { group?: string }>(
+  options: T[],
+): Array<[string | undefined, T[]]> {
+  const runs: Array<[string | undefined, T[]]> = [];
+  for (const option of options) {
+    const last = runs[runs.length - 1];
+    if (last && last[0] === option.group) last[1].push(option);
+    else runs.push([option.group, [option]]);
+  }
+  return runs;
+}
+
 export function Select({
   id,
   value,
@@ -118,7 +143,7 @@ export function Select({
   id: string;
   value: string;
   onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string; label: string; group?: string }>;
   disabled?: boolean;
   describedBy?: string;
 }) {
@@ -132,11 +157,23 @@ export function Select({
         onChange={(event) => onChange(event.target.value)}
         className={`${CONTROL_BASE} h-10 pl-3 pr-9 text-sm appearance-none cursor-pointer`}
       >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
+        {groupOptions(options).map(([heading, group]) =>
+          heading === undefined ? (
+            group.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))
+          ) : (
+            <optgroup key={heading} label={heading}>
+              {group.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </optgroup>
+          ),
+        )}
       </select>
       <svg
         className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 size-3.5 text-fg-subtle"

@@ -22,7 +22,9 @@ export async function resolveDynamicOptions(
       const node = workflow.graph[param.optionsFrom.node];
       if (!node) return param;
 
-      const schema = await getNodeSchema(node.class_type);
+      const schema = await getNodeSchema(
+        param.optionsFrom.classType ?? node.class_type,
+      );
       const values = enumValuesFor(schema, param.optionsFrom.input);
       if (!values || values.length === 0) return param;
 
@@ -60,7 +62,9 @@ export async function allowedValuesFor(
   if (param.optionsFrom) {
     const node = workflow.graph[param.optionsFrom.node];
     if (node) {
-      const schema = await getNodeSchema(node.class_type);
+      const schema = await getNodeSchema(
+        param.optionsFrom.classType ?? node.class_type,
+      );
       const values = enumValuesFor(schema, param.optionsFrom.input);
       if (values && values.length > 0) {
         if (param.optionsFrom.mode !== "restrict") return values;

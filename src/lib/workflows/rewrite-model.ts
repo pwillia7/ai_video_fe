@@ -1,4 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
+import { pruneUnreachable, terminals } from "./director";
 import { REWRITE_MODELS } from "./generated/gateway-models";
 import type { OfferedModel } from "./rewrite-catalog";
 import type { SelectParam } from "./types";
@@ -42,22 +43,30 @@ export function defaultRewriteModel(needsVision = true): string {
 }
 
 /**
- * The models a graph may actually be offered, which is not the same question on
- * every graph.
+ * The models a rewrite node of this class will accept as it stands.
  *
- * A rewrite node comes in two classes and the choice between them is structural:
- * `DescribeImage` where the director is shown something — the upload, the last
- * frame of a clip, the reference sheet — and `GenerateText` where it is not.
- * Four of the six graphs are the first kind and two are the second, and a model
- * that cannot be shown a picture fails the run on the first while working
- * perfectly well on the second.
+ * Which is a narrower question than what the picker offers, and no longer the
+ * same one. A rewrite node comes in two classes: `DescribeImage` where the
+ * director is shown something — the upload, the last frame of a clip, the
+ * reference sheet — and `GenerateText` where it is not. The first lists only
+ * vision models in its `model` widget and ComfyUI validates a queued combo
+ * against that list, so a text-only model written into one is a rejected run.
  *
- * Requiring vision of everything was the simpler rule and it cost the two
- * text-only graphs a whole provider: DeepSeek ships no vision model, so the
- * family was curated away and never appeared.
+ * The picker offers every model on every graph regardless, because choosing a
+ * text-only model on a graph that shows a picture changes the node rather than
+ * the value — see `applyTextOnlyRewrite`. What this function is still for is
+ * the model a graph is *written* carrying, which has to be valid before any
+ * such conversion, and the check that says so.
  */
 export function modelsFor(needsVision: boolean): OfferedModel[] {
   return needsVision ? REWRITE_MODELS.filter((m) => m.vision) : REWRITE_MODELS;
+}
+
+/** Whether the picker knows this id, and whether it can be shown a picture. */
+export function offeredModel(id: unknown): OfferedModel | undefined {
+  return typeof id === "string"
+    ? REWRITE_MODELS.find((model) => model.id === id)
+    : undefined;
 }
 
 /**
@@ -67,6 +76,14 @@ export function modelsFor(needsVision: boolean): OfferedModel[] {
  * writes the lyrics, and there is no sense in which those should be different
  * models — they are two calls in one act of writing a song.
  *
+ * **Every model, on every graph.** Half of what is worth having here cannot be
+ * shown a picture — the open-weight lineages especially, which are also the
+ * ones least likely to refuse a shot — and a graph that shows its director a
+ * picture used to be unable to offer any of them. It can now, because the
+ * choice rewires the node rather than only setting a value: see
+ * `applyTextOnlyRewrite`. What the graph loses is what the model was going to
+ * be shown, which is said on the option itself and again in the help.
+ *
  * `optionsFrom` restricts rather than replaces. The node's own dropdown is the
  * live catalog, all 250-odd of it, which is not a control anyone wants; but it
  * is also the exact list ComfyUI validates a queued graph against, so anything
@@ -74,6 +91,13 @@ export function modelsFor(needsVision: boolean): OfferedModel[] {
  * has it rejected. Restricting to the intersection means the picker can be
  * curated and current at once, and a model retired between the last sync and
  * today simply stops being offered.
+ *
+ * Against `GenerateText` specifically, whatever this graph's director currently
+ * is. That class lists every language model the gateway has, which is exactly
+ * the set a run can end up using here — `DescribeImage`'s list is the vision
+ * subset of it, and restricting against that would drop every text-only option
+ * on precisely the graphs this change exists for. A vision model is in both
+ * lists, so nothing is let through that the unconverted node would reject.
  *
  * Its only target is the director, so `hideDirectorOnly` takes it off the form
  * whenever the rewrite is switched off — there is no model in that run.
@@ -83,28 +107,63 @@ export function rewriteModelParam(
   directors: string[],
   {
     group = "Prompt",
-    help = "Only rewrites your prompt — it never touches the video. Priced in dollars per million words out, and free where it is free. Switch models if one refuses a shot; the key button says which of them your key can be spent on.",
+    help,
   }: { group?: string; help?: string } = {},
 ): SelectParam {
   // Read off the graph rather than declared beside it. Which class each rewrite
   // node is, is already decided by whether `rewriteNode` was handed images, so
   // a second statement of the same fact here is one that could disagree with it.
-  const needsVision = directors.some(
+  const showsPictures = directors.some(
     (node) => graph[node]?.class_type === VISION_CLASS,
   );
-  const offered = modelsFor(needsVision);
 
   return {
     id: REWRITE_MODEL,
     label: "Rewrite model",
     type: "select",
-    default: offered[0].id,
-    options: offered.map((model) => ({
+    // The newest permissive model that can also see, which is the first entry
+    // of the offered list on any graph — a graph is written carrying a model
+    // its director accepts unconverted, whether or not it shows one a picture.
+    default: defaultRewriteModel(true),
+    // Sighted first and blind after, rather than the curation's own order with
+    // a heading on each entry. The two are interleaved family by family, so
+    // left alone they would put the picker under sixteen alternating headings
+    // — the ordering is what makes it two. Within each half the curation's
+    // order survives, which is what decides the default and what "the first one
+    // worth trying" means.
+    //
+    // Ordered here rather than in the control that draws it: the renderer runs
+    // adjacent options together and never reorders them, so what a heading
+    // collects is a decision this file has already made.
+    options: (showsPictures
+      ? [
+          ...REWRITE_MODELS.filter((model) => model.vision),
+          ...REWRITE_MODELS.filter((model) => !model.vision),
+        ]
+      : REWRITE_MODELS
+    ).map((model) => ({
       value: model.id,
       label: model.label,
+      // Only where it is a difference. On a graph with nothing to show, every
+      // model writes from the text alone and saying "text only" of some of them
+      // would describe a distinction the run does not have.
+      group: showsPictures
+        ? model.vision
+          ? SEES_PICTURES
+          : WRITES_BLIND
+        : undefined,
     })),
-    optionsFrom: { node: directors[0], input: "model", mode: "restrict" },
-    help,
+    optionsFrom: {
+      node: directors[0],
+      input: "model",
+      mode: "restrict",
+      classType: TEXT_CLASS,
+    },
+    help:
+      help ??
+      (showsPictures
+        ? "Only rewrites your prompt — it never touches the video. Priced in dollars per million words out. Switch models if one refuses a shot; the ones under “writes blind” cannot be shown your images, so they write from your words alone — the video model still gets the picture either way."
+        : "Only rewrites your prompt — it never touches the video. Priced in dollars per million words out, and free where it is free. Switch models if one refuses a shot; the key button says which of them your key can be spent on."),
     group,
     // Behind the disclosure: it is reached for when a model refuses a shot,
     // which is something that happens to a run rather than something chosen for
@@ -113,6 +172,15 @@ export function rewriteModelParam(
     targets: directors.map((node) => ({ node, input: "model" })),
   };
 }
+
+/**
+ * The two headings the picker is split under, on a graph that has pictures to
+ * show. Named because the check in params.ts asserts the split is there: an
+ * unlabelled text-only model is a user wondering why the director stopped
+ * describing their reference sheet.
+ */
+export const SEES_PICTURES = "Sees your images";
+export const WRITES_BLIND = "Text only — writes blind";
 
 /**
  * How much the rewrite is allowed to write.
@@ -237,6 +305,117 @@ export function freeModelsExist(): boolean {
 }
 
 export const REWRITE_IMAGE_INPUT = "image";
+
+/**
+ * Inputs that belong to the picture and to nothing else, and so go with it.
+ *
+ * Both are required inputs on `DescribeImage` and neither exists on
+ * `GenerateText`, which is the whole reason this is a list rather than a
+ * `delete` of the image link: a converted node keeps what the two classes share
+ * — the model, the prompt, the system prompt, the ceiling, the seed — and sheds
+ * exactly what the class it is leaving added.
+ */
+const PICTURE_INPUTS = [REWRITE_IMAGE_INPUT, "max_image_side", "batch_mode"];
+
+/**
+ * What a director is told when it has not been shown what the graph says it was
+ * shown.
+ *
+ * Necessary because the directors are written for a model that can see. They
+ * open with "You are shown the image the video starts from", "You are shown the
+ * final frame of the source video", "You are shown the reference image or
+ * images the video is built around" — and a model that was shown none of it,
+ * reading that, does not decline. It invents: a wardrobe, a hair colour, a
+ * street. The result is a prompt confidently describing a picture that the
+ * video model is also holding and can see does not match.
+ *
+ * So the block is placed last, where an instruction is most likely to be
+ * obeyed, and it does two things. It withdraws the claim that anything was
+ * shown, and it keeps the `<Picture n>` labels — those are H3's own reference
+ * grammar, the images really are reaching the video model, and a prompt that
+ * stopped naming them would be worse than one written blind.
+ */
+export const BLIND_DIRECTOR_NOTE = `YOU HAVE NOT BEEN SHOWN THE PICTURES
+
+Whatever is written above about images you are shown does not apply on this run. No picture, frame or reference image has been given to you. Everything you know about them is what the user has written.
+
+The video model does receive them, so keep every <Picture n>, <Video n> and <Audio n> label exactly where the format above calls for one. Write about them by reference rather than by appearance — "the subject of <Picture 1>", "as established in <Picture 1>", "matching <Picture 1> exactly at 0.00 seconds" — and let the model read the picture itself.
+
+Do not invent identity, wardrobe, colour, setting, lighting, framing or any other visible detail you were not told. Where the format asks for something only the picture could tell you, say that it is as shown in that reference, and spend the words on what the user did ask for.`;
+
+/**
+ * Take the pictures away from any director that cannot be shown them, in place.
+ * Call it on a clone — `applyParams` does, after `finalize`.
+ *
+ * This is what lets the picker offer a text-only model on a graph built around
+ * an image. The two node classes are the same node in every respect that the
+ * graph cares about — same inputs for the prompt and the system prompt, same
+ * text on output 0 — so the conversion is a class name, three inputs, and a
+ * paragraph appended to the instruction. Everything reading the director's
+ * output goes on reading it.
+ *
+ * Two things bring a node here, and they want the same treatment:
+ *
+ * - **The chosen model cannot see.** `DescribeImage` lists only vision models
+ *   in its `model` widget and ComfyUI validates a queued combo against that
+ *   list, so this is not a matter of the picture being wasted — leaving the
+ *   node as it is would have the run rejected outright.
+ * - **There is no picture left to show.** `image` is a *required* input on
+ *   `DescribeImage`, so a `finalize` that took the last one away — the
+ *   reference graph does exactly that on a run with a track and no pictures —
+ *   leaves a node ComfyUI refuses for a missing input. Converting is the answer
+ *   to that too, and it is the same answer.
+ *
+ * A model the picker does not know is left alone. It cannot be classified, and
+ * the live combo is a better judge of it than a stale list is.
+ *
+ * The roots are read *before* the images are unwired, for the reason
+ * `applyBypass` reads them early: the point of the pass is that nodes stop
+ * being reachable, and whatever existed only to be looked at — the batched
+ * reference sheet, the frames sampled out of a source clip — would otherwise
+ * look like an output node and be kept.
+ */
+export function applyTextOnlyRewrite(graph: ComfyGraph): void {
+  const roots = terminals(graph);
+  let converted = false;
+
+  for (const node of Object.values(graph)) {
+    if (node.class_type !== VISION_CLASS) continue;
+
+    const model = offeredModel(node.inputs.model);
+    const blind = model !== undefined && !model.vision;
+    const nothingToShow = node.inputs[REWRITE_IMAGE_INPUT] === undefined;
+    if (!blind && !nothingToShow) continue;
+
+    node.class_type = TEXT_CLASS;
+    for (const input of PICTURE_INPUTS) delete node.inputs[input];
+
+    const system = node.inputs.system_prompt;
+    if (typeof system === "string") {
+      node.inputs.system_prompt = `${system.trimEnd()}\n\n${BLIND_DIRECTOR_NOTE}\n`;
+    }
+    converted = true;
+  }
+
+  if (converted) pruneUnreachable(graph, roots);
+}
+
+/**
+ * The graph a text-only model would queue, or null when the catalog currently
+ * offers no such model and there is nothing to check. Used by
+ * `check:workflows`.
+ */
+export function textOnlyGraph(graph: ComfyGraph): ComfyGraph | null {
+  const blind = REWRITE_MODELS.find((model) => !model.vision);
+  if (!blind) return null;
+
+  const clone = structuredClone(graph);
+  for (const node of Object.values(clone)) {
+    if (node.class_type === VISION_CLASS) node.inputs.model = blind.id;
+  }
+  applyTextOnlyRewrite(clone);
+  return clone;
+}
 
 /** The rewrite node that is only ever given text. */
 export const TEXT_CLASS = "VercelAIGatewayGenerateText";

@@ -41,6 +41,21 @@ export interface OptionsFrom {
   node: string;
   input: string;
   /**
+   * Ask a different node class for the list than the one `node` happens to be.
+   *
+   * For the rewrite picker, and for the one reason a control's live list can
+   * belong to a class the graph does not currently contain: a director shown a
+   * picture is a `VercelAIGatewayDescribeImage`, whose `model` widget lists only
+   * the models that can see one — but choosing a model that cannot turns that
+   * node into a `VercelAIGatewayGenerateText`, whose list is every language
+   * model and a superset of the other. Restricting against the node as it
+   * stands would silently drop exactly the options this control exists to
+   * offer. See `applyTextOnlyRewrite`.
+   *
+   * `node` is still required, and still says where the value is written.
+   */
+  classType?: string;
+  /**
    * What the live list does to the declared one.
    *
    * "replace" — the default, and what every sampler and format control wants:
@@ -187,7 +202,18 @@ export interface SelectParam extends ParamBase {
    * degraded list when ComfyUI cannot be reached. Always include at least the
    * default so the control still renders if the lookup fails.
    */
-  options: Array<{ value: string; label: string; help?: string }>;
+  options: Array<{
+    value: string;
+    label: string;
+    help?: string;
+    /**
+     * Heading to file this option under in the dropdown. Options carrying one
+     * are rendered inside an `optgroup`, in the order the headings first
+     * appear; a list where nothing declares one renders flat, which is every
+     * control but the rewrite model picker.
+     */
+    group?: string;
+  }>;
   optionsFrom?: OptionsFrom;
 }
 

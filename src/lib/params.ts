@@ -7,11 +7,16 @@ import {
 } from "@/lib/workflows/director";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import {
+  applyTextOnlyRewrite,
   modelsFor,
+  offeredModel,
   REWRITE_CLASSES,
   REWRITE_MODEL,
   REWRITE_MODELS,
+  SEES_PICTURES,
+  textOnlyGraph,
   VISION_CLASS,
+  WRITES_BLIND,
 } from "@/lib/workflows/rewrite-model";
 import type { RunModes } from "@/lib/workflows/modes";
 import {
@@ -372,6 +377,12 @@ export function applyParams(
   // Runs last so it sees the resolved values and can prune anything they made
   // redundant — an unused optional input, and the node that fed it.
   workflow.finalize?.(graph, resolved);
+
+  // After `finalize`, because both things that send a director here are only
+  // settled by then: the model has been written onto the node by its target,
+  // and whether there is a picture left to show it is exactly what `finalize`
+  // decides. See `applyTextOnlyRewrite`.
+  applyTextOnlyRewrite(graph);
 
   // After even that, because taking the director out prunes whatever was only
   // ever shown to it — including nodes `finalize` writes to on its way past.
@@ -748,19 +759,29 @@ function stepSamplerBaseProblems(workflow: WorkflowDef): string[] {
 
 /**
  * Whether every rewrite node in the graph is one the picker can actually reach,
- * and is set to a model the picker offers.
+ * and is set to a model the picker offers — and whether the graph survives
+ * being given a model that cannot see.
  *
- * Both halves fail the same way if they are wrong, and it is a bad way. The
+ * The first two fail the same way if they are wrong, and it is a bad way. The
  * gateway node's `model` is a live dropdown built from the gateway's own
  * catalog, and ComfyUI validates a combo against that list before it runs
  * anything — so a graph carrying a model id that is not in the offered list is
  * a graph that is one retired model away from being rejected outright, with the
  * user reading "value not in list" and no way to change it from the form.
  *
- * The second half catches the subtler one: a graph that grows a second rewrite
- * node — the music workflow already has two — and does not add it to the
- * picker's targets. That node would keep whatever model was baked in when it
- * was written, while the form says something else is being used.
+ * The second catches the subtler one: a graph that grows a second rewrite node
+ * — the music workflow already has two — and does not add it to the picker's
+ * targets. That node would keep whatever model was baked in when it was
+ * written, while the form says something else is being used.
+ *
+ * The third is the conversion. Every option in the picker is offered on every
+ * graph now, and on a graph that shows its director a picture half of them
+ * change the node rather than a value; what that leaves behind is a link to a
+ * node that is gone, which is the one failure `applyTextOnlyRewrite` can
+ * produce and nothing else here can. Checked against the graph as written
+ * rather than against a run, because it is a property of the wiring: what gets
+ * pruned is whatever existed only to be looked at, and that is the same set on
+ * every run the graph has.
  */
 function rewriteModelProblems(workflow: WorkflowDef): string[] {
   const problems: string[] = [];
@@ -793,9 +814,13 @@ function rewriteModelProblems(workflow: WorkflowDef): string[] {
       );
       continue;
     }
+    // Of the graph as written, not of what a run may turn it into. A text-only
+    // model is a choice the form can make and the conversion handles; a graph
+    // *shipped* holding one is a graph that depends on the conversion having
+    // run, which nothing outside `applyParams` guarantees.
     if (node.class_type === VISION_CLASS && !usable.has(model)) {
       problems.push(
-        `Rewrite node ${id} is shown a picture but is set to "${model}", which cannot be shown one.`,
+        `Rewrite node ${id} is written showing a picture but carries "${model}", which cannot be shown one. A graph's own model has to be valid before anything converts it.`,
       );
     }
   }
@@ -808,14 +833,29 @@ function rewriteModelProblems(workflow: WorkflowDef): string[] {
     return problems;
   }
 
-  // And the same of every option the form can put there. A picker offering a
-  // text-only model to a node that is shown a picture is a rejected run one
-  // click away.
+  // Every option has to be one the offered list knows, because that is what
+  // says whether it can see — an id the list does not carry is left on a node
+  // that may not accept it, and the first anyone hears of it is "value not in
+  // list" on a queued run.
+  //
+  // And on a graph with pictures, each has to say which of the two it is. A
+  // text-only model that is not labelled as one is a user watching the director
+  // stop describing the reference sheet they uploaded, with nothing on the form
+  // to explain it.
   if (picker.type === "select") {
     for (const option of picker.options) {
-      if (!usable.has(option.value)) {
+      const model = offeredModel(option.value);
+      if (!model) {
         problems.push(
-          `The model picker offers "${option.value}", which this workflow's rewrite node cannot use.`,
+          `The model picker offers "${option.value}", which is not in the offered list, so nothing knows whether it can be shown a picture.`,
+        );
+        continue;
+      }
+      if (!needsVision) continue;
+      const expected = model.vision ? SEES_PICTURES : WRITES_BLIND;
+      if (option.group !== expected) {
+        problems.push(
+          `This workflow shows its director a picture, so "${option.value}" should sit under "${expected}" in the picker and sits under "${option.group ?? "no heading"}".`,
         );
       }
     }
@@ -831,6 +871,24 @@ function rewriteModelProblems(workflow: WorkflowDef): string[] {
       problems.push(
         `Rewrite node ${id} is not a target of "${REWRITE_MODEL}", so it would keep the model baked into the graph whatever the form says.`,
       );
+    }
+  }
+
+  if (needsVision) {
+    const blind = textOnlyGraph(workflow.graph);
+    if (blind) {
+      for (const link of danglingLinks(blind)) {
+        problems.push(
+          `Choosing a text-only rewrite model leaves a broken graph: ${link}.`,
+        );
+      }
+      for (const [id, node] of Object.entries(blind)) {
+        if (node.class_type === VISION_CLASS) {
+          problems.push(
+            `Rewrite node ${id} is still ${VISION_CLASS} after a text-only model was chosen, so the run would be rejected for a model its widget does not list.`,
+          );
+        }
+      }
     }
   }
 

@@ -52,19 +52,26 @@ export interface OfferedModel {
  * left the OpenAI node is that a director which declines to describe the shot
  * fails the run, minutes before the GPU would have finished it.
  *
- * A family is a prefix. Its newest surviving member is what gets offered.
+ * A family is a prefix, and what it contributes is its newest surviving
+ * member of each kind — see `curate` for what "kind" means and why it is not
+ * simply the newest.
  */
 export const REWRITE_FAMILIES: Array<{ prefix: string; why: string }> = [
   { prefix: "spacexai/grok-", why: "The most permissive of the frontier models, and the reason this picker exists." },
   { prefix: "moonshotai/kimi-", why: "Strong at prose and relaxed about fiction." },
-  { prefix: "minimax/minimax-m", why: "From the people who trained the video model this app drives, and has a free tier." },
+  { prefix: "minimax/minimax-m", why: "From the people who trained the video model this app drives." },
   { prefix: "zai/glm-", why: "Cheap and fast. Its own content policy, strict in different places to the Western ones." },
-  { prefix: "mistral/mistral-", why: "European, and historically the least preachy of the open-weight lineages." },
+  { prefix: "alibaba/qwen", why: "Open weights, and the least reluctant of the large Chinese lineages." },
   { prefix: "deepseek/deepseek-v", why: "Cheap, and writes a long brief without padding it." },
+  { prefix: "mistral/mistral-", why: "European, and historically the least preachy of the open-weight lineages." },
+  { prefix: "nvidia/nemotron-", why: "Open weights, permissively tuned, and text-only throughout." },
+  { prefix: "inclusionai/ling-", why: "Open weights. Cheap enough that a refusal costs nothing to retry elsewhere." },
+  { prefix: "xiaomi/mimo-", why: "Open weights, and small enough to answer immediately." },
+  { prefix: "tencent/hy", why: "Open weights, and another content policy again." },
   { prefix: "meta/llama-", why: "Open weights, for comparison against the hosted ones." },
+  { prefix: "openai/gpt-", why: "What the graphs used to call directly, kept so the difference can be measured. Its open-weight member is the text-only one." },
   { prefix: "google/gemini-", why: "A known quantity. Fast and cheap; filters more than the ones above." },
   { prefix: "anthropic/claude-sonnet-", why: "A known quantity, and the best writer here when it agrees to write." },
-  { prefix: "openai/gpt-", why: "What the graphs used to call directly, kept so the difference can be measured." },
 ];
 
 /**
@@ -83,8 +90,18 @@ export const REWRITE_FAMILIES: Array<{ prefix: string; why: string }> = [
 const NOT_A_VERSION =
   /(-fast|-highspeed|-turbo|-lightning|-promo(-\d+)?|-beta|-preview|-exp|-thinking|-multi-agent|-\d{4})$/;
 
-/** Families' members that are for writing code, or are not really chat models. */
-const WRONG_JOB = /(code|coder|devstral|embed|guard|moderation|search|realtime|audio|tts|image)/;
+/**
+ * Families' members that are for writing code, or are not really chat models.
+ *
+ * `-mt` is machine translation — Hunyuan ships three of them, and they are the
+ * newest thing in that family without being an answer to anything asked here.
+ * `-fin` and `-sante` are the same shape of mistake from the other direction:
+ * Ling's free variants are the ones fine-tuned for finance and for healthcare,
+ * so the free offer in that family is a model taught to write about something
+ * else. A cheap general model is a better director than a free specialised one.
+ */
+const WRONG_JOB =
+  /(code|coder|devstral|embed|guard|moderation|search|realtime|audio|tts|image|-mt\d|-(fin|sante)(-|$))/;
 
 function price(value: string | number | undefined): number {
   const parsed = typeof value === "string" ? Number(value) : (value ?? 0);
@@ -129,21 +146,34 @@ function offer(model: CatalogEntry): OfferedModel {
 }
 
 /**
- * The offered list: every family's newest surviving member, plus that family's
- * free variant where it has one.
+ * The offered list: for every family, the newest member that can be shown a
+ * picture and the newest that cannot, plus the free variants of each.
  *
- * **One list, and every model on it reads pictures.** Four of the six graphs
- * show their director an image — the uploaded still, the last frame of the clip
- * being extended, the reference sheet — and a text-only model wired into that
- * position fails the run rather than ignoring the picture. The other two would
- * accept anything. Offering one list rather than two means the choice can
- * travel between workflows without arriving somewhere it is not valid, at the
- * cost of a couple of cheap text-only models that are not worth a whole second
- * list and a way to get it wrong.
+ * **Both kinds, because the app no longer requires one.** Four of the six
+ * graphs show their director an image — the uploaded still, the last frame of
+ * the clip being extended, the reference sheet — and the ComfyUI node that does
+ * the showing offers only vision models in its `model` widget, so for a long
+ * time a text-only model was simply not something a run could contain. It is
+ * now: a graph handed a model that cannot see swaps that node for the text one
+ * and tells the director it is writing blind. See `applyTextOnlyRewrite`.
  *
- * A family contributing nothing — retired, or with no vision-capable member —
- * is simply absent. That is the failure this is built around: the list shrinks,
- * and nothing offered is a model the gateway has stopped listing.
+ * That is what makes the second pick worth having, and the second pick is most
+ * of the point of this file. Vision is the rarer property and it is not
+ * correlated with being any good at this job: holding every family to it lost
+ * DeepSeek outright, since it ships no vision model at all, and elsewhere
+ * picked the wrong member — `glm-5.3-flash` over `glm-5.3`, because the faster
+ * and weaker tier is the one that takes images. Half the open-weight lineages
+ * worth having here are text-only, which is the same half least likely to
+ * refuse a shot.
+ *
+ * "Newest of each kind" also covers "newest overall" without stating it: the
+ * newest member is necessarily the newer of those two. Where a family's newest
+ * takes images and it has no text-only member — Grok, Gemini, Claude — the two
+ * picks collapse to one entry, as they did before.
+ *
+ * A family contributing nothing — retired, or every member excluded — is simply
+ * absent. That is the failure this is built around: the list shrinks, and
+ * nothing offered is a model the gateway has stopped listing.
  */
 export function curate(models: CatalogEntry[]): OfferedModel[] {
   const offered: OfferedModel[] = [];
@@ -159,29 +189,19 @@ export function curate(models: CatalogEntry[]): OfferedModel[] {
       price(model.pricing?.output) <= 0 && price(model.pricing?.input) <= 0;
 
     /**
-     * Up to four per family, and usually one.
+     * Up to four per family, and often one or two.
      *
-     * Vision is no longer required of everything offered, because it is not
-     * required by everything that runs one: four of the six graphs show their
-     * director a picture and two do not, and holding all six to the stricter
-     * rule cost the text-only ones a provider outright — DeepSeek ships no
-     * vision model at all, so the family was silently absent — and elsewhere
-     * picked the wrong member, offering `glm-5.3-flash` over `glm-5.3` because
-     * the faster tier is the one that takes images.
-     *
-     * So each family offers its newest, and its newest that takes a picture,
-     * which are usually the same model and collapse to one entry. The free
-     * variants follow the same pair for the same reason: a graph that needs
-     * vision needs a free *vision* model to have a free option at all.
-     *
-     * Which of them a workflow may actually pick is decided per graph, from the
-     * class of its rewrite node. See `rewriteModelParam`.
+     * The free variants follow the same pair as the paid ones and for the same
+     * reason: which of the two a run can use is decided per graph and per
+     * model, so a free text-only model is a free option that a graph showing a
+     * picture can still take, and a free vision model is one it can take
+     * without writing blind.
      */
     const picks = [
-      members.find(paid),
       members.find((model) => paid(model) && seesImages(model)),
-      members.find(gratis),
+      members.find((model) => paid(model) && !seesImages(model)),
       members.find((model) => gratis(model) && seesImages(model)),
+      members.find((model) => gratis(model) && !seesImages(model)),
     ];
 
     for (const model of picks) {
