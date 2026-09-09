@@ -190,13 +190,15 @@ decides which models the rewrite picker offers. See
 expands what you type. It never touches the video — that is always MiniMax H3 —
 and it disappears from the form when the rewrite is switched off.
 
-The list is one model per provider family, each labelled with what it costs per
-million words out and marked **free** where it is free. It is built at build
-time from the gateway's own catalog by `pnpm sync:models`, so a provider's point
-release is picked up by re-running that rather than by editing a graph, and a
-retired model drops out of the list instead of failing a queued run — which is
-not hypothetical: MiniMax retired the free tier of M3 and the list went from ten
-to nine. The curation — which families, and why those — is in
+The list is, per provider family, the newest model that can be shown a picture
+and the newest that cannot — usually the same model, in which case the family
+contributes one entry. Each is labelled with what it costs per million words out
+and marked **free** where it is free. It is built at build time from the
+gateway's own catalog by `pnpm sync:models`, so a provider's point release is
+picked up by re-running that rather than by editing a graph, and a retired model
+drops out of the list instead of failing a queued run — which is not
+hypothetical: MiniMax retired the free tier of M3 and the list lost it. The
+curation — which families, and why those — is in
 `src/lib/workflows/rewrite-catalog.ts`.
 
 **What kind of key is it?**, in the key modal, narrows that list. A Vercel team
@@ -225,24 +227,41 @@ for. That is the state today: every model in the catalog costs something, so
 saying **free** changes nothing for now. The answer is still kept, and takes
 effect the day a free model appears.
 
-**Which models a workflow offers depends on what its rewrite node is.** The node
-comes in two classes and the choice is structural: `DescribeImage` where the
-director is shown something — the upload, the last frame of the clip being
-extended, the reference sheet — and `GenerateText` where it is not. Four of the
-six graphs are the first kind, and a model that cannot be shown a picture fails
-the run on those. Text to Video and Music are the second kind, and any model
-works.
+**Every model is offered on every workflow, and half of them cannot see.** On
+the four graphs that show their director a picture — the upload, the last frame
+of the clip being extended, the reference sheet — the picker is split under two
+headings, **Sees your images** and **Text only — writes blind**.
 
-Requiring vision of everything was the simpler rule and it cost those two a
-provider outright: DeepSeek ships no vision model, so the family was curated
-away and never appeared anywhere. It is offered on the two text-only graphs now,
-which is also where the cheapest model in the list lives.
+The split is structural rather than cosmetic. The rewrite node comes in two
+classes: `DescribeImage`, which is handed an image and whose model dropdown
+lists only the models that can take one, and `GenerateText`, which is not and
+whose dropdown is every language model there is. Choosing from the second
+heading swaps the node for the text one, drops the picture, prunes whatever
+existed only to be looked at, and appends a block to the director's instruction
+telling it that it has not seen the images and must not invent what is in them —
+the labels `<Picture 1>`, `<Video 1>` and `<Audio 1>` stay, because the video
+model does receive them and those are how the prompt points at them.
 
-The requirement is read off the graph rather than declared beside it — the class
-is already decided by whether `rewriteNode` was handed images, and a second
+**Nothing about the video changes.** The reference images, the first frame and
+the source clip reach MiniMax H3 exactly as before; what changes is whether the
+model writing the prompt got to look at them first. Expect less of the result on
+Reference to Video, where reading the sheet is most of the director's job, and
+very little difference on Text to Video and Music, which never had a picture.
+
+What this buys is the models. Vision is the rarer property and it has nothing to
+do with being good at this job or willing to do it: requiring it lost DeepSeek
+outright — it ships no vision model at all — and elsewhere picked the wrong
+member of a family, offering `glm-5.3-flash` over `glm-5.3` because the faster,
+weaker tier is the one that takes images. Most of the open-weight lineages worth
+having here are text-only, and that is the same half least likely to refuse a
+shot.
+
+Which class each node is, is read off the graph rather than declared beside it —
+it is already decided by whether `rewriteNode` was handed images, and a second
 statement of the same fact is one that can disagree. `check:workflows` fails a
-graph whose node is shown a picture while set to, or offered, a model that
-cannot see one.
+graph that is *written* holding a model its own node could not be given, that
+offers an option nothing can classify, that files one under the wrong heading,
+or that would be left with a broken link once a text-only model converted it.
 
 **This is the control to reach for when a generation dies at the rewrite step
 for no clear reason.** That is usually a refusal, and a refusal is about the

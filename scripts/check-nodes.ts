@@ -26,8 +26,9 @@ import { WORKFLOWS } from "../src/lib/workflows";
 import { patchVariants } from "../src/lib/workflows/patches";
 import { promptConsumers } from "../src/lib/workflows/director";
 import {
-  REWRITE_CLASSES,
   REWRITE_MODELS,
+  TEXT_CLASS,
+  VISION_CLASS,
 } from "../src/lib/workflows/rewrite-model";
 import { stepSamplerGraph } from "../src/lib/workflows/step-sampler";
 import { turboGraph } from "../src/lib/workflows/turbo";
@@ -278,21 +279,34 @@ async function main() {
   // validates a queued combo against the list, so an id the picker offers and
   // the node does not is a run rejected before it starts — which is exactly the
   // kind of thing this script exists to find before a render does.
+  //
+  // Asked of both classes, because they answer differently and the difference
+  // is load-bearing. `GenerateText` lists every language model the gateway has;
+  // `DescribeImage` lists the vision subset, and a model this repo has recorded
+  // as seeing images but that is missing from that list is one a graph would
+  // hand to a director being shown a picture, and have refused.
   const staleModels: string[] = [];
-  const rewriteClass = REWRITE_CLASSES.find((name) => schemas.get(name));
-  if (rewriteClass) {
+  if (schemas.get(TEXT_CLASS)) {
     console.log("\nRewrite models");
-    const offered = enumValuesFor(schemas.get(rewriteClass) ?? null, "model");
+    const offered = enumValuesFor(schemas.get(TEXT_CLASS) ?? null, "model");
+    const sighted = enumValuesFor(schemas.get(VISION_CLASS) ?? null, "model");
     if (offered === null) {
-      console.log(`  unknown  (could not read ${rewriteClass}.model)`);
+      console.log(`  unknown  (could not read ${TEXT_CLASS}.model)`);
     } else {
       for (const model of REWRITE_MODELS) {
-        if (offered.includes(model.id)) {
-          console.log(`  ok       ${model.label}`);
-        } else {
+        if (!offered.includes(model.id)) {
           staleModels.push(model.id);
           console.log(
             `  NOT LISTED ${model.id}  — the gateway has stopped offering it`,
+          );
+        } else if (model.vision && sighted !== null && !sighted.includes(model.id)) {
+          staleModels.push(model.id);
+          console.log(
+            `  NOT VISION ${model.id}  — offered as one that can be shown a picture, and ${VISION_CLASS} does not list it. Run \`pnpm sync:models\`.`,
+          );
+        } else {
+          console.log(
+            `  ok       ${model.label}${model.vision ? "" : "  (text only)"}`,
           );
         }
       }

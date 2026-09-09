@@ -60,8 +60,12 @@ function sources(graph: ComfyGraph, id: string): string[] {
  * Found rather than declared, on the same grounds as the consumers in
  * model-chain.ts: the graph already knows, and a list of output classes kept
  * here would be a list to keep in step with six graphs and every re-export.
+ *
+ * Exported for the other pass that unwires something from the director and has
+ * to clear up after it — see `applyTextOnlyRewrite`, which takes the pictures
+ * away rather than the rewrite itself.
  */
-function terminals(graph: ComfyGraph): string[] {
+export function terminals(graph: ComfyGraph): string[] {
   const consumed = new Set<string>();
   for (const id of Object.keys(graph)) {
     for (const source of sources(graph, id)) consumed.add(source);
@@ -120,6 +124,17 @@ export function applyBypass(graph: ComfyGraph, spec: DirectorBypass): void {
     }
   }
 
+  pruneUnreachable(graph, roots);
+}
+
+/**
+ * Delete everything no longer reachable from these roots, in place.
+ *
+ * The roots have to be read *before* whatever unwired the graph, which is the
+ * whole subtlety: asked afterwards, a node nothing reads any more would look
+ * like an output node and be kept — along with the chain feeding it.
+ */
+export function pruneUnreachable(graph: ComfyGraph, roots: string[]): void {
   const keep = reachableFrom(graph, roots);
   for (const id of Object.keys(graph)) {
     if (!keep.has(id)) delete graph[id];

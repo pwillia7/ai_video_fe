@@ -1593,8 +1593,14 @@ export const minimaxH3Reference: WorkflowDef = {
     // With nothing to look at there is nothing to batch, and a BatchImagesNode
     // with no inputs is not an empty batch — it is a node that cannot produce
     // the IMAGE its consumer is asking for. So the batch goes and the director
-    // loses its `images` input, which is optional on this node class: the music
-    // graph's director runs without one.
+    // loses its picture.
+    //
+    // Which leaves a node that has to stop being a `DescribeImage`, since
+    // `image` is a *required* input on that class and a graph missing one is
+    // refused before it runs. `applyTextOnlyRewrite` does that conversion,
+    // afterwards and centrally — it is the same conversion a text-only rewrite
+    // model asks for, and a director with no picture is in exactly that
+    // position however it got there.
     //
     // Only reachable because a track can stand in for the first picture. A run
     // with a clip and no pictures still has a batch — of the clip's frames.

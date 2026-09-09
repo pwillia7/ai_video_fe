@@ -3,8 +3,8 @@
  * Do not edit: run the script. The curation, and why it is these, is in
  * ../rewrite-catalog.ts.
  *
- * Synced 2026-09-07: 371 models in the catalog,
- * 10 families declared, 10 offered.
+ * Synced 2026-09-09: 373 models in the catalog,
+ * 15 families declared, 23 offered.
  */
 import type { OfferedModel } from "../rewrite-catalog";
 
@@ -24,9 +24,23 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 15,
   },
   {
+    id: "moonshotai/kimi-k2",
+    label: "Kimi K2 Instruct — $2.30/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 2.3,
+  },
+  {
     id: "minimax/minimax-m3",
     label: "MiniMax M3 — $1.20/M",
     vision: true,
+    free: false,
+    pricePerMillion: 1.2,
+  },
+  {
+    id: "minimax/minimax-m2.7",
+    label: "MiniMax M2.7 — $1.20/M",
+    vision: false,
     free: false,
     pricePerMillion: 1.2,
   },
@@ -38,9 +52,23 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 0.5,
   },
   {
-    id: "mistral/mistral-medium-3.5",
-    label: "Mistral Medium Latest — $7.50/M",
+    id: "zai/glm-5.3",
+    label: "GLM 5.3 — $4.40/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 4.4,
+  },
+  {
+    id: "alibaba/qwen3.8-flash",
+    label: "Qwen 3.8 Flash — $0.47/M",
     vision: true,
+    free: false,
+    pricePerMillion: 0.47,
+  },
+  {
+    id: "alibaba/qwen3.7-max",
+    label: "Qwen 3.7 Max — $7.50/M",
+    vision: false,
     free: false,
     pricePerMillion: 7.5,
   },
@@ -52,11 +80,81 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 0.26,
   },
   {
+    id: "mistral/mistral-medium-3.5",
+    label: "Mistral Medium Latest — $7.50/M",
+    vision: true,
+    free: false,
+    pricePerMillion: 7.5,
+  },
+  {
+    id: "nvidia/nemotron-nano-12b-v2-vl",
+    label: "Nvidia Nemotron Nano 12B V2 VL — $0.60/M",
+    vision: true,
+    free: false,
+    pricePerMillion: 0.6,
+  },
+  {
+    id: "nvidia/nemotron-3-ultra-550b-a55b",
+    label: "Nemotron 3 Ultra — $2.40/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 2.4,
+  },
+  {
+    id: "inclusionai/ling-3.0-flash",
+    label: "Ling 3.0 Flash — $0.18/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 0.18,
+  },
+  {
+    id: "xiaomi/mimo-v2.5",
+    label: "MiMo M2.5 — $0.28/M",
+    vision: true,
+    free: false,
+    pricePerMillion: 0.28,
+  },
+  {
+    id: "xiaomi/mimo-v2.5-pro",
+    label: "MiMo V2.5 Pro — $0.87/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 0.87,
+  },
+  {
+    id: "tencent/hy3",
+    label: "Hy3 — $0.58/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 0.58,
+  },
+  {
     id: "meta/llama-4-maverick",
     label: "Llama 4 Maverick 17B Instruct — $0.97/M",
     vision: true,
     free: false,
     pricePerMillion: 0.97,
+  },
+  {
+    id: "meta/llama-3.3-70b",
+    label: "Llama 3.3 70B Instruct — $0.72/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 0.72,
+  },
+  {
+    id: "openai/gpt-6-astra",
+    label: "GPT-6 Astra — $50/M",
+    vision: true,
+    free: false,
+    pricePerMillion: 50,
+  },
+  {
+    id: "openai/gpt-oss-120b",
+    label: "GPT OSS 120B — $0.50/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 0.5,
   },
   {
     id: "google/gemini-3.8-flash",
@@ -71,12 +169,5 @@ export const REWRITE_MODELS: OfferedModel[] = [
     vision: true,
     free: false,
     pricePerMillion: 10,
-  },
-  {
-    id: "openai/gpt-6-astra",
-    label: "GPT-6 Astra — $50/M",
-    vision: true,
-    free: false,
-    pricePerMillion: 50,
   },
 ];
