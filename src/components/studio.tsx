@@ -27,7 +27,8 @@ import { WorkflowPicker } from "@/components/workflow-picker";
 import { GenerationsPanel } from "@/components/generations-panel";
 import { SorantMark } from "@/components/sorant-logo";
 import { useJobs } from "@/hooks/use-jobs";
-import { isActive, type Job } from "@/lib/jobs";
+import { isActive, isRetryable, type Job } from "@/lib/jobs";
+import { restoreFrom } from "@/lib/restore";
 import { api, ApiError, getToken } from "@/lib/client";
 import {
   clampValues,
@@ -678,17 +679,8 @@ function Workbench({
    * Load a past generation's settings back into the form, and switch to the
    * workflow it was made with.
    *
-   * Everything it was run with, not only the values: the mode switches are as
-   * much a part of how a take came out as any control, and the steps range
-   * depends on turbo, so the values are merged against the workflow *as that
-   * mode has it*. `mergeWithDefaults` does the rest of the work — a param since
-   * renamed, removed, or changed type is dropped rather than restored as
-   * nonsense, which is the same protection stored settings get on load.
-   *
-   * The seed is deliberately not restored. Reusing settings is how a take gets
-   * varied; reproducing one exactly is a separate act with its own button on
-   * the result, and rolling the seed back here would silently pin every rerun
-   * to the old noise.
+   * What a run restores to is `restoreFrom`, which both this and `retry` read
+   * — everything it was run with, checked against the workflow as it is today.
    *
    * Nothing is submitted. As with the clip hand-offs, this only fills the form
    * in and leaves the run to the user.
@@ -700,91 +692,36 @@ function Workbench({
       );
       if (!target) return;
 
-      const turbo = Boolean(job.turbo) && Boolean(target.turbo);
-      const restored = mergeWithDefaults(
-        effectiveWorkflow(target, turbo),
-        job.resolved,
-      );
+      const restored = restoreFrom(job, target);
+
+      // The seed is deliberately not restored. Reusing settings is how a take
+      // gets varied; reproducing one exactly is a separate act with its own
+      // button on the result, and rolling the seed back here would silently
+      // pin every rerun to the old noise. Retry wants the opposite and keeps
+      // it — see `retry`.
+      const values = { ...restored.values };
       for (const param of target.params) {
-        if (param.type === "seed") restored[param.id] = param.default;
+        if (param.type === "seed") values[param.id] = param.default;
       }
 
-      setValuesByWorkflow((previous) => ({
-        ...previous,
-        [target.id]: restored,
-      }));
+      setValuesByWorkflow((previous) => ({ ...previous, [target.id]: values }));
       if (target.turbo) {
-        setTurboByWorkflow((previous) => ({ ...previous, [target.id]: turbo }));
+        setTurboByWorkflow((previous) => ({
+          ...previous,
+          [target.id]: restored.turbo,
+        }));
       }
-      // Only the switches this workflow still offers: one since removed or
-      // renamed would be sent on the next run and refused by the server over a
-      // switch the form never showed.
       setPatchesByWorkflow((previous) => ({
         ...previous,
-        [target.id]: target.patches
-          .filter((patch) => job.patches?.includes(patch.id))
-          .map((patch) => patch.id),
+        [target.id]: restored.patches,
       }));
-      // And how far each of them was turned up. Restored only for switches the
-      // workflow still offers a strength on, and dropped otherwise, exactly as
-      // the switch list above is — a number kept for a control the form no
-      // longer shows would quietly change the next run.
-      // Which LoRA each switch was on, and that LoRA's own settings. Restored
-      // only for entries the list still offers, exactly as the switches above
-      // are: an id the list has dropped would send the next run a choice the
-      // form never showed.
-      setLora((previous) => {
-        const next = { ...previous };
-        for (const patch of target.patches) {
-          const was = job.loras?.[patch.id]?.choice;
-          if (was && patch.choices?.options.some((o) => o.id === was)) {
-            next[patch.id] = was;
-          }
-        }
-        return next;
-      });
-      setStrengths((previous) => {
-        const next = { ...previous };
-        for (const patch of target.patches) {
-          const applied = job.loras?.[patch.id];
-          const option = patch.choices?.options.find(
-            (candidate) => candidate.id === applied?.choice,
-          );
-          if (option?.strength && typeof applied?.strength === "number") {
-            next[option.id] = applied.strength;
-          }
-        }
-        return next;
-      });
-      setTier((previous) => {
-        const next = { ...previous };
-        for (const patch of target.patches) {
-          const applied = job.loras?.[patch.id];
-          const option = patch.choices?.options.find(
-            (candidate) => candidate.id === applied?.choice,
-          );
-          const was = applied?.prompt?.tier;
-          if (was && option?.prompt?.tiers?.some((t) => t.id === was)) {
-            next[option.id] = was;
-          }
-        }
-        return next;
-      });
-      // And which checkpoint it ran on — the switch, not the filename, since
-      // that is the half of the record this side can act on.
-      setAlternateBase((previous) => {
-        const next = { ...previous };
-        for (const patch of target.patches) {
-          const applied = job.loras?.[patch.id];
-          const option = patch.choices?.options.find(
-            (candidate) => candidate.id === applied?.choice,
-          );
-          if (option?.baseAlternate && applied?.base) {
-            next[option.id] = applied.base.alternate;
-          }
-        }
-        return next;
-      });
+      setLora((previous) => ({ ...previous, ...restored.lora }));
+      setStrengths((previous) => ({ ...previous, ...restored.strengths }));
+      setTier((previous) => ({ ...previous, ...restored.tier }));
+      setAlternateBase((previous) => ({
+        ...previous,
+        ...restored.alternateBase,
+      }));
       setSelectedId(target.id);
 
       // Same reason as the clip hand-off: on mobile the form sits above the
@@ -839,13 +776,30 @@ function Workbench({
   const settingsJob =
     jobs.jobs.find((job) => job.promptId === settingsForId) ?? null;
 
+  /**
+   * Which workflow the last submission was for.
+   *
+   * Only interesting because `retry` can submit one the form is not showing.
+   * A refusal that names a control is shown on that control, and field ids are
+   * not unique across workflows — `duration` is several of them — so without
+   * this a retry of Reference to Video refused over its length would put the
+   * message under Image to Video's length box, on a form that was not sent and
+   * whose value is fine. Worse where the workflows share no such id: the
+   * refusal would land on nothing at all and the retry would look like a
+   * button that does nothing.
+   */
+  const [submittedFor, setSubmittedFor] = useState<string | null>(null);
+
   const fieldError = useMemo(() => {
     if (!jobs.submitError || !jobs.submitErrorField) return null;
+    // Belongs to a form that is not on screen; the banner below takes it.
+    if (submittedFor !== selectedId) return null;
     return { field: jobs.submitErrorField, message: jobs.submitError };
-  }, [jobs.submitError, jobs.submitErrorField]);
+  }, [jobs.submitError, jobs.submitErrorField, submittedFor, selectedId]);
 
   const submit = useCallback(() => {
     if (!selected || jobs.submitting) return;
+    setSubmittedFor(selected.id);
     void jobs.submit(selected, values, {
       ...modes,
       lowVram,
@@ -868,6 +822,73 @@ function Workbench({
       );
     }
   }, [selected, values, jobs, clipSource, modes, lowVram]);
+
+  /**
+   * Run a failed generation again, exactly as it was.
+   *
+   * The seed included, which is what separates this from `Reuse settings`. A
+   * failure produced nothing, so there is no take to vary — the run the user
+   * asked for never happened, and a retry that quietly rolled the noise would
+   * be a different run wearing the same name.
+   *
+   * Submitted straight from the history, without touching the form. A retry is
+   * "run that again", not "switch me to that": filling the form in would throw
+   * away whatever is being worked on in it, and the run that comes back is a
+   * new row at the top of this same list either way.
+   *
+   * `lowVram` is the one thing taken from the session rather than the run,
+   * because a job does not record it — it is a property of the machine's memory
+   * rather than of the take, and the current answer is the better guess.
+   *
+   * `derivedFrom` is carried across so a retried hand-off stays in the family
+   * it came from rather than appearing as an unrelated entry beside it.
+   *
+   * Nothing here is clever about *why* it failed. A run that died because the
+   * rewrite model refused the shot will refuse it again, and the way out of
+   * that one is a different model — which is what `Reuse settings` and the form
+   * are for. What this is for is the other kind: the box was offline, it ran
+   * out of memory, something fell over between here and there.
+   */
+  const retry = useCallback(
+    (job: Job) => {
+      if (jobs.submitting) return;
+      const target = workflows.find(
+        (workflow) => workflow.id === job.workflowId,
+      );
+      if (!target) return;
+
+      setSubmittedFor(target.id);
+      const restored = restoreFrom(job, target);
+      void jobs.submit(target, restored.values, {
+        turbo: restored.turbo,
+        patches: restored.patches,
+        lora: restored.lora,
+        strengths: restored.strengths,
+        tier: restored.tier,
+        alternateBase: restored.alternateBase,
+        lowVram,
+        derivedFrom: job.derivedFrom,
+      });
+
+      // On mobile the stage sits below the whole settings panel, so a retry
+      // fired from the history would otherwise give no visible sign of
+      // anything happening. Same reason as `submit`.
+      if (window.matchMedia("(max-width: 1023px)").matches) {
+        requestAnimationFrame(() =>
+          stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        );
+      }
+    },
+    [jobs, workflows, lowVram],
+  );
+
+  /** Withheld where the workflow that made the run is no longer registered. */
+  const retryable = useCallback(
+    (job: Job) =>
+      isRetryable(job) &&
+      workflows.some((workflow) => workflow.id === job.workflowId),
+    [workflows],
+  );
 
   // Cmd/Ctrl+Enter from anywhere fires the run. Held in a ref so the listener
   // is attached once rather than on every keystroke in the prompt box.
@@ -1152,7 +1173,8 @@ function Workbench({
               className="scroll-pane flex min-w-0 flex-col gap-4 lg:min-h-0 lg:flex-1
                 lg:overflow-y-auto lg:overscroll-contain lg:pr-2"
             >
-              {jobs.submitError && !jobs.submitErrorField ? (
+              {jobs.submitError &&
+              (!jobs.submitErrorField || submittedFor !== selectedId) ? (
                 <div
                   className="flex items-start gap-3 rounded-lg border border-danger/40
                     bg-danger/5 p-3 text-[13px] leading-relaxed text-danger"
@@ -1204,6 +1226,8 @@ function Workbench({
                     : undefined
                 }
                 onToggleFavorite={jobs.toggleFavorite}
+                onRetry={viewedJob && retryable(viewedJob) ? retry : undefined}
+                retrying={jobs.submitting}
                 busyAction={sending}
               />
 
@@ -1226,6 +1250,9 @@ function Workbench({
                   onRemoveMany={jobs.removeMany}
                   onToggleFavorite={jobs.toggleFavorite}
                   onClearFinished={jobs.clearFinished}
+                  onRetry={retry}
+                  canRetry={retryable}
+                  retrying={jobs.submitting}
                 />
               </Panel>
             </div>

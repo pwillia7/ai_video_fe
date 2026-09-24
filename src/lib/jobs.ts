@@ -155,6 +155,24 @@ export function isFavorite(job: Job): boolean {
 }
 
 /**
+ * Whether this run is one to offer a second attempt at.
+ *
+ * `error` and nothing else. A failure is the case where running the same thing
+ * again is a reasonable next move and often the whole fix — the box was
+ * offline, it ran out of memory, the rewrite call fell over — and it is the one
+ * phase that left nothing behind, so there is nothing to lose by asking again.
+ *
+ * Not `cancelled`: stopping a run is a decision, and a button that undoes it
+ * one click away from the one that made it is a button pressed by accident.
+ * Not `unknown` either, which is the phase for a job this device lost track of
+ * — it may well still be rendering on the box, and re-queueing it would put the
+ * same work through a GPU that is already doing it.
+ */
+export function isRetryable(job: Job): boolean {
+  return job.phase === "error";
+}
+
+/**
  * The favourited entries and everything else, each in the order they arrived.
  *
  * Lifted out rather than merely sorted to the top: an entry appears in the

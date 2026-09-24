@@ -27,6 +27,8 @@ export function GenerationStage({
   onClipAction,
   onShowSettings,
   onToggleFavorite,
+  onRetry,
+  retrying,
   busyAction = null,
 }: {
   job: Job | null;
@@ -44,6 +46,14 @@ export function GenerationStage({
   onClipAction?: (job: Job, action: ClipAction) => void;
   /** Opens the record of what this generation was run with. */
   onShowSettings?: () => void;
+  /**
+   * Run a failed generation again as it was. Absent where there is nothing to
+   * run it with — a workflow since unregistered — which is what takes the
+   * button off rather than leaving one that cannot work.
+   */
+  onRetry?: (job: Job) => void;
+  /** A submission is in flight, so the retry waits rather than doubling it. */
+  retrying?: boolean;
   /**
    * Marks this result as one to keep. Offered here as well as on the history
    * row because the moment to decide is usually the moment it lands, and that
@@ -68,7 +78,12 @@ export function GenerationStage({
           busyAction={busyAction}
         />
       ) : job.phase === "error" ? (
-        <Failure job={job} onShowSettings={onShowSettings} />
+        <Failure
+          job={job}
+          onShowSettings={onShowSettings}
+          onRetry={onRetry ? () => onRetry(job) : undefined}
+          retrying={retrying}
+        />
       ) : job.phase === "queued" || job.phase === "running" ? (
         <InFlight
           job={job}
@@ -247,9 +262,13 @@ function InFlight({
 function Failure({
   job,
   onShowSettings,
+  onRetry,
+  retrying,
 }: {
   job: Job;
   onShowSettings?: () => void;
+  onRetry?: () => void;
+  retrying?: boolean;
 }) {
   return (
     <Frame>
@@ -259,13 +278,24 @@ function Failure({
           <span className="text-sm font-medium text-fg">Generation failed</span>
         </div>
         <p className="text-[13px] leading-relaxed text-fg-muted">{job.error}</p>
-        {/* Worth reaching most from here: the first question after a failure
-            is usually what it was run with. */}
-        {onShowSettings ? (
-          <div className="mt-5">
-            <Button size="sm" variant="quiet" onClick={onShowSettings}>
-              View settings
-            </Button>
+        {/* The two things worth reaching from here, and in this order: run it
+            again, since a good share of failures are the box rather than the
+            run; and what it was run with, which is the first question when it
+            was not. The history row offers the same retry, but this is the
+            screen a failure lands you on, and sending someone back to the list
+            to press the button they are looking at is not offering it. */}
+        {onRetry || onShowSettings ? (
+          <div className="mt-5 flex items-center justify-center gap-2">
+            {onRetry ? (
+              <Button size="sm" onClick={onRetry} disabled={retrying}>
+                {retrying ? "Submitting…" : "Try again"}
+              </Button>
+            ) : null}
+            {onShowSettings ? (
+              <Button size="sm" variant="quiet" onClick={onShowSettings}>
+                View settings
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>

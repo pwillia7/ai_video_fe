@@ -70,6 +70,9 @@ export function GenerationsPanel({
   onRemoveMany,
   onToggleFavorite,
   onClearFinished,
+  onRetry,
+  canRetry,
+  retrying,
 }: {
   jobs: Job[];
   selectedId: string | null;
@@ -80,6 +83,16 @@ export function GenerationsPanel({
   onRemoveMany: (promptIds: string[]) => void;
   onToggleFavorite: (promptId: string) => void;
   onClearFinished: () => void;
+  /** Run a failed generation again, as it was. Absent offers no retry at all. */
+  onRetry?: (job: Job) => void;
+  /**
+   * Whether this particular run can be offered one — the phase is only half of
+   * it, since the workflow that made it may no longer be registered. Asked of
+   * the owner rather than worked out here, which has no list of workflows.
+   */
+  canRetry?: (job: Job) => boolean;
+  /** A submission is in flight, so every retry button waits its turn. */
+  retrying?: boolean;
 }) {
   /**
    * Per-day open state, but only where the user has said otherwise: the newest
@@ -321,6 +334,10 @@ export function GenerationsPanel({
                         onSelect={onSelect}
                         onCancel={onCancel}
                         onRemove={onRemove}
+                        onRetry={
+                          onRetry && canRetry?.(job) ? onRetry : undefined
+                        }
+                        retrying={retrying}
                         onToggleFavorite={onToggleFavorite}
                         onToggleTrack={toggleTrack}
                       />
@@ -411,6 +428,8 @@ function Row({
   onRemove,
   onToggleFavorite,
   onToggleTrack,
+  onRetry,
+  retrying,
 }: {
   job: Job;
   now: number;
@@ -422,6 +441,9 @@ function Row({
   onRemove: (promptId: string) => void;
   onToggleFavorite: (promptId: string) => void;
   onToggleTrack: (job: Job) => void;
+  /** Present only on a row worth offering one. See `isRetryable`. */
+  onRetry?: (job: Job) => void;
+  retrying?: boolean;
 }) {
   const active = isActive(job);
   const favorite = isFavorite(job);
@@ -537,6 +559,37 @@ function Row({
               />
             </svg>
           )}
+        </button>
+      ) : null}
+
+      {/* Always visible, like the play button above: a failed run is the one
+          row in this list with something that needs doing, and hiding the fix
+          behind a hover puts it out of reach of a touch device entirely.
+
+          Only on a failure, and only while nothing else is being submitted —
+          the queue takes one at a time, and a button that looked live while
+          the last press was still in flight would invite the same run twice. */}
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={() => onRetry(job)}
+          disabled={retrying}
+          title="Run this again with the same settings"
+          aria-label="Run this again with the same settings"
+          className="grid size-7 shrink-0 place-items-center rounded-md
+            text-fg-muted transition-colors hover:bg-surface hover:text-accent
+            disabled:cursor-not-allowed disabled:opacity-40
+            disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+        >
+          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+            <path
+              d="M13 8a5 5 0 1 1-1.7-3.75M13 2.5V5.5h-3"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </button>
       ) : null}
 
