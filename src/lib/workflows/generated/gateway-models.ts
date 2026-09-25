@@ -3,18 +3,18 @@
  * Do not edit: run the script. The curation, and why it is these, is in
  * ../rewrite-catalog.ts.
  *
- * Synced 2026-09-09: 373 models in the catalog,
- * 15 families declared, 23 offered.
+ * Synced 2026-09-25: 390 models in the catalog,
+ * 15 families declared, 26 offered.
  */
 import type { OfferedModel } from "../rewrite-catalog";
 
 export const REWRITE_MODELS: OfferedModel[] = [
   {
-    id: "spacexai/grok-4.6",
-    label: "Grok 4.6 — $6/M",
+    id: "spacexai/grok-4.7",
+    label: "Grok 4.7 — $3.60/M",
     vision: true,
     free: false,
-    pricePerMillion: 6,
+    pricePerMillion: 3.6,
   },
   {
     id: "moonshotai/kimi-k3",
@@ -45,11 +45,11 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 1.2,
   },
   {
-    id: "zai/glm-5.3-flash",
-    label: "GLM 5.3 Flash — $0.50/M",
+    id: "zai/glm-5.3-flashx",
+    label: "GLM 5.3 FlashX — $1.25/M",
     vision: true,
     free: false,
-    pricePerMillion: 0.5,
+    pricePerMillion: 1.25,
   },
   {
     id: "zai/glm-5.3",
@@ -59,11 +59,11 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 4.4,
   },
   {
-    id: "alibaba/qwen3.8-flash",
-    label: "Qwen 3.8 Flash — $0.47/M",
+    id: "alibaba/qwen3.8-max-prime",
+    label: "Qwen 3.8 Max Prime — $12/M",
     vision: true,
     free: false,
-    pricePerMillion: 0.47,
+    pricePerMillion: 12,
   },
   {
     id: "alibaba/qwen3.7-max",
@@ -71,6 +71,13 @@ export const REWRITE_MODELS: OfferedModel[] = [
     vision: false,
     free: false,
     pricePerMillion: 7.5,
+  },
+  {
+    id: "deepseek/deepseek-v4.1-flash",
+    label: "DeepSeek V4.1 Flash — $1.20/M",
+    vision: true,
+    free: false,
+    pricePerMillion: 1.2,
   },
   {
     id: "deepseek/deepseek-v4-flash",
@@ -87,6 +94,13 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 7.5,
   },
   {
+    id: "mistral/mistral-nemo",
+    label: "Mistral Nemo 12B — $0.17/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 0.17,
+  },
+  {
     id: "nvidia/nemotron-nano-12b-v2-vl",
     label: "Nvidia Nemotron Nano 12B V2 VL — $0.60/M",
     vision: true,
@@ -101,15 +115,22 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 2.4,
   },
   {
-    id: "inclusionai/ling-3.0-flash",
-    label: "Ling 3.0 Flash — $0.18/M",
-    vision: false,
+    id: "inclusionai/ling-3.0-flash-vl",
+    label: "Ling 3.0 Flash VL — $0.22/M",
+    vision: true,
     free: false,
-    pricePerMillion: 0.18,
+    pricePerMillion: 0.22,
   },
   {
-    id: "xiaomi/mimo-v2.5",
-    label: "MiMo M2.5 — $0.28/M",
+    id: "inclusionai/ling-3.0-flash",
+    label: "Ling 3.0 Flash — $0.06/M",
+    vision: false,
+    free: false,
+    pricePerMillion: 0.063,
+  },
+  {
+    id: "xiaomi/mimo-v2.6-flash",
+    label: "MiMo V2.6 Flash — $0.28/M",
     vision: true,
     free: false,
     pricePerMillion: 0.28,
@@ -143,11 +164,11 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 0.72,
   },
   {
-    id: "openai/gpt-6-astra",
-    label: "GPT-6 Astra — $50/M",
+    id: "openai/gpt-6-luna",
+    label: "GPT-6 Luna — $0.50/M",
     vision: true,
     free: false,
-    pricePerMillion: 50,
+    pricePerMillion: 0.5,
   },
   {
     id: "openai/gpt-oss-120b",
