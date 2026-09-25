@@ -36,6 +36,15 @@ export interface SwappedModel {
  * the rule belongs to the reference: whenever the run carries one of these, the
  * graph loads the pair that takes it, at whatever step count the user chose.
  *
+ * The comparison this unblocked has since been run, and it cleared four steps:
+ * a voice reference at four steps with turbo on comes back clean. Whatever was
+ * garbling that audio, it was not the step count and not the LoRA — it was the
+ * length of the voice window and the amount of dialogue the director was
+ * writing. See `VOICE_TRIM_DEFAULT` in minimax-h3-ref.ts and `LENGTH_RULES` in
+ * minimax-common.ts, which are the two that actually fixed it. This stays
+ * because the coupling was wrong on its own terms, not because it was the
+ * cause.
+ *
  * Declared rather than written into the params so a stale one fails a check
  * instead of a render — see `modelSwapProblems`, and `modelSwapBaseProblems`
  * for the LoRA bases it must not silently override.
