@@ -257,7 +257,16 @@ export function durationParam(
    */
   {
     label = "Duration",
-    help = "Snaps to the nearest length the model accepts, so it can land slightly long. Past about 15s the model is out of its trained range.",
+    /**
+     * Both ends of the trained range, not just the top.
+     *
+     * The node reports it itself — `length`'s tooltip gives ~124-362 frames at
+     * 24fps, which is 5.2s to 15.1s — and only the top of it was ever said here.
+     * The bottom matters most on exactly the runs that reach for a short clip: a
+     * three-second take with a voice or a track attached is below the range the
+     * model was trained on, and the sound is the first thing that goes.
+     */
+    help = "Snaps to the nearest length the model accepts, so it can land slightly long. The model's trained range is about 5s to 15s, and audio is what suffers first outside it.",
     default: value = 10,
   }: { label?: string; help?: string; default?: number } = {},
 ): ParamDef {
@@ -1165,19 +1174,136 @@ export function leadingReferences(
  * every other appendix here: it reads the submission, so a graph adding the
  * control gets the instruction with it.
  */
-export function referenceTrack(paramId: string): DirectorAppendix {
+/**
+ * What each piece of attached audio is called in H3's format, for a run that
+ * may carry three of them.
+ *
+ * The node presents references as images, then each video preceded by its own
+ * soundtrack, then the standalone audios in wiring order, numbering 1-based per
+ * type. So a clip's soundtrack takes <Audio 1> and pushes the standalone ones
+ * down, and between the standalone ones the order is the order `finalize`
+ * leaves them in — which is the order of the slots, compacted so there is no
+ * hole.
+ *
+ * One function because three appendices have to agree about it and there is no
+ * way to check that they do: a director told the voice is <Audio 2> while the
+ * model was handed it as <Audio 1> writes a prompt about a reference that is
+ * not there, and nothing downstream can see the disagreement. Adding a fourth
+ * kind of audio is an argument here and a line in the returned object rather
+ * than three edits that have to match.
+ */
+export interface AudioLabels {
+  /** The clip's own soundtrack, when it was attached along with the clip. */
+  soundtrack?: string;
+  /** The standalone music track. */
+  track?: string;
+  /** The standalone voice reference. */
+  voice?: string;
+}
+
+export function audioLabels({
+  soundtrack = false,
+  track = false,
+  voice = false,
+}: {
+  soundtrack?: boolean;
+  track?: boolean;
+  voice?: boolean;
+}): AudioLabels {
+  const labels: AudioLabels = {};
+  let next = 1;
+  // In wiring order, which is what decides the numbers. A slot that is not
+  // attached takes no number and leaves none behind — `finalize` compacts the
+  // variadic inputs for exactly this reason.
+  if (soundtrack) labels.soundtrack = `<Audio ${next++}>`;
+  if (track) labels.track = `<Audio ${next++}>`;
+  if (voice) labels.voice = `<Audio ${next++}>`;
+  return labels;
+}
+
+/** How an appendix is told what this run's audio is called. See `audioLabels`. */
+export type AudioLabelsFor = (values: Record<string, ParamValue>) => AudioLabels;
+
+export function referenceTrack(
+  paramId: string,
+  /**
+   * What this track is called this run. Passed rather than assumed to be
+   * <Audio 1>, because a clip's soundtrack and a voice reference both change
+   * the number — see `audioLabels`.
+   */
+  labelsFor: AudioLabelsFor,
+): DirectorAppendix {
   return (values) => {
     if (!String(values[paramId] ?? "").trim()) return "";
+    const label = labelsFor(values).track ?? "<Audio 1>";
 
-    return `A TRACK HAS BEEN ATTACHED
+    return `A MUSIC TRACK HAS BEEN ATTACHED
 
-The user has supplied a piece of music as a reference, and the model is given it directly. You have not heard it and you are not being asked to describe it.
+The user has supplied a piece of music as a reference, and the model is given it directly, as ${label}. You have not heard it and you are not being asked to describe it.
 
-So write non_diegetic_music as deference rather than as a specification: say that the score is the supplied reference track and that it plays throughout, and name no genre, tempo, key or instrument you have not been told. Inventing one asks the model for a second piece of music over the one it already has.
+So write non_diegetic_music as deference rather than as a specification: say that the score is ${label} and that it plays throughout, and name no genre, tempo, key or instrument you have not been told. Inventing one asks the model for a second piece of music over the one it already has.
+
+Give ${label} its own line in subject_definitions saying that it supplies the score, and its own line in retention_analysis with an audio marker. It is a reference the model was handed, and a reference the prompt never names is one it has to guess the purpose of.
 
 overall_soundscape is still yours to write, and it is the diegetic sound — what is audible in the scene itself. Keep it to that, and keep it sparse enough to sit under a track rather than compete with one.
 
+This track is music. It is not a voice reference, and it says nothing about how anyone in this video sounds — so do not cite it as the source of anyone's speech, and do not give it a speaker ID.
+
 What is on screen is where your attention belongs. Nothing about the attached track changes it unless the user's own text says it does — but if they have asked for movement on the beat, a performance, or anything else timed to the music, write that into the action.`;
+  };
+}
+
+/**
+ * What to say when a recording has been attached to supply a *voice*.
+ *
+ * The other half of the pair with `referenceTrack`, and the reason there are two
+ * slots rather than one control with a purpose select. The node takes up to
+ * three standalone audios and numbers them in wiring order, so music and a voice
+ * can both be attached to the same run — and they are not two settings of one
+ * thing. A score is deferred to and written into `non_diegetic_music`; a voice
+ * belongs to somebody on screen, gets a speaker ID, and never goes near the
+ * score at all. One control that had to be read two ways would be a control the
+ * director could only guess at.
+ *
+ * What it does *not* do is decide what is carried over. That is `audioKeep`,
+ * which writes the marker and the rule underneath it, and which sits after this
+ * in the appendix list so it lands last. This block says what the reference is
+ * and who it belongs to; that one says how much of it survives.
+ *
+ * Reads the submission rather than taking booleans, on the same terms as every
+ * other appendix here.
+ */
+export function referenceVoice({
+  voiceParam,
+  labelsFor,
+}: {
+  /** The control holding the recording. Nothing to say without one. */
+  voiceParam: string;
+  /** What it is called this run — see `audioLabels`. */
+  labelsFor: AudioLabelsFor;
+}): DirectorAppendix {
+  return (values) => {
+    if (!String(values[voiceParam] ?? "").trim()) return "";
+    const labels = labelsFor(values);
+    const label = labels.voice ?? "<Audio 1>";
+
+    return `A VOICE REFERENCE HAS BEEN ATTACHED
+
+The user has supplied a recording of a voice, and the model is given it directly, as ${label}. You have not heard it, you do not know whose voice it is, and you are not being asked to describe how it sounds.
+
+What it is for is the sound of a person, not the sound of the scene. ${label} says how someone in this video speaks or sings — their timbre, their accent, their pitch and their pacing — and nothing about the room, the score or anything else that is audible.
+
+So give it a line in subject_definitions saying that it supplies a voice, and a line in retention_analysis with an audio marker, exactly as a picture gets a definition and a marker. Then, in detailed_description, attach it to whoever carries it: the speaker takes an ordinary speaker ID, and you say plainly that the voice heard is ${label}'s.
+
+The young man (S1), his voice that of ${label}, says: <d>[English] ...</d>
+
+Who that is follows from the scene. If a referenced subject is the one speaking, it is theirs — carry both labels the way you would for any speaking subject. If nobody on screen is speaking, it is a narrator or an off-screen voice, written with the voiceover phrasing the grammar gives.
+
+Because you have not heard it, write no description of what the voice is like: no age, no gender, no accent, no register, no adjective of any kind for it, beyond what the user's own text says. The model has the recording and you do not — a description you invented is a second voice competing with the one it was handed. Name the character as the scene needs them and leave the sound to ${label}.
+
+Nothing about a voice reference is a score. Do not write it into non_diegetic_music${labels.track ? ` — that is ${labels.track}'s, and it is a different reference` : ""}, and do not write it into overall_soundscape either: speech belongs in the body.
+
+In summary, add "audio reference" to the task-type prefix with " + ".`;
   };
 }
 
@@ -1216,6 +1342,19 @@ export const TRACK_WORDS: WordsSource = {
   heading: "THE WORDS IN THE REFERENCE TRACK",
   phrase: "the attached track",
   what: "its lyrics, or its script",
+};
+
+/**
+ * The recording attached to say how someone sounds, rather than what is heard.
+ *
+ * Only reached on the answers that reuse what was said. The case this slot is
+ * *for* — take the voice, write new lines — has no use for a transcript, which
+ * is why the control that holds these is hidden on it: see `audioKeepHidesWords`.
+ */
+export const VOICE_WORDS: WordsSource = {
+  heading: "THE WORDS IN THE VOICE REFERENCE",
+  phrase: "the attached voice reference",
+  what: "what is said or sung in it",
 };
 
 export const CLIP_WORDS: WordsSource = {
@@ -1355,6 +1494,7 @@ export function wordsParam({
   label,
   help,
   group,
+  placeholder = "[Verse]\nthe words as they are sung",
   revealedBy,
   hiddenBy,
   targets,
@@ -1362,6 +1502,13 @@ export function wordsParam({
   id: string;
   label: string;
   help: string;
+  /**
+   * What the empty box shows. Defaults to a lyric sheet, which is what the two
+   * music-shaped slots want — a voice reference is more often speech, and a
+   * section tag in the placeholder is an invitation to write one where it does
+   * not belong.
+   */
+  placeholder?: string;
   /** Whichever section the audio it describes is in — it belongs beside it. */
   group: string;
   /**
@@ -1384,7 +1531,7 @@ export function wordsParam({
     type: "textarea",
     rows: 8,
     default: "",
-    placeholder: "[Verse]\nthe words as they are sung",
+    placeholder,
     maxLength: 6000,
     help,
     group,
@@ -1606,24 +1753,48 @@ export function audioKeep({
   fallback,
   attached,
   label = "<Audio 1>",
+  about,
 }: {
   param: string;
   fallback: AudioKeepMode;
   /** Whether there is any attached sound this run. No sound, nothing to say. */
   attached: (values: Record<string, ParamValue>) => boolean;
-  /** What the recording is called in the format. */
-  label?: string;
+  /**
+   * What this particular recording *is*, for a slot the grid's wording does not
+   * quite fit.
+   *
+   * The five answers were written for a soundtrack — a mixed recording with
+   * speech over music in a room — and four of them say the music and the room
+   * carry over. A bare voice reference has neither, so on that slot the note is
+   * describing something that is not in the file.
+   *
+   * Appended inside this block rather than written above it, because this block
+   * outranks what is above it by its own terms: a correction that sat outside
+   * would be the thing being overruled.
+   */
+  about?: string;
+  /**
+   * What the recording is called in the format.
+   *
+   * A function where the number depends on what else this run carries — on the
+   * graph that takes three kinds of audio, a voice reference is <Audio 1>,
+   * <Audio 2> or <Audio 3> depending on which of the others are attached, and
+   * the marker has to land on the label the model was actually given. Remix has
+   * exactly one recording and passes the string.
+   */
+  label?: string | ((values: Record<string, ParamValue>) => string);
 }): DirectorAppendix {
   return (values) => {
     if (!attached(values)) return "";
     const mode = audioKeepMode(values[param], fallback);
+    const name = typeof label === "function" ? label(values) : label;
 
-    return `WHAT ${label} CONTRIBUTES
+    return `WHAT ${name} CONTRIBUTES
 
-The user has said what the attached sound is for, and this decides its marker: ${label} is ${mode.marker}. ${mode.note}
+The user has said what the attached sound is for, and this decides its marker: ${name} is ${mode.marker}. ${mode.note}
 
 This setting outranks anything above about preserving or reusing that recording, including any marker a judgement about how sweeping the request is would otherwise have produced. Where the two disagree, this is the answer — it is what the user asked for, and the rest was inferred.
-
+${about ? `\n${about}\n` : ""}
 You have not heard it, so none of this is a description of what is in it. It decides what you may say is carried over, and nothing about what that sounds like.`;
   };
 }
@@ -1651,28 +1822,42 @@ You have not heard it, so none of this is a description of what is in it. It dec
 export function referenceVideo({
   videoParam,
   audioParam,
-  trackParam,
   keepParam,
   slots,
+  labelsFor,
 }: {
   /** The control holding the clip. Nothing to say without one. */
   videoParam: string;
   /** The toggle deciding whether the clip's own soundtrack goes with it. */
   audioParam: string;
-  /** The standalone reference track, which the soundtrack renumbers. */
-  trackParam: string;
   /** The select saying what the clip pins. See referenceVideoKeepParam. */
   keepParam: string;
   /** How many picture slots the graph wires, for counting the filled ones. */
   slots: number;
+  /**
+   * What this run's audio is called — see `audioLabels`. Passed rather than
+   * worked out here: a soundtrack renumbers every standalone audio below it,
+   * and there are two of those now, so the arithmetic belongs in the one place
+   * all three appendices read.
+   */
+  labelsFor: AudioLabelsFor;
 }): DirectorAppendix {
   return (values) => {
     if (!String(values[videoParam] ?? "").trim()) return "";
 
     const pictures = leadingReferences(values, slots);
     const soundtrack = isSet(values[audioParam]);
-    const track = String(values[trackParam] ?? "").trim() !== "";
+    const labels = labelsFor(values);
     const mode = videoKeepMode(values[keepParam]);
+
+    /**
+     * What the soundtrack pushed down, named. Empty when it pushed nothing —
+     * which is the common case, and the sentence reads better without it.
+     */
+    const renumbered = [
+      labels.track ? `the separately attached music track is ${labels.track}` : "",
+      labels.voice ? `the voice reference is ${labels.voice}` : "",
+    ].filter(Boolean);
 
     // Where the frames sit in the batch, said in terms of what the director is
     // looking at rather than in terms of the graph.
@@ -1683,16 +1868,16 @@ export function referenceVideo({
 
     /**
      * The soundtrack's own paragraph, and the one place the numbering has to be
-     * spelled out. References are presented as images, then each video preceded
-     * by its own soundtrack, then standalone audio — 1-based per type. So an
-     * attached soundtrack takes <Audio 1> and pushes a standalone track to
-     * <Audio 2>, which is the only case in this app where a track is not
-     * <Audio 1> and the only reason the director could get the pair backwards.
+     * spelled out for the reader. References are presented as images, then each
+     * video preceded by its own soundtrack, then the standalone audios — 1-based
+     * per type — so a soundtrack takes <Audio 1> and pushes everything else
+     * down. `audioLabels` does the arithmetic; this says it out loud, because it
+     * is the one place the director could get the numbers backwards.
      */
     const sound = soundtrack
       ? `THE CLIP'S SOUNDTRACK IS ATTACHED
 
-Its audio has been given to the model along with its picture, as <Audio 1>${track ? ", which also means the separately attached track is <Audio 2> rather than <Audio 1>" : ""}. You have not heard either of them and you are not being asked to describe them.
+Its audio has been given to the model along with its picture, as ${labels.soundtrack}${renumbered.length ? `, which also means ${renumbered.join(" and ")}` : ""}. You have not heard any of them and you are not being asked to describe them.
 
 So do not invent a score to sit over the one the model already has: write non_diegetic_music as deference, saying that the music is what the reference carries, and name no genre, tempo, key or instrument you have not been told. Sound that belongs to the new scene is still yours to write in overall_soundscape, and it should be sparse enough to sit under a reference rather than compete with one.
 
@@ -2347,6 +2532,13 @@ This is the usual case here. Do not give an image its own standalone <Picture N>
 
 When one subject draws on more than one image, say what each supplies. When one image supplies two subjects, define both.
 
+Attached audio is defined here too, and on the same terms. A recording the model was handed is a reference like any other: it takes an <Audio N> line saying what it supplies, and you are told below which of them this run carries and what each is for.
+
+<Audio 1> is the supplied music track, providing the score for the target video.
+<Audio 2> is the supplied voice reference, providing the voice of <Subject 1>.
+
+You have not heard any of them, so an audio definition says what the recording is *for* and never what it sounds like. No genre, no tempo, no instrument, no age, no accent, no register — the model has the recording and you do not, and a description you invented competes with it.
+
 summary
 
 One short paragraph, opening with a task-type prefix in square brackets. For this workflow that is normally:
@@ -2370,6 +2562,11 @@ weak_reference — only the subject style, or a broad similarity of category, co
 Identity references are normally fully_preserved. Repeat the facet words from the definition rather than re-describing the image here.
 
 A new action, a new background, a new camera angle, a new expression or a new lighting setup is not the loss of any facet. Never downgrade a marker for those — the scene is allowed to move a subject around and light it differently while preserving it completely.
+
+Every <Audio N> you defined takes a line here too, and for audio the markers are a different set: fully_copy, partially_copy, reference, or weak_reference. Which one each takes is not yours to judge — you are told it below, for every recording this run carries.
+
+<Audio 1>: fully_copy - reused as the target video's score.
+<Audio 2>: partially_copy - the voice it carries is the voice of <Subject 1>; the words are the scene's.
 
 Never write a speaker ID in this section.
 

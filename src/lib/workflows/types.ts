@@ -1,6 +1,7 @@
 import type { ComfyGraph } from "@/lib/comfy";
 import { toClientPatch, type ClientPatch, type PatchDef } from "./patches";
 import type { DirectorBypass } from "./director";
+import type { RunModes } from "./modes";
 import type { StepSampler } from "./step-sampler";
 import type { ClientTurbo, TurboSpec } from "./turbo";
 
@@ -173,6 +174,24 @@ export interface ParamPin {
   value: ParamValue;
   /** The line shown under the control while it is pinned. */
   note: string;
+  /**
+   * The run is refused unless turbo is on, and this is what it is refused with.
+   *
+   * For a pin whose value only makes sense with the distilled LoRA applied.
+   * Reference to Video's is: a reference that is not a still pins the steps to
+   * four, four steps swaps in the pack's four-step sampler and the bf16
+   * weights, and none of that is a usable take without the LoRA the sampler was
+   * built to be paired with. Turbo is a mode rather than a param, so no
+   * `revealedBy` or `hiddenBy` can express the dependency and the pin has to
+   * carry it.
+   *
+   * Refused rather than switched on for them: turning a mode on behind
+   * someone's back would record the run as having used a switch they had
+   * deliberately turned off, and the estimate and the history are both kept per
+   * combination of modes. `applyParams` throws, so it reaches the form the same
+   * way any other rejected value does.
+   */
+  requiresTurbo?: string;
 }
 
 export interface TextParam extends ParamBase {
@@ -329,6 +348,19 @@ export interface AudioParam extends ParamBase {
    * expanding it first.
    */
   compact?: boolean;
+  /**
+   * What the empty drop zone calls the file, and what it says about getting one
+   * in. Both default to the music track's wording, which was the only thing
+   * this control was for until a voice reference wanted one too — and the
+   * default's second line points at the Create video hand-off, which fills that
+   * slot and no other.
+   *
+   * Here rather than threaded through the form from the workflow's
+   * `clipTarget`, because what an empty control should say is a fact about that
+   * control: the hand-off is only the reason the track's wording is what it is.
+   */
+  noun?: string;
+  limitNote?: string;
   /**
    * Id of a `measured` param this control fills in with the loaded track's
    * running time, on the same terms as a video's. Named here rather than the
@@ -513,6 +545,17 @@ export interface WorkflowDef {
      * no reference of any kind.
      */
     rejects?: string;
+    /**
+     * The modes to build the case under, for a combination that only exists in
+     * one of them.
+     *
+     * Reference to Video's references pin the steps to four and four steps
+     * needs turbo, so every case carrying one has to declare it — otherwise the
+     * check would be proving that `finalize` survives a run the app refuses.
+     * Defaults to standard mode, which is what every case ran under before any
+     * of them needed a switch.
+     */
+    mode?: RunModes;
   }>;
 }
 

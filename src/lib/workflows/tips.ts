@@ -79,12 +79,35 @@ const REFERENCE_IMAGES: TipSection = {
   ],
 };
 
+/**
+ * The second standalone audio slot.
+ *
+ * Its own section rather than more bullets under the track's, because the two
+ * slots take the same kind of file and are for opposite things — the one
+ * mistake this pair makes easy is putting a voice in the music slot, and a
+ * heading that names the difference is what stops it.
+ */
+const REFERENCE_VOICE: TipSection = {
+  heading: "Giving someone a voice",
+  items: [
+    "Voice reference takes a recording of how somebody sounds, and hands it to the model as a reference alongside your pictures. It is what to use for a talking head: attach a face and a voice, and the person in the picture speaks in the voice from the file.",
+    "It is a separate slot from Reference track because they are separate references. A track is a score playing under the scene that nobody on screen produces; a voice belongs to a person in the picture and gets a speaker ID. Both can be attached to the same run, and the model is given them as two references rather than one.",
+    "What to keep from the voice decides what the recording is for. The default is voice referencing — the recording supplies the timbre, the accent and the pacing, and the lines come from your prompt. Turn it up to reuse what was actually said, and Words in the voice reference appears to type those lines out.",
+    "So with the default you do not need a transcript: you write the dialogue in the prompt and the model speaks it in that voice. The words box only appears on the answers that reuse what is in the recording.",
+    "Ten seconds are sent by default, from the start. That has nothing to do with how long the video is — it is how much of the voice the model gets to learn from, and MiniMax documents a reference at 2–15 seconds. Start at moves the window past a silent or noisy opening, which is worth doing: the model hears only what the window covers.",
+    "A voice pins Steps to 4 for the same reason a track does, and needs Turbo on for the same reason.",
+    "Keep the video inside the model's trained range, about 5 to 15 seconds. Below it the audio is the first thing to go, and a three-second talking clip is where lip sync falls apart.",
+    "Nothing in this app can hear the file. The director is told what the reference is for and never what it sounds like — so do not expect the prompt to describe the voice, and do not describe it yourself unless you want the model weighing your words against the recording it already has.",
+  ],
+};
+
 const REFERENCE_TRACK: TipSection = {
   heading: "Building a video around a track",
   items: [
     "A piece of music can be a reference too. Press Create video on a finished track and it arrives in the Reference track slot here, ready to generate.",
     "It goes to the model as a reference audio, alongside whatever pictures you attach — the two are separate references and neither replaces the other. A track and no picture is allowed; so is a picture and no track. One of the two is required, and with no picture everything on screen comes from your prompt.",
-    "A loaded track pins Steps to 4. That is the step count this workflow takes a track at: at 4 it loads the bf16 diffusion model and text encoder, which is the pair that accepts a track and pictures together, and leaves Spectrum out. Remove the track and the control is yours again. Leave Turbo on — four steps without the distilled LoRA is not a usable take.",
+    "A loaded track pins Steps to 4. That is the step count this workflow takes a track at: at 4 it loads the bf16 diffusion model and text encoder, which is the pair that accepts a track and pictures together, and leaves Spectrum out. Remove the track and the control is yours again. Turbo has to stay on at 4 — the run is refused rather than wasted on a take the distilled LoRA is missing from.",
+    "It is the music slot, not the voice slot. A recording of somebody speaking or singing goes in Voice reference below it, which is a different kind of reference and is described in its own section.",
     "The video is still the length of the Duration control. A four-minute song attached to a five-second clip is a reference to five seconds of music, not an instruction to make a four-minute video — nothing here can generate one.",
     "So only the opening of the track is sent, as many seconds of it as the video is long. How much of the track changes that: a set length if you want a fixed number of seconds, all of it if you really want the whole file. MiniMax documents a reference track at 2–15 seconds, and a three-minute one is thousands of latent frames of sequence for a five-second video.",
     "Start at picks where in the track those seconds come from, so you can take the chorus rather than the intro. The browser reads the length off the loaded track, and a start past the end is refused at submit rather than failing the run minutes later.",
@@ -159,6 +182,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
       REFERENCE_REWRITE,
       REFERENCE_IMAGES,
       REFERENCE_TRACK,
+      REFERENCE_VOICE,
       PROMPT_STRUCTURE,
       REFERENCE_LENGTH,
     ],

@@ -16,6 +16,10 @@ import {
   durationParam,
   REFERENCE_DIRECTOR,
   TRACK_WORDS,
+  VOICE_WORDS,
+  audioKeepHidesWords,
+  audioKeepReusesWords,
+  audioLabels,
   h3Bf16Models,
   h3ContentLora,
   h3Patches,
@@ -33,6 +37,7 @@ import {
   referenceVideoKeepParam,
   referenceSlot,
   referenceTrack,
+  referenceVoice,
   samplingParams,
   wordsBlocks,
   wordsParam,
@@ -57,15 +62,29 @@ import {
  *   must *remove* the unused inputs and their LoadImage nodes rather than leave
  *   them blank — see `finalize` below.
  * - A different UNET from the other two: `ref2va` rather than `fl2va`.
- * - `ref_audios.ref_audio_0` takes a track, through the trim at node 167 and
- *   from the loader at 155. Same variadic form as the images and the same rule:
- *   unused means removed, not blank. It is what the Create video button on a
- *   finished track fills in — see `clipTarget` — and the reason this graph,
- *   alone among the H3 ones, has a LoadAudio in it. What reaches the model is
- *   as many seconds of it as the video is long, from wherever the form says to
- *   start, unless the form says to send all of it.
- * - **A track pins the run to four steps**, and four steps loads a different
- *   diffusion model and text encoder from the rest of the range. See
+ * - `ref_audios` takes **two** standalone recordings, and they are for different
+ *   things. `ref_audio_0` is a music track, through the trim at 167 from the
+ *   loader at 155; `ref_audio_1` is a voice reference, through 168 from 156.
+ *   A score plays under the scene and nobody on screen produces it; a voice
+ *   belongs to somebody in the picture and gets a speaker ID. Both can be
+ *   attached at once — the node takes three — and the director is told which
+ *   `<Audio N>` each one is, by `audioLabels`.
+ *
+ *   Same variadic form as the images and the same rule: unused means removed,
+ *   not blank, *and* the survivors are renumbered so there is no hole. A voice
+ *   with no track ships as `ref_audio_0`. See `finalize`, which rebuilds the
+ *   list rather than patching it.
+ *
+ *   The track is what the Create video button on a finished song fills in — see
+ *   `clipTarget` — and between them they are the reason this graph, alone among
+ *   the H3 ones, has a LoadAudio in it. What reaches the model is a window of
+ *   each: as many seconds of the track as the video is long, unless the form
+ *   says otherwise, and a fixed `VOICE_TRIM_DEFAULT` of the voice, because how
+ *   long the video runs says nothing about how much recording it takes to
+ *   establish how somebody sounds.
+ * - **Any of the three pins the run to four steps**, four steps loads a
+ *   different diffusion model and text encoder from the rest of the range, and
+ *   four steps without the distilled LoRA is refused rather than run. See
  *   `FOUR_STEP_MODELS` and `TRACK_PINS_STEPS`.
  */
 const ids: MinimaxNodeIds = {
@@ -93,8 +112,59 @@ const REFERENCE_NODE = "136";
 const BATCH_NODE = "146";
 const AUDIO_NODE = "155";
 const TRIM_NODE = "167";
-const AUDIO_INPUT = "ref_audios.ref_audio_0";
 const AUDIO_PARAM = "reference_audio";
+
+/**
+ * The second standalone audio slot: a recording of a voice.
+ *
+ * A separate slot rather than a purpose select on the one above, because the
+ * node takes three standalone audios and numbers them in wiring order, so both
+ * can be attached to the same run — a score under the scene and a voice for the
+ * person in it are not two settings of one control. See `referenceVoice` for
+ * why the director cannot be left to read one slot two ways.
+ *
+ * Its own loader and its own trim, mirroring the track's, because the two are
+ * cut differently: a score is taken to the length of the video it plays under,
+ * and a voice is an exemplar whose useful length has nothing to do with the
+ * video at all. See `VOICE_TRIM_DEFAULT`.
+ */
+const VOICE_NODE = "156";
+const VOICE_TRIM_NODE = "168";
+const VOICE_PARAM = "reference_voice";
+const VOICE_KEEP_PARAM = "reference_voice_keep";
+const VOICE_WORDS_PARAM = "reference_voice_words";
+const VOICE_START_PARAM = "reference_voice_start";
+const VOICE_SECONDS_PARAM = "reference_voice_seconds";
+const VOICE_TRACK_SECONDS_PARAM = "reference_voice_length";
+
+/**
+ * What a voice reference is for, unless the user says otherwise.
+ *
+ * "Same voices, new words" is the answer this slot exists to make reachable —
+ * MiniMax's own voice referencing, where the recording guides timbre and
+ * delivery and the lines come from the prompt. Attaching a voice at all is a
+ * choice to use it for that; the other answers are there for the run that also
+ * wants what was said.
+ */
+const VOICE_KEEP_DEFAULT = "voice" as const;
+
+/**
+ * How many seconds of the voice reference the model gets, by default.
+ *
+ * Not the length of the video, which is what the music track uses and what
+ * would be wrong here. A score plays *under* the video and matching the two is
+ * the point; a voice is an exemplar of how somebody sounds, and how long the
+ * video runs says nothing about how much of a recording it takes to establish
+ * that. Ten sits inside MiniMax's documented 2-15s for a reference audio with
+ * room at both ends, and a shorter file simply stops where it stops —
+ * `TrimAudioDuration` past the end of the audio is not an error.
+ */
+const VOICE_TRIM_DEFAULT = 10;
+
+/** The variadic slots the two standalone audios take, before `finalize` compacts. */
+const audioInput = (index: number) => `ref_audios.ref_audio_${index}`;
+const AUDIO_INPUT = audioInput(0);
+const VOICE_INPUT = audioInput(1);
 
 /**
  * The reference clip: its loader, the split that feeds the model, and the pair
@@ -213,6 +283,21 @@ const trackAttached = (values: Record<string, ParamValue>): boolean =>
 const videoAttached = (values: Record<string, ParamValue>): boolean =>
   String(values[VIDEO_PARAM] ?? "").trim() !== "";
 
+/** Whether this run has a voice reference. */
+const voiceAttached = (values: Record<string, ParamValue>): boolean =>
+  String(values[VOICE_PARAM] ?? "").trim() !== "";
+
+/**
+ * Whether this run reuses what was said in the voice reference.
+ *
+ * Only two of the five answers do. On the other three the words control is
+ * hidden and its contents withheld, because a transcript of lines the rest of
+ * the brief says to replace is the prompt arguing with itself — the same rule,
+ * and the same helper, as Remix's clip.
+ */
+const keepsVoiceSpeech = (values: Record<string, ParamValue>): boolean =>
+  audioKeepReusesWords(values, VOICE_KEEP_PARAM, VOICE_KEEP_DEFAULT);
+
 /**
  * Whether the clip's own soundtrack goes to the model with it.
  *
@@ -222,6 +307,21 @@ const videoAttached = (values: Record<string, ParamValue>): boolean =>
  */
 const videoAudioAttached = (values: Record<string, ParamValue>): boolean =>
   videoAttached(values) && isSet(values[VIDEO_AUDIO_PARAM]);
+
+/**
+ * What every piece of attached audio is called this run.
+ *
+ * One resolver, read by all three appendices that name a recording, so the
+ * number the director is given is the number the reference node actually
+ * assigned. See `audioLabels` — and `finalize`, which compacts the variadic
+ * slots so the wiring order this assumes is the wiring order that ships.
+ */
+const labelsFor = (values: Record<string, ParamValue>) =>
+  audioLabels({
+    soundtrack: videoAudioAttached(values),
+    track: trackAttached(values),
+    voice: voiceAttached(values),
+  });
 
 /**
  * The weights this graph loads at four steps, in place of the ones the stored
@@ -264,9 +364,24 @@ const FOUR_STEP_MODELS = h3Bf16Models({ unet: "127", clip: "128" });
  * has actually been seen to take one, rather than a guess about the other.
  */
 const TRACK_PINS_STEPS: ParamPin = {
-  whenSet: [AUDIO_PARAM, VIDEO_PARAM],
+  // Every reference that is not a still. A voice reference is a standalone
+  // audio on the same variadic input the track uses, so it is the same
+  // conditioning block and the same reason for the same weights.
+  whenSet: [AUDIO_PARAM, VOICE_PARAM, VIDEO_PARAM],
   value: 4,
-  note: "A reference track or clip pins this to 4 — the step count the bf16 model pair and the pack's own sampler take one at. Leave Turbo on: four steps without the distilled LoRA is not a usable take.",
+  note: "A reference track, voice or clip pins this to 4 — the step count the bf16 model pair and the pack's own sampler take one at. Turbo has to stay on: four steps without the distilled LoRA is not a usable take, so the run is refused rather than wasted.",
+  /**
+   * And the switch that makes four steps mean anything.
+   *
+   * The pin swaps the sampler and the weights but not the distilled LoRA, which
+   * is a mode rather than a param — so until this existed, turning Turbo off
+   * and attaching a track produced a four-step run with no LoRA under it, which
+   * is the one combination this graph has always described as not a usable
+   * take. It finished, it took the time, and it came back wrong, which is worse
+   * than being refused.
+   */
+  requiresTurbo:
+    "Four steps needs the distilled LoRA under it. Turn Turbo back on, or take the reference track, voice or clip off to run at a step count that works without it.",
 };
 
 /**
@@ -312,6 +427,24 @@ const startSeconds = (values: Record<string, ParamValue>): number =>
 /** How long the loaded track runs, or 0 for "nothing has measured it". */
 const trackSeconds = (values: Record<string, ParamValue>): number =>
   Math.max(0, Number(values[TRACK_SECONDS_PARAM] ?? 0));
+
+/**
+ * The same three for the voice reference's own trim.
+ *
+ * Separate functions rather than the track's taking a parameter, because only
+ * the shape is shared: the track's length answer reads a select and can mean
+ * "as long as the video", and this one is always a number of seconds. Folding
+ * them together would put a branch in this one that can never be taken.
+ */
+const voiceStartSeconds = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[VOICE_START_PARAM] ?? 0));
+
+const voiceTrimSeconds = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[VOICE_SECONDS_PARAM] ?? VOICE_TRIM_DEFAULT));
+
+/** How long the loaded voice reference runs, or 0 for "nothing measured it". */
+const voiceLength = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[VOICE_TRACK_SECONDS_PARAM] ?? 0));
 
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
 const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
@@ -472,10 +605,17 @@ const graph: ComfyGraph = {
       "ref_videos.ref_video_0": ["171", 0],
       "ref_video_audios.ref_video_audio_0": ["170", 2],
 
-      // The one reference that is not a picture. It comes through the trim
-      // rather than straight off the loader; both go on every run that has no
-      // track — see `finalize`.
+      // The two references that are not pictures, both through a trim rather
+      // than straight off their loaders. Each goes, with its loader and its
+      // trim, on any run that does not have it — and the one that survives
+      // alone moves up into slot 0, because a variadic input left with a hole
+      // in it is not the same list of references. See `finalize`.
+      //
+      // Two slots rather than one control read two ways: `ref_audios` takes up
+      // to three and numbers them in wiring order, so a score and a voice can
+      // both be attached, and the director is told which <Audio N> each is.
       "ref_audios.ref_audio_0": ["167", 0],
+      "ref_audios.ref_audio_1": ["168", 0],
     },
     _meta: { title: "MiniMax H3 Reference to Video" },
   },
@@ -657,6 +797,34 @@ const graph: ComfyGraph = {
     },
     _meta: { title: "Trim Audio Duration" },
   },
+
+  // The voice reference, and its own trim.
+  //
+  // The same two node classes as the track above, wired the same way, and
+  // deliberately not shared with it: what the two slots are for differs in the
+  // one thing a trim decides. The track is cut to the length of the video it
+  // plays under, because that is what a score does. A voice is an exemplar of
+  // how someone sounds, and the video's length says nothing about how much
+  // recording it takes to establish that — so this one takes a fixed window,
+  // `VOICE_TRIM_DEFAULT`, from wherever the form says to start.
+  //
+  // Both inputs are written per run by the controls below, each producing the
+  // whole answer, for the same reason the track's two do: a target write is an
+  // assignment.
+  "156": {
+    class_type: "LoadAudio",
+    inputs: { audio: "" },
+    _meta: { title: "Load Audio (Voice)" },
+  },
+  "168": {
+    class_type: "TrimAudioDuration",
+    inputs: {
+      audio: ["156", 0],
+      start_index: 0,
+      duration: VOICE_TRIM_DEFAULT,
+    },
+    _meta: { title: "Trim Audio Duration (Voice)" },
+  },
 };
 
 /**
@@ -678,6 +846,22 @@ const words = wordsBlocks({
   source: TRACK_WORDS,
 });
 
+/**
+ * And the same pair for the voice reference.
+ *
+ * Gated, unlike the track's, because this slot has an answer that *replaces*
+ * what was said. On "same voices, new words" — which is what a voice reference
+ * is normally for — a transcript of the old lines is the prompt carrying
+ * exactly what the rest of the brief says to write anew. Remix's clip has the
+ * same problem and the same gate.
+ */
+const voiceWords = wordsBlocks({
+  sourceParam: VOICE_PARAM,
+  wordsParam: VOICE_WORDS_PARAM,
+  source: VOICE_WORDS,
+  when: (values) => keepsVoiceSpeech(values),
+});
+
 const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   // The pictures speak first, then the clip — the order the two arrive in the
   // batch the director is shown, so the instructions read in the same order as
@@ -686,31 +870,49 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   referenceVideo({
     videoParam: VIDEO_PARAM,
     audioParam: VIDEO_AUDIO_PARAM,
-    trackParam: AUDIO_PARAM,
     keepParam: VIDEO_KEEP_PARAM,
     slots: REF_NODES.length,
+    labelsFor,
   }),
-  referenceTrack(AUDIO_PARAM),
+  // Then the two standalone recordings, in the order the node numbers them, so
+  // the brief reads in the same order as the references it describes.
+  referenceTrack(AUDIO_PARAM, labelsFor),
+  referenceVoice({ voiceParam: VOICE_PARAM, labelsFor }),
   words.director,
-  // Last, so it lands after everything else that speaks for the sound.
+  voiceWords.director,
+  // Last, so they land after everything else that speaks for the sound. One
+  // per recording that has a "what to keep" control, each naming its own
+  // <Audio N> — a marker on the wrong label is a rule about a reference the
+  // model was not given.
   audioKeep({
     param: VIDEO_AUDIO_KEEP_PARAM,
     // Unlike Remix, a clip here is a reference rather than the thing being
     // rebuilt, so its sound is a mood by default rather than a track to reuse.
     fallback: VIDEO_AUDIO_KEEP_DEFAULT,
     attached: videoAudioAttached,
+    label: (values) => labelsFor(values).soundtrack ?? "<Audio 1>",
+  }),
+  audioKeep({
+    param: VOICE_KEEP_PARAM,
+    fallback: VOICE_KEEP_DEFAULT,
+    attached: voiceAttached,
+    label: (values) => labelsFor(values).voice ?? "<Audio 1>",
+    // The answers are written for a soundtrack, and this slot holds a voice on
+    // its own. See `about`.
+    about:
+      "This recording is a voice and nothing else — not a soundtrack. Where the answer above speaks of music and room tone carrying over, there is none in this file to carry: what it has is somebody speaking or singing, and the answer decides only whether their words come across with their voice. The score and the ambience of this video are written from the user's text either way.",
   }),
 ]);
 
 /**
- * The prompt text, which on this graph is written by two controls.
+ * The prompt text, which on this graph is written by three controls.
  *
- * The words of an attached track go into the prompt itself rather than only
+ * The words of an attached recording go into the prompt itself rather than only
  * into the director's brief, because the prompt is what reaches H3 either way —
- * see `promptTarget`. One target object, shared by both, so the two cannot
+ * see `promptTarget`. One target object, shared by all of them, so they cannot
  * disagree about what they are writing.
  */
-const promptText = promptTarget(ids, [words.prompt]);
+const promptText = promptTarget(ids, [words.prompt, voiceWords.prompt]);
 
 const bypass = directorBypassFor(ids);
 
@@ -800,11 +1002,14 @@ const params: ParamDef[] = [
   }),
   {
     id: AUDIO_PARAM,
-    label: "Reference track",
+    // Named for what it is now that a voice has a slot of its own. The two sit
+    // next to each other in the same section and both take an audio file, so
+    // the label is the only thing telling them apart.
+    label: "Reference track (music)",
     type: "audio",
     default: "",
     compact: true,
-    help: "Optional. Pins the run to 4 steps. Only as much of it as the video is long is sent — see below.",
+    help: "Optional. A score to play under the scene — for a voice, use the slot below. Pins the run to 4 steps. Only as much of it as the video is long is sent — see below.",
     group: "References",
     // Nothing else knows how long the track runs, and the start control has to
     // land inside it. The browser reads it off the loaded player and reports it
@@ -909,6 +1114,127 @@ const params: ParamDef[] = [
       // and what to do with it. See wordsBlocks.
       director,
     ],
+  }),
+
+  /**
+   * The second standalone audio slot: a recording of how somebody sounds.
+   *
+   * The track above is a score — it plays under the scene and nobody on screen
+   * produces it. This is the other thing a recording can be for, and the two
+   * are wired to different `ref_audios` slots rather than being one control
+   * with a purpose select, because the model takes both at once and the
+   * director has to be told which <Audio N> is which. See `referenceVoice`.
+   *
+   * Not `measures`-free: the trim's start has to land inside the file for the
+   * same reason the track's does — `TrimAudioDuration` raises when a start
+   * leaves nothing behind it — so the browser reports the length it already
+   * reads off the loaded player.
+   */
+  {
+    id: VOICE_PARAM,
+    label: "Voice reference",
+    type: "audio",
+    default: "",
+    // A row until asked for, like the clip and the track. The picture is what
+    // this workflow is named after and keeps its drop target.
+    compact: true,
+    help: "Optional. A recording of how someone sounds, for a person in the video to speak or sing with. Pins the run to 4 steps. MiniMax documents a reference at 2–15 seconds.",
+    group: "References",
+    // Its own wording: the Create video hand-off fills the music slot and not
+    // this one, so the default caption would point at a button that never
+    // arrives here.
+    noun: "voice recording",
+    limitNote: "Up to 4 MB. A few clean seconds of speech is enough.",
+    measures: VOICE_TRACK_SECONDS_PARAM,
+    targets: [
+      { node: VOICE_NODE, input: "audio" },
+      // The director is told what it is, whose voice it becomes, and which
+      // <Audio N> to cite. See referenceVoice.
+      director,
+    ],
+  },
+  audioKeepParam(director, {
+    id: VOICE_KEEP_PARAM,
+    label: "What to keep from the voice",
+    fallback: VOICE_KEEP_DEFAULT,
+    revealedBy: VOICE_PARAM,
+    help: "Voice referencing is the default: the recording guides the timbre and the delivery, and the lines come from your prompt. Turn it up to reuse what was actually said.",
+  }),
+  {
+    id: VOICE_TRACK_SECONDS_PARAM,
+    label: "Voice reference length",
+    type: "measured",
+    // Nothing measured yet, which every reader treats as "unknown" rather than
+    // as an empty file — a form can be submitted before the player has its
+    // metadata. Same contract as the track's.
+    default: 0,
+    group: "References",
+    targets: [
+      {
+        node: VOICE_TRIM_NODE,
+        input: "start_index",
+        transform: (_value, values) => voiceStartSeconds(values),
+      },
+    ],
+  },
+  {
+    id: VOICE_START_PARAM,
+    label: "Start at",
+    type: "number",
+    default: 0,
+    min: 0,
+    max: 3600,
+    step: 0.5,
+    unit: "sec",
+    help: "Where in the recording the reference is taken from. Worth moving past a silent or noisy opening — the model hears only what this window covers.",
+    group: "References",
+    revealedBy: VOICE_PARAM,
+    targets: [
+      {
+        node: VOICE_TRIM_NODE,
+        input: "start_index",
+        transform: (_value, values) => voiceStartSeconds(values),
+      },
+    ],
+  },
+  {
+    id: VOICE_SECONDS_PARAM,
+    label: "Seconds to use",
+    type: "slider",
+    default: VOICE_TRIM_DEFAULT,
+    min: 1,
+    max: 15,
+    step: 0.5,
+    unit: "sec",
+    // Not "as long as the video", which is the track's default and the one
+    // thing about a score that does not transfer to a voice. See
+    // VOICE_TRIM_DEFAULT.
+    help: "How much to take from the start point. Nothing to do with how long the video is — this is how much of the voice the model gets to learn from. Past the end of the file simply stops there.",
+    group: "References",
+    revealedBy: VOICE_PARAM,
+    targets: [
+      {
+        node: VOICE_TRIM_NODE,
+        input: "duration",
+        transform: (_value, values) => voiceTrimSeconds(values),
+      },
+    ],
+  },
+  wordsParam({
+    id: VOICE_WORDS_PARAM,
+    label: "Words in the voice reference",
+    help: "What is actually said in the recording. Only needed while those words are being reused — with the default, the lines come from your prompt and the recording supplies only the voice.",
+    group: "References",
+    // Speech rather than a lyric sheet: a section tag here would be structure
+    // the director is told to keep out of anyone's mouth, in a box whose usual
+    // contents are a spoken line.
+    placeholder: "the line as it is spoken",
+    revealedBy: VOICE_PARAM,
+    // And stood down again on the three answers that write new words. The
+    // default is one of them, so this is normally out of the way. See
+    // `keepsVoiceSpeech`.
+    hiddenBy: audioKeepHidesWords(VOICE_KEEP_PARAM),
+    targets: [promptText, director],
   }),
   {
     id: "ref_image_size",
@@ -1073,6 +1399,12 @@ export const minimaxH3Reference: WorkflowDef = {
    * here: they differ by one deleted input on a node whose other input stays
    * wired, which is exactly the shape of deletion that goes wrong quietly.
    */
+  /**
+   * Every case carrying a reference that is not a still declares `mode`, because
+   * every one of those pins the steps to four and four steps is refused without
+   * turbo — see `TRACK_PINS_STEPS.requiresTurbo`. A case left in standard mode
+   * would be checking that `finalize` survives a run the app does not allow.
+   */
   finalizeCases: [
     {
       name: "a picture and nothing else",
@@ -1085,6 +1417,7 @@ export const minimaxH3Reference: WorkflowDef = {
         [VIDEO_PARAM]: "clip.mp4",
         [VIDEO_AUDIO_PARAM]: true,
       },
+      mode: { turbo: true },
     },
     {
       name: "a picture and a clip without its sound",
@@ -1093,14 +1426,65 @@ export const minimaxH3Reference: WorkflowDef = {
         [VIDEO_PARAM]: "clip.mp4",
         [VIDEO_AUDIO_PARAM]: false,
       },
+      mode: { turbo: true },
     },
     {
       name: "a clip and no pictures",
       values: { [VIDEO_PARAM]: "clip.mp4", [VIDEO_AUDIO_PARAM]: true },
+      mode: { turbo: true },
     },
     {
       name: "a track and no pictures",
       values: { [AUDIO_PARAM]: "song.mp3" },
+      mode: { turbo: true },
+    },
+
+    /**
+     * The voice slot, and the pair that matters most for it.
+     *
+     * A voice with no track is the case the compaction exists for: the voice is
+     * declared on `ref_audio_1` and has to ship as `ref_audio_0`, with the
+     * track's loader and trim gone. A voice *with* a track is the other order —
+     * both slots filled, numbered as declared — and the two together are what
+     * prove the list is rebuilt rather than patched.
+     */
+    {
+      name: "a picture and a voice",
+      values: { reference_image_1: "a.png", [VOICE_PARAM]: "voice.wav" },
+      mode: { turbo: true },
+    },
+    {
+      name: "a voice and no pictures",
+      values: { [VOICE_PARAM]: "voice.wav" },
+      mode: { turbo: true },
+    },
+    {
+      name: "a picture, a music track and a voice",
+      values: {
+        reference_image_1: "a.png",
+        [AUDIO_PARAM]: "song.mp3",
+        [VOICE_PARAM]: "voice.wav",
+      },
+      mode: { turbo: true },
+    },
+    {
+      name: "a voice whose words are being reused",
+      values: {
+        reference_image_1: "a.png",
+        [VOICE_PARAM]: "voice.wav",
+        [VOICE_KEEP_PARAM]: "exact",
+        [VOICE_WORDS_PARAM]: "The line as it is spoken.",
+      },
+      mode: { turbo: true },
+    },
+    {
+      name: "a voice with the whole track sent beside it",
+      values: {
+        [AUDIO_PARAM]: "song.mp3",
+        [TRIM_PARAM]: TRIM_WHOLE,
+        [VOICE_PARAM]: "voice.wav",
+      },
+      mode: { turbo: true },
     },
     {
       name: "every reference at once",
@@ -1112,7 +1496,9 @@ export const minimaxH3Reference: WorkflowDef = {
         [VIDEO_PARAM]: "clip.mp4",
         [VIDEO_AUDIO_PARAM]: true,
         [AUDIO_PARAM]: "song.mp3",
+        [VOICE_PARAM]: "voice.wav",
       },
+      mode: { turbo: true },
     },
     {
       name: "a clip with the rewrite switched off",
@@ -1121,11 +1507,23 @@ export const minimaxH3Reference: WorkflowDef = {
         [VIDEO_AUDIO_PARAM]: true,
         literal_prompt: true,
       },
+      mode: { turbo: true },
     },
     {
       name: "no reference of any kind",
       values: {},
       rejects: "needs at least one to build from",
+    },
+    /**
+     * And the combination the pin now refuses outright: a reference that is not
+     * a still, in standard mode. Declared as a case because it is a rule about
+     * what this graph will run, and a rule with no case behind it is one that
+     * can be deleted without anything noticing.
+     */
+    {
+      name: "a voice with turbo switched off",
+      values: { reference_image_1: "a.png", [VOICE_PARAM]: "voice.wav" },
+      rejects: "Four steps needs the distilled LoRA",
     },
   ],
 
@@ -1181,22 +1579,55 @@ export const minimaxH3Reference: WorkflowDef = {
       delete graph[BATCH_NODE];
     }
 
-    // The track goes the same way as an unused picture, and for the same
-    // reason: a LoadAudio with an empty filename fails validation, and a
-    // variadic input left in place tells H3 to expect a reference that was
-    // never supplied.
-    if (!trackAttached(values)) {
-      delete graph[REFERENCE_NODE].inputs[AUDIO_INPUT];
-      delete graph[AUDIO_NODE];
-      delete graph[TRIM_NODE];
-    } else if (String(values[TRIM_PARAM] ?? TRIM_MATCH) === TRIM_WHOLE) {
+    /**
+     * The two standalone audios, which go the same way as an unused picture and
+     * for the same reason: a LoadAudio with an empty filename fails validation,
+     * and a variadic input left in place tells H3 to expect a reference that was
+     * never supplied.
+     *
+     * Rebuilt rather than patched, because with two of them the slot *numbers*
+     * are no longer fixed. `ref_audio_0` and `ref_audio_1` are a list, not two
+     * named inputs — the same variadic form as the pictures, under the same rule
+     * `leadingReferences` exists for. A run with a voice and no track has to
+     * hand the voice over as `ref_audio_0`; left in slot 1 with a hole in front
+     * of it, what the model is told is that it has two standalone references and
+     * the first of them is missing.
+     *
+     * Which is also the order `labelsFor` assumes when it tells the director
+     * what to call each one, so the two have to be built from the same list.
+     */
+    for (const input of [AUDIO_INPUT, VOICE_INPUT]) {
+      delete graph[REFERENCE_NODE].inputs[input];
+    }
+
+    /** What each surviving slot reads from, in the order they are wired. */
+    const standalone: string[] = [];
+
+    if (trackAttached(values)) {
       // All of it is the trim *removed* rather than the trim set to the track's
       // length: how long the file runs is not a number this app has — nothing
       // has opened it, and the browser never sees the bytes for a track that
       // arrived through Create video.
-      graph[REFERENCE_NODE].inputs[AUDIO_INPUT] = [AUDIO_NODE, 0];
+      const whole = String(values[TRIM_PARAM] ?? TRIM_MATCH) === TRIM_WHOLE;
+      standalone.push(whole ? AUDIO_NODE : TRIM_NODE);
+      if (whole) delete graph[TRIM_NODE];
+    } else {
+      delete graph[AUDIO_NODE];
       delete graph[TRIM_NODE];
     }
+
+    if (voiceAttached(values)) {
+      // No "all of it" here: a voice reference is always a window, so the trim
+      // is never removed. See VOICE_TRIM_DEFAULT.
+      standalone.push(VOICE_TRIM_NODE);
+    } else {
+      delete graph[VOICE_NODE];
+      delete graph[VOICE_TRIM_NODE];
+    }
+
+    standalone.forEach((source, index) => {
+      graph[REFERENCE_NODE].inputs[audioInput(index)] = [source, 0];
+    });
 
     /**
      * The check that `required` cannot make, because it is about two controls
@@ -1209,9 +1640,14 @@ export const minimaxH3Reference: WorkflowDef = {
      * are known, and it throws the same ParamError the coercion would, so it
      * reaches the form the same way any other rejected value does.
      */
-    if (filled === 0 && !trackAttached(values) && !videoAttached(values)) {
+    if (
+      filled === 0 &&
+      !trackAttached(values) &&
+      !videoAttached(values) &&
+      !voiceAttached(values)
+    ) {
       throw new ParamError(
-        "Add a reference image, a reference clip or a reference track — this workflow needs at least one to build from.",
+        "Add a reference image, a reference clip, a reference track or a voice reference — this workflow needs at least one to build from.",
         "reference_image_1",
       );
     }
@@ -1233,6 +1669,17 @@ export const minimaxH3Reference: WorkflowDef = {
       throw new ParamError(
         `The track is ${length.toFixed(1)} seconds long, so it has nothing at ${start}s to start from.`,
         TRIM_START_PARAM,
+      );
+    }
+
+    // And the same for the voice reference, which has the same trim node under
+    // it and so fails in exactly the same way.
+    const voiceStart = voiceStartSeconds(values);
+    const voiceRuns = voiceLength(values);
+    if (graph[VOICE_TRIM_NODE] && voiceRuns > 0 && voiceStart >= voiceRuns) {
+      throw new ParamError(
+        `The voice reference is ${voiceRuns.toFixed(1)} seconds long, so it has nothing at ${voiceStart}s to start from.`,
+        VOICE_START_PARAM,
       );
     }
   },

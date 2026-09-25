@@ -442,6 +442,8 @@ function Control({
             onMeasure={
               measures ? (seconds) => onChange(measures, seconds) : undefined
             }
+            noun={param.noun}
+            limitNote={param.limitNote}
             compact={param.compact}
             disabled={readOnly}
             describedBy={describedBy}

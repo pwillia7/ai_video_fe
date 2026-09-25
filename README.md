@@ -1405,6 +1405,74 @@ Uploading a track by hand works too, and is capped at 4 MB like any other
 upload — which a few minutes of mp3 will exceed. The button has no such limit,
 because it is the same server-side copy Remix and Extend make.
 
+### A voice, as a reference of its own
+
+**Voice reference** is the second standalone audio slot, and it exists because
+the first one is a score. The two take the same kind of file and are for
+opposite things: a track plays under the scene and nobody on screen produces it;
+a voice belongs to a person in the picture, gets a speaker ID, and never goes
+near `non_diegetic_music`. Attach a face and a voice and the person in the
+picture speaks in the voice from the file — MiniMax's own
+[voice referencing](https://www.rundiffusion.com/minimax-h3-prompt-guide), which
+this app had the vocabulary for and no way to reach.
+
+**Two slots rather than one control with a purpose select**, because the node
+takes both at once. `ref_audios` is variadic to three — `/object_info` says so —
+and numbers what it is given in wiring order, so a run can carry a score *and* a
+voice and the director can be told which `<Audio N>` is which. One control read
+two ways would have been a control the director could only guess at.
+
+Which makes the numbering load-bearing, and it is now computed in one place.
+`audioLabels` in `minimax-common.ts` takes what this run carries and returns the
+label for each: a clip's soundtrack takes `<Audio 1>` and pushes both standalone
+ones down, then the track, then the voice. Three appendices read it —
+`referenceVideo`, `referenceTrack` and the new `referenceVoice` — and they have
+to agree, because a director told the voice is `<Audio 2>` while the model was
+handed it as `<Audio 1>` writes a prompt about a reference that is not there,
+and nothing downstream can see the disagreement.
+
+`finalize` is the other half of that. The two standalone inputs are a *list*,
+under the same rule `leadingReferences` enforces for the pictures: a voice with
+no track has to ship as `ref_audio_0`, because left in slot 1 with a hole in
+front of it what the model is told is that it has two references and the first
+is missing. So the list is rebuilt from scratch on every run rather than patched
+— and `finalizeCases` carries the pair that proves it, a voice alone and a voice
+beside a track, since those differ by exactly the renumbering.
+
+Three further things about it:
+
+- **What to keep from the voice** is the same five-answer grid the clip's
+  soundtrack uses, defaulting to *Same voices, new words* — the answer this slot
+  exists to make reachable. The recording supplies the timbre, the accent and
+  the pacing; the lines come from the prompt. **Words in the voice reference**
+  is revealed only on the two answers that reuse what was said, derived from the
+  grid rather than listed, exactly as Remix's is.
+- **The trim is a fixed window, not the video's length.** That is the one thing
+  about a score that does not transfer. A track is cut to the length of the
+  video it plays under because matching the two is the point; how long the video
+  runs says nothing about how much recording it takes to establish how somebody
+  sounds. Ten seconds by default, inside MiniMax's documented 2–15s, with
+  **Start at** to move past a silent or noisy opening — and the same
+  measure-and-reject safety the track's start has, since it is the same
+  `TrimAudioDuration` failing the same way.
+- **A voice pins the steps to four like everything else that is not a still**,
+  and four steps is now *refused* without Turbo rather than run. The pin swapped
+  the sampler and the weights but never the distilled LoRA, which is a mode
+  rather than a param — so turning Turbo off and attaching a reference produced
+  the one combination this graph has always described as not a usable take, and
+  it finished, took the time, and came back wrong. `ParamPin.requiresTurbo`
+  carries the rule now; `applyParams` throws it as an ordinary `ParamError`
+  against the steps control, where the pin's own note already sits.
+
+`REFERENCE_DIRECTOR` gained the audio half of H3's format along with it, which
+it had never had. `subject_definitions` described only "reusable visible
+content" and `retention_analysis` listed only the four *visual* markers, so an
+attached track was a labelled conditioning block the prompt never once cited —
+zero occurrences of `<Audio 1>` in the assembled system prompt, against a page
+of careful `<Picture N>` citation. Both sections now name `<Audio N>` and the
+audio markers (`fully_copy`, `partially_copy`, `reference`, `weak_reference`),
+lifted from `REMIX_DIRECTOR`, which had them all along.
+
 ### A clip as a reference
 
 **Reference clip** takes a video the same way the slots above take a picture,

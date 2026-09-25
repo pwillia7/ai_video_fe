@@ -36,6 +36,8 @@ export function AudioUpload({
   value,
   onChange,
   onMeasure,
+  noun = "track",
+  limitNote,
   compact = false,
   disabled,
   describedBy,
@@ -49,6 +51,9 @@ export function AudioUpload({
    * track. Same contract as the video control's.
    */
   onMeasure?: (seconds: number) => void;
+  /** See `AudioParam`. What the empty state calls the file, and its limits. */
+  noun?: string;
+  limitNote?: string;
   /** See `AudioParam`. Collapsed to a row until asked for, or until filled. */
   compact?: boolean;
   disabled?: boolean;
@@ -183,7 +188,7 @@ export function AudioUpload({
           <span aria-hidden="true" className="text-fg-subtle">
             +
           </span>
-          <span>{uploading ? "Uploading…" : "Add a track"}</span>
+          <span>{uploading ? "Uploading…" : `Add a ${noun}`}</span>
         </button>
       ) : (
         <div
@@ -316,11 +321,11 @@ export function AudioUpload({
                     />
                   </svg>
                   <span className="text-[13px] font-medium text-fg">
-                    Drop a track or click to choose
+                    Drop a {noun} or click to choose
                   </span>
                   <span className="text-[12px] text-fg-subtle">
-                    Up to {MAX_UPLOAD_BYTES / 1024 / 1024} MB — or hit Create
-                    video on a finished track, which has no size limit
+                    {limitNote ??
+                      `Up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB — or hit Create video on a finished track, which has no size limit`}
                   </span>
                 </>
               )}

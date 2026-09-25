@@ -283,7 +283,22 @@ export function applyParams(
   // one. See `pinnedBy`.
   for (const param of params) {
     const pinned = pinnedValue(param, resolved);
-    if (pinned !== undefined) resolved[param.id] = pinned;
+    if (pinned === undefined) continue;
+    resolved[param.id] = pinned;
+
+    /**
+     * A pin that only means anything with the distilled LoRA under it, on a run
+     * that has it switched off. See `requiresTurbo`.
+     *
+     * Here rather than in the workflow's `finalize`, which is the other place
+     * this graph rejects a combination: `finalize` is handed the values and the
+     * graph, and the mode is neither. Thrown as a `ParamError` against the
+     * control the pin sits on, so it lands on the steps slider where the pin's
+     * own note already is.
+     */
+    if (param.pinnedBy?.requiresTurbo && !turbo) {
+      throw new ParamError(param.pinnedBy.requiresTurbo, param.id);
+    }
   }
 
   // Every splice runs before the values are written, so `finalize` sees the
@@ -514,7 +529,12 @@ function finalizeProblems(workflow: WorkflowDef): string[] {
   for (const testCase of workflow.finalizeCases ?? []) {
     const where = `Finalize case "${testCase.name}"`;
     try {
-      const { graph } = applyParams(workflow, testCase.values);
+      const { graph } = applyParams(
+        workflow,
+        testCase.values,
+        undefined,
+        testCase.mode,
+      );
 
       if (testCase.rejects) {
         problems.push(`${where} was expected to be refused and was not.`);
