@@ -1,7 +1,8 @@
 import type { DirectorBypass } from "./director";
 import type { SpliceId } from "./model-chain";
 import type { PatchChoice, PatchDef } from "./patches";
-import type { StepModel, StepSampler } from "./step-sampler";
+import type { StepSampler } from "./step-sampler";
+import type { SwappedModel } from "./model-swap";
 import type { TurboSpec } from "./turbo";
 import { isSet } from "./types";
 import type {
@@ -473,7 +474,7 @@ export function h3Bf16Models({
 }: {
   unet: string;
   clip: string;
-}): StepModel[] {
+}): SwappedModel[] {
   return [
     { node: unet, input: "unet_name", value: "minimax_h3_ref2va_bf16.safetensors" },
     {
@@ -491,9 +492,10 @@ export function h3StepSampler({
 }: {
   /**
    * Loaders this graph points at different files at four steps — see `models`
-   * on StepSampler. Only Reference to Video has any.
+   * on StepSampler. Only Remix has any; Reference to Video's follow its
+   * references instead, through `modelSwap`.
    */
-  models?: StepModel[];
+  models?: SwappedModel[];
   /**
    * Switches this graph will not take at four steps — see `suppresses`. Only
    * Reference to Video refuses any; the rule is about that graph's four-step
@@ -507,17 +509,25 @@ export function h3StepSampler({
     param: "steps",
     atValue: 4,
     replaces: "KSamplerSelect",
+    models,
     node: {
       class_type: "MiniMaxH3TurboSampler",
       // Empty, as exported. The schedule is the node.
       inputs: {},
       _meta: { title: "MiniMax-H3 Turbo Sampler (4-step)" },
     },
-    models,
     suppresses,
     note:
       "At 4, the pack's dedicated 4-step sampler replaces the default one." +
       (note ? ` ${note}` : ""),
+    /**
+     * Shared by all five graphs, because all five start their steps slider at
+     * four and the distilled sampler assumes the LoRA under it on every one of
+     * them. It used to be carried by Reference to Video's pin, which meant the
+     * other four could be run at four steps with the switch off.
+     */
+    requiresTurbo:
+      "Four steps needs the distilled LoRA under it — the sampler at that count is the turbo pack's own and has nothing to converge on without it. Turn Turbo back on, or move the step count up.",
   };
 }
 
@@ -1980,8 +1990,13 @@ export function samplingParams(
     steps?: number;
     /**
      * A control that takes the step count out of the user's hands while it is
-     * set — see `pinnedBy`. Reference to Video's track does, because the only
-     * form of that graph that survives a reference track is the four-step one.
+     * set — see `pinnedBy`.
+     *
+     * Nothing uses it now. Reference to Video's references did, back when the
+     * weights they need were declared as part of the four-step form; they load
+     * on their own trigger since, so the count is the user's again. Kept
+     * because the mechanism is sound and the next graph to need it should not
+     * have to rebuild it.
      */
     pinSteps?: ParamPin;
   } = {},
@@ -2132,12 +2147,29 @@ ${LENGTH_RULES}`;
 /**
  * The reason the length is worth telling the director at all. Every clause
  * here is something it was previously deciding blind.
+ *
+ * The dialogue budget is the one number here that is not arithmetic. It used to
+ * be two and a half words a second, which is a real figure for how fast English
+ * is spoken and the wrong constraint to hand a director: it answers whether a
+ * person could say the line, when what decides the take is whether H3 can
+ * perform it. Handed more words than fit comfortably the model packs them
+ * rather than speeding up, and packed speech comes back slurred — so the budget
+ * that binds is about twenty words per fifteen seconds, a little over half the
+ * speakable rate. The per-line cap and the one-sentence rule in the grammar
+ * block come from the same place and are the same failure at a smaller scale.
+ *
+ * Source: MiniMax H3's published prompting guidance for the hosted model. It
+ * describes the same weights and the same grammar — its reference limits, nine
+ * images and three each of video and audio, are exactly the autogrow maxima on
+ * `MiniMaxH3ReferenceToVideo` here.
  */
 const LENGTH_RULES = `Write to that length.
 
 Every shot cut time must fall inside it, and the last cut needs enough after it to be worth cutting to. A cut two tenths before the end is a mistake, not a beat.
 
-All dialogue must be speakable in the time available at a natural pace — around two and a half words per second, fewer when someone is out of breath, hesitating, shouting, or being interrupted. Count the words you write against the seconds you have.
+Dialogue has a budget, and it is far tighter than what a person could physically say. Around twenty words of speech for a fifteen-second clip, scaled to the length you actually have — roughly half of what a natural speaking pace would fit. The rest of that time is not spare; it is the room the speech needs to land. Given a crowded line H3 packs it rather than hurrying it, and a packed line comes back slurred. Count the words you write against the seconds you have, and spend the budget on the lines that carry the scene instead of giving every shot one.
+
+No more than about ten words in any single line. A longer thought is two lines with a beat between them, not one long one. Someone out of breath, hesitating, shouting or being interrupted gets fewer still.
 
 The action has to fit. One clear beat lands in about three seconds. A setup, a turn and a reaction need closer to ten. Under six seconds, prefer a single shot and at most one short line.
 
@@ -2213,6 +2245,8 @@ Preserve the user's words inside <d> verbatim. Never translate or rewrite them.
 The language tag and the text have to agree. A line tagged [Japanese] is written in Japanese, in Japanese script — not romanised, not transliterated, and not in English with a Japanese label on it. The same holds for every language: write it as it is written.
 
 Punctuation inside <d> is standardised to the marks that carry the sentence — , . ? ! — and a complete statement, question or exclamation ends with one before the closing tag. Repeated tildes, ellipsis runs, emoji, bullets and decorative marks come out. They are not speakable, and what is in there is going to be spoken.
+
+One sentence per <d> block. Two sentences inside one tag is where delivery starts to garble — the model performs a tag as a single unit and runs the join between them. Split them into two blocks, each with its own tag and its own attribution outside it, and the pause between them becomes one the model can hear.
 
 When a speaker first appears, give enough of their character type, age, gender, on- or off-screen position, pitch, timbre, rate or accent that the voice is stable.
 

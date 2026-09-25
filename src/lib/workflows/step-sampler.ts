@@ -1,6 +1,7 @@
 import type { ComfyGraph, ComfyNode } from "@/lib/comfy";
 import type { SpliceId } from "./model-chain";
 import type { ParamValue } from "./types";
+import type { SwappedModel } from "./model-swap";
 
 /**
  * The form a graph takes at one particular step count: which sampler it uses,
@@ -34,27 +35,35 @@ export interface StepSampler {
   /** The node that takes its place, as ComfyUI exports it. */
   node: ComfyNode;
   /**
-   * Loader inputs this step count also rewrites — a graph whose four-step form
-   * loads different weights from its standard one.
+   * The run is refused unless turbo is on, and this is what it is refused with.
    *
-   * Reference to Video is why. The ComfyUI export that finally produced a
-   * working four-step take with a reference track loads
-   * `minimax_h3_ref2va_bf16` and `qwen3vl_32b_minimax_h3_bf16` where the
-   * standard graph loads the quantised pair, and that is not a second workflow
-   * any more than the sampler swap is: same graph, same controls, same
-   * everything a user types.
+   * A property of this form rather than of any control: at this count the
+   * sampler is the pack's distilled one, whose whole schedule assumes the LoRA
+   * is under it. Without it the run finishes, takes the time, and comes back
+   * wrong — which is worse than being refused.
    *
-   * Hung off this spec rather than declared separately because it is the same
-   * fact — what this graph *is* at that step count — and keeping it here means
-   * one trigger, one note, and one form of the graph for `check:nodes` to ask
-   * ComfyUI about. A second, independently-triggered declaration could drift
-   * out of step with this one and load the quantised model under the distilled
-   * sampler.
-   *
-   * Node ids rather than classes, because a graph can have two loaders of the
-   * same class — this one has two `VAELoader`s — and the point is to name one.
+   * It used to hang off the pin that forced four steps whenever Reference to
+   * Video was given a reference, and went with it when the weights stopped
+   * following the step count. That left the hole it had been covering: every
+   * graph here starts its steps slider at four, so every one of them could be
+   * run at four with the switch off. Declared here, it covers all of them.
    */
-  models?: StepModel[];
+  requiresTurbo?: string;
+  /**
+   * Loaders this step count also rewrites — a graph whose four-step form loads
+   * different weights from its standard one.
+   *
+   * Remix is the only graph left with any. Its reference is the clip it is
+   * rebuilding, which is required, so "with a reference" and "always" are the
+   * same statement there and the step count is the only thing that varies —
+   * which makes this the honest place for it.
+   *
+   * Reference to Video used to declare its bf16 pair here too, and that was
+   * wrong: its references are optional, so the swap had to follow them rather
+   * than the count, and hanging it here forced the count to be pinned. It has
+   * moved to `modelSwap`. See model-swap.ts for the whole of that reasoning.
+   */
+  models?: SwappedModel[];
   /**
    * Switches this step count refuses, by patch id.
    *
@@ -78,16 +87,6 @@ export interface StepSampler {
    * which is why it appears and disappears with the number.
    */
   note: string;
-}
-
-/** One loader input, and the file it names at the swapping step count. */
-export interface StepModel {
-  /** Id of the loader in the stored graph. */
-  node: string;
-  /** The input naming the file — `unet_name`, `clip_name`, `vae_name`. */
-  input: string;
-  /** What it loads instead. */
-  value: string;
 }
 
 /** The one node this would replace, or null if that is not what the graph has. */

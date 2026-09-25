@@ -32,8 +32,13 @@ import {
   applyStepSampler,
   modelProblems,
   samplerNodeIn,
+  stepSamplerApplies,
   suppressedPatches,
 } from "@/lib/workflows/step-sampler";
+import {
+  applyModelSwap,
+  modelSwapProblems,
+} from "@/lib/workflows/model-swap";
 import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
 import {
   pinnedValue,
@@ -387,6 +392,34 @@ export function applyParams(
   // overwrite — the node it replaces holds only its own class's settings.
   if (workflow.stepSampler) {
     applyStepSampler(graph, workflow.stepSampler, resolved);
+
+    /**
+     * The distilled sampler with nothing under it. See `requiresTurbo`.
+     *
+     * Checked here rather than with the pins above, because it is a fact about
+     * the form the graph has just taken rather than about any one control's
+     * value. Thrown against the control that chose the count, so it lands on
+     * the steps slider where the note about the swap already is.
+     */
+    if (
+      workflow.stepSampler.requiresTurbo &&
+      !turbo &&
+      stepSamplerApplies(workflow.stepSampler, resolved)
+    ) {
+      throw new ParamError(
+        workflow.stepSampler.requiresTurbo,
+        workflow.stepSampler.param,
+      );
+    }
+  }
+
+  // And the weights the references need, which is a separate question from the
+  // step count and asked separately. After the patches for the same reason the
+  // sampler is: a content LoRA that named a different base would be overridden
+  // here, which `modelSwapBaseProblems` refuses at declaration time so it can
+  // never happen at run time.
+  if (workflow.modelSwap) {
+    applyModelSwap(graph, workflow.modelSwap, resolved);
   }
 
   // Runs last so it sees the resolved values and can prune anything they made
@@ -476,7 +509,8 @@ export function validateWorkflow(workflow: WorkflowDef): string[] {
   problems.push(...pinProblems(workflow));
   problems.push(...turboProblems(workflow));
   problems.push(...patchProblems(workflow));
-  problems.push(...stepSamplerBaseProblems(workflow));
+  problems.push(...modelSwapBaseProblems(workflow));
+  problems.push(...workflowModelSwapProblems(workflow));
   problems.push(...stepSamplerProblems(workflow));
   problems.push(...directorProblems(workflow));
   problems.push(...rewriteModelProblems(workflow));
@@ -750,11 +784,16 @@ function patchProblems(workflow: WorkflowDef): string[] {
  * disagreement means one of the two declarations is wrong, and that is a
  * question for whoever wrote it rather than something to paper over.
  */
-function stepSamplerBaseProblems(workflow: WorkflowDef): string[] {
-  const swaps = workflow.stepSampler?.models?.filter(
-    (model) => model.input === "unet_name",
-  );
-  if (!swaps?.length) return [];
+function modelSwapBaseProblems(workflow: WorkflowDef): string[] {
+  // Both sources of a weight swap, because either would override a LoRA's base
+  // the same way and the check is about the override rather than about what
+  // triggered it. Remix declares one on its step sampler; Reference to Video
+  // declares one on its references.
+  const swaps = [
+    ...(workflow.stepSampler?.models ?? []),
+    ...(workflow.modelSwap?.models ?? []),
+  ].filter((model) => model.input === "unet_name");
+  if (!swaps.length) return [];
 
   const problems: string[] = [];
   for (const patch of workflow.patches ?? []) {
@@ -768,10 +807,34 @@ function stepSamplerBaseProblems(workflow: WorkflowDef): string[] {
         for (const file of named) {
           if (file === swap.value) continue;
           problems.push(
-            `At ${workflow.stepSampler!.atValue} steps this graph loads ${swap.value}, which would override ${option.label}'s ${file}.`,
+            `This graph loads ${swap.value} for some runs, which would override ${option.label}'s ${file}.`,
           );
         }
       }
+    }
+  }
+  return problems;
+}
+
+/**
+ * Whether the swap would actually fire, and land where it says it does.
+ *
+ * The same reasoning as `stepSamplerProblems`: a declaration naming a control
+ * this workflow does not offer would never trigger, and every reference run
+ * would quietly go through the quantised pair that fails on them — which is at
+ * least a loud failure, but a swap naming a loader that is not there is a graph
+ * ComfyUI rejects, and neither should wait for a render to be found.
+ */
+function workflowModelSwapProblems(workflow: WorkflowDef): string[] {
+  const spec = workflow.modelSwap;
+  if (!spec) return [];
+
+  const problems = modelSwapProblems(spec, workflow.graph);
+  for (const id of spec.whenSet) {
+    if (!workflow.params.some((param) => param.id === id)) {
+      problems.push(
+        `The model swap is triggered by "${id}", which this workflow has no control for.`,
+      );
     }
   }
   return problems;

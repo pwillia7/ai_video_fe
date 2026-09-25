@@ -7,7 +7,7 @@ import {
   rewriteNode,
 } from "./rewrite-model";
 import { isSet } from "./types";
-import type { ParamDef, ParamPin, ParamValue, WorkflowDef } from "./types";
+import type { ParamDef, ParamValue, WorkflowDef } from "./types";
 import {
   FRAME_EXPRESSION,
   directorBypassFor,
@@ -79,13 +79,16 @@ import {
  *   `clipTarget` — and between them they are the reason this graph, alone among
  *   the H3 ones, has a LoadAudio in it. What reaches the model is a window of
  *   each: as many seconds of the track as the video is long, unless the form
- *   says otherwise, and a fixed `VOICE_TRIM_DEFAULT` of the voice, because how
- *   long the video runs says nothing about how much recording it takes to
- *   establish how somebody sounds.
- * - **Any of the three pins the run to four steps**, four steps loads a
- *   different diffusion model and text encoder from the rest of the range, and
- *   four steps without the distilled LoRA is refused rather than run. See
- *   `FOUR_STEP_MODELS` and `TRACK_PINS_STEPS`.
+ *   says otherwise, and a short fixed window of the voice, `VOICE_TRIM_DEFAULT`, because
+ *   how long the video runs says nothing about how much recording it takes to
+ *   establish how somebody sounds — and because a long one crowds out the
+ *   audio being generated. See that constant.
+ * - **Any of the three loads a different diffusion model and text encoder**,
+ *   the bf16 pair, because the quantised one the graph stores fails on a
+ *   reference block it does not expect. That is independent of the step count:
+ *   see `REFERENCE_MODELS` and `modelSwap`. Four steps, wherever it is chosen,
+ *   still swaps in the pack's distilled sampler and is still refused without
+ *   the LoRA that sampler assumes — see `h3StepSampler`.
  */
 const ids: MinimaxNodeIds = {
   prompt: { node: "138", input: "value" },
@@ -155,11 +158,25 @@ const VOICE_KEEP_DEFAULT = "voice" as const;
  * would be wrong here. A score plays *under* the video and matching the two is
  * the point; a voice is an exemplar of how somebody sounds, and how long the
  * video runs says nothing about how much of a recording it takes to establish
- * that. Ten sits inside MiniMax's documented 2-15s for a reference audio with
- * room at both ends, and a shorter file simply stops where it stops —
- * `TrimAudioDuration` past the end of the audio is not an error.
+ * that.
+ *
+ * Five rather than the ten this used to be, and the reason is what the audio
+ * latent costs. The H3 audio VAE runs at 32kHz with a downscale of 800, so a
+ * reference is forty latent frames a second, and ComfyUI lays a standalone
+ * `ref_audio` on the *same* positional coordinates as the audio being generated
+ * — immediately before it, with no gap — rather than on a grid of its own the
+ * way a reference video's soundtrack gets. Ten seconds of that is four hundred
+ * latent frames sitting in front of a five-second video's two hundred: twice
+ * the weight, on the same track, reading as the stretch that just played. The
+ * model's strongest prior on it is continuation, so the recording's own room,
+ * pacing and utterance bleed into speech the prompt asked to be new.
+ *
+ * Five still sits inside MiniMax's documented 2-15s with room at both ends, and
+ * a shorter file simply stops where it stops — `TrimAudioDuration` past the end
+ * of the audio is not an error. The control goes to fifteen for anyone who
+ * wants the old behaviour back.
  */
-const VOICE_TRIM_DEFAULT = 10;
+const VOICE_TRIM_DEFAULT = 5;
 
 /** The variadic slots the two standalone audios take, before `finalize` compacts. */
 const audioInput = (index: number) => `ref_audios.ref_audio_${index}`;
@@ -324,8 +341,8 @@ const labelsFor = (values: Record<string, ParamValue>) =>
   });
 
 /**
- * The weights this graph loads at four steps, in place of the ones the stored
- * graph names.
+ * The weights this graph loads for a reference that is not a still, in place of
+ * the ones the stored graph names.
  *
  * A track and reference images together used to come back from ComfyUI as
  * `RuntimeError: The size of tensor a (3) must match the size of tensor b (2)
@@ -334,55 +351,21 @@ const labelsFor = (values: Record<string, ParamValue>) =>
  * ldm/minimax/model.py, text_encoders/minimax.py — said it should fail. It was
  * the quantised pair: `minimax_h3_ref2va_pruned_int8_convrot` with
  * `qwen3vl_32b_minimax_h3_nvfp4_awq`. The bf16 diffusion model and the bf16
- * text encoder take the same references, together, at four steps, which is
- * where the fence went and why there is no longer one.
+ * text encoder take the same references, so that is what a run carrying one
+ * loads.
+ *
+ * Every reference that is not a still triggers it. A voice reference is a
+ * standalone audio on the same variadic input the track uses, so it is the same
+ * conditioning block; a reference video is a different block but the same kind
+ * of failure, and Remix — nothing but a video reference through this same node
+ * class — already runs on the bf16 pair.
  *
  * The graphs on `fl2va` do not swap. They have never had the failure, so
  * pointing them at weights nobody here has tested would be a change with no
  * evidence behind it — and one more pair of files a fresh install has to
- * download. Remix runs the same `ref2va` UNET through the same node class and
- * does swap; see `h3Bf16Models`, which is where the pair now lives.
+ * download. See `h3Bf16Models`, which is where the pair lives.
  */
-const FOUR_STEP_MODELS = h3Bf16Models({ unet: "127", clip: "128" });
-
-/**
- * A reference that is not a still holds the step count at four, which is the
- * only step count this graph is known to take one at.
- *
- * The bf16 pair above is loaded at four steps and nowhere else, so any other
- * value would run the reference through the quantised models that failed on it.
- * That is a rule about the run rather than a preference, which is why it pins
- * the control instead of nudging its default: a stored 12 from a previous run
- * would otherwise sail straight past it. Removing the reference hands the
- * control back with whatever number was in it.
- *
- * A reference *video* pins it for the same reason a track does, and the reason
- * is the failure the quantised pair had: it was a batch-dimension mismatch on a
- * run carrying more than one kind of reference block, which a clip is as much
- * as a track is. Remix, which is nothing but a video reference through this
- * same node class, already runs on the bf16 pair — so this is the pairing that
- * has actually been seen to take one, rather than a guess about the other.
- */
-const TRACK_PINS_STEPS: ParamPin = {
-  // Every reference that is not a still. A voice reference is a standalone
-  // audio on the same variadic input the track uses, so it is the same
-  // conditioning block and the same reason for the same weights.
-  whenSet: [AUDIO_PARAM, VOICE_PARAM, VIDEO_PARAM],
-  value: 4,
-  note: "A reference track, voice or clip pins this to 4 — the step count the bf16 model pair and the pack's own sampler take one at. Turbo has to stay on: four steps without the distilled LoRA is not a usable take, so the run is refused rather than wasted.",
-  /**
-   * And the switch that makes four steps mean anything.
-   *
-   * The pin swaps the sampler and the weights but not the distilled LoRA, which
-   * is a mode rather than a param — so until this existed, turning Turbo off
-   * and attaching a track produced a four-step run with no LoRA under it, which
-   * is the one combination this graph has always described as not a usable
-   * take. It finished, it took the time, and it came back wrong, which is worse
-   * than being refused.
-   */
-  requiresTurbo:
-    "Four steps needs the distilled LoRA under it. Turn Turbo back on, or take the reference track, voice or clip off to run at a step count that works without it.",
-};
+const REFERENCE_MODELS = h3Bf16Models({ unet: "127", clip: "128" });
 
 /**
  * How many seconds of the track the model is given.
@@ -951,7 +934,7 @@ const params: ParamDef[] = [
     // Short, because the control it sits under is a row until it is asked for
     // — and the drop zone it opens into repeats the limits in full. What is
     // left is the part that is not obvious from either.
-    help: "Optional. Shows how something moves, which a still cannot. Pins the run to 4 steps; a clip as long as the video is what makes one slow.",
+    help: "Optional. Shows how something moves, which a still cannot. A clip as long as the video is what makes one slow.",
     group: "References",
     targets: [
       { node: VIDEO_NODE, input: "video" },
@@ -1009,7 +992,7 @@ const params: ParamDef[] = [
     type: "audio",
     default: "",
     compact: true,
-    help: "Optional. A score to play under the scene — for a voice, use the slot below. Pins the run to 4 steps. Only as much of it as the video is long is sent — see below.",
+    help: "Optional. A score to play under the scene — for a voice, use the slot below. Only as much of it as the video is long is sent — see below.",
     group: "References",
     // Nothing else knows how long the track runs, and the start control has to
     // land inside it. The browser reads it off the loaded player and reports it
@@ -1138,7 +1121,7 @@ const params: ParamDef[] = [
     // A row until asked for, like the clip and the track. The picture is what
     // this workflow is named after and keeps its drop target.
     compact: true,
-    help: "Optional. A recording of how someone sounds, for a person in the video to speak or sing with. Pins the run to 4 steps. MiniMax documents a reference at 2–15 seconds.",
+    help: "Optional. A recording of how someone sounds, for a person in the video to speak or sing with. MiniMax documents a reference at 2–15 seconds, and a few clean seconds beats a long take.",
     group: "References",
     // Its own wording: the Create video hand-off fills the music slot and not
     // this one, so the default caption would point at a button that never
@@ -1292,7 +1275,7 @@ const params: ParamDef[] = [
     ],
   },
 
-  ...samplingParams(ids, { pinSteps: TRACK_PINS_STEPS }),
+  ...samplingParams(ids),
 ];
 
 export const minimaxH3Reference: WorkflowDef = {
@@ -1339,21 +1322,32 @@ export const minimaxH3Reference: WorkflowDef = {
   // the LoRA author's pairing.
   patches: [h3ContentLora(), ...h3Patches()],
   stepSampler: h3StepSampler({
-    models: FOUR_STEP_MODELS,
     /**
      * Spectrum forecasts sampler steps from the ones already taken, and at four
      * steps there is nothing to forecast from worth having: the ComfyUI export
-     * that produced a working four-step take with a reference track has no
-     * Spectrum node in it. So the four-step form of this graph is the whole of
-     * that export — distilled sampler, bf16 weights, no forecaster — and the
-     * switch is refused rather than quietly left on.
+     * that produced a working four-step take with a reference has no Spectrum
+     * node in it. So the four-step form of this graph is the whole of that
+     * export — distilled sampler, no forecaster — and the switch is refused
+     * rather than quietly left on.
      *
-     * Which also settles the reference-track case, without a second rule for
-     * it: a track pins the steps to 4, and this keys off the pinned value.
+     * The weights are no longer part of this. They follow the reference now,
+     * at whatever step count the run uses — see `modelSwap` below.
      */
     suppresses: ["spectrum"],
-    note: "It also loads the bf16 diffusion model and text encoder — the pair that takes a reference track — and leaves Spectrum out, which the four-step form does not use.",
+    note: "It also leaves Spectrum out, which the four-step form does not use.",
   }),
+
+  /**
+   * The pair that takes a reference that is not a still, at any step count.
+   *
+   * See model-swap.ts for why this is keyed to the references rather than to
+   * four steps, and what that used to cost.
+   */
+  modelSwap: {
+    whenSet: [AUDIO_PARAM, VOICE_PARAM, VIDEO_PARAM],
+    models: REFERENCE_MODELS,
+    note: "Loads the bf16 diffusion model and text encoder, which are slower than the quantised pair but the only ones that take a reference like this.",
+  },
 
   /**
    * Where a finished track goes when you press Create video on it.
@@ -1400,10 +1394,12 @@ export const minimaxH3Reference: WorkflowDef = {
    * wired, which is exactly the shape of deletion that goes wrong quietly.
    */
   /**
-   * Every case carrying a reference that is not a still declares `mode`, because
-   * every one of those pins the steps to four and four steps is refused without
-   * turbo — see `TRACK_PINS_STEPS.requiresTurbo`. A case left in standard mode
-   * would be checking that `finalize` survives a run the app does not allow.
+   * The cases carrying a reference that is not a still keep their `mode`, from
+   * when such a run was pinned to four steps and four steps was refused without
+   * turbo. The pin is gone — the weights follow the reference now, at any step
+   * count — so turbo is no longer required for them to be allowed. They stay on
+   * it because turbo is what this graph is normally run with, and `finalize`
+   * has to survive the graph as it is actually queued.
    */
   finalizeCases: [
     {
@@ -1515,14 +1511,27 @@ export const minimaxH3Reference: WorkflowDef = {
       rejects: "needs at least one to build from",
     },
     /**
-     * And the combination the pin now refuses outright: a reference that is not
-     * a still, in standard mode. Declared as a case because it is a rule about
-     * what this graph will run, and a rule with no case behind it is one that
-     * can be deleted without anything noticing.
+     * A reference that is not a still, in standard mode.
+     *
+     * This used to be declared as refused: a voice pinned the steps to four and
+     * four steps without the distilled LoRA was thrown out. It is the run that
+     * change exists to allow — the bf16 pair now follows the reference rather
+     * than the step count, so a voice at the standard count with no LoRA under
+     * it is an ordinary run and has to queue like one. Kept as a case in the
+     * other direction, because a rule that quietly came back would otherwise
+     * only show up as a rejected submission.
      */
     {
       name: "a voice with turbo switched off",
       values: { reference_image_1: "a.png", [VOICE_PARAM]: "voice.wav" },
+    },
+    /**
+     * And the one thing four steps still refuses, which is about the sampler
+     * rather than about any reference — see `h3StepSampler.requiresTurbo`.
+     */
+    {
+      name: "four steps with turbo switched off",
+      values: { reference_image_1: "a.png", steps: 4 },
       rejects: "Four steps needs the distilled LoRA",
     },
   ],

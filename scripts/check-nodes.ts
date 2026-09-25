@@ -31,6 +31,7 @@ import {
   VISION_CLASS,
 } from "../src/lib/workflows/rewrite-model";
 import { stepSamplerGraph } from "../src/lib/workflows/step-sampler";
+import { modelSwapGraph } from "../src/lib/workflows/model-swap";
 import { turboGraph } from "../src/lib/workflows/turbo";
 
 /**
@@ -146,6 +147,15 @@ function collect() {
       graphs.push({
         label: `${workflow.id} (${workflow.stepSampler.atValue}-step)`,
         graph: stepSamplerGraph(workflow.graph, workflow.stepSampler),
+      });
+    }
+    // And the form it takes with a reference attached, which names model files
+    // no stored graph does — so without this the bf16 pair would go unasked
+    // about until a run needed it.
+    if (workflow.modelSwap) {
+      graphs.push({
+        label: `${workflow.id} (reference weights)`,
+        graph: modelSwapGraph(workflow.graph, workflow.modelSwap),
       });
     }
     for (const { label: used, graph, optional = false } of graphs) {
