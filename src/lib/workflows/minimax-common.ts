@@ -1367,7 +1367,7 @@ export function referenceVoice({
       .filter((voice) => voice.marker)
       .map(
         (voice) =>
-          `${voice.label}: ${voice.marker} - its vocal timbre guides the dialogue delivery of <Subject 2> without copying the recording.`,
+          `${voice.label}: ${voice.marker} - its vocal timbre guides the dialogue delivery of ${voice.owner || "[the one speaker it belongs to]"} without copying the recording.`,
       );
 
     return `${two ? "TWO VOICE REFERENCES HAVE BEEN ATTACHED" : "A VOICE REFERENCE HAS BEEN ATTACHED"}
