@@ -1473,6 +1473,40 @@ of careful `<Picture N>` citation. Both sections now name `<Audio N>` and the
 audio markers (`fully_copy`, `partially_copy`, `reference`, `weak_reference`),
 lifted from `REMIX_DIRECTOR`, which had them all along.
 
+### One voice, one speaker
+
+A voice reference used to reach every speaker in a scene. Attach a face and a
+voice, write a two-person argument, and both people came back speaking in the
+recording — however firmly the prompt said otherwise. Part of that is H3: the
+same leak is reported upstream for plain text voice descriptions
+([Comfy-Org/ComfyUI#15454](https://github.com/Comfy-Org/ComfyUI/issues/15454)).
+Part of it was the director, which was telling the model to do it:
+
+- The default answer on the keep grid said to "say that the voice heard in the
+  reference is what speaks" the lines — all of them, from a block that outranks
+  everything above it.
+- It marked the voice `partially_copy`, which MiniMax's format defines as
+  copying part of the recording. Voice timbre is `reference`. The voice slot now
+  overrides the marker through `audioKeep`'s `overrides`; the grid itself is
+  unchanged for Remix and the clip, where that answer does copy layers.
+- The voice was never bound to a speaker ID. MiniMax's form is
+  `<Audio 1> is the voice-timbre reference for <Subject 3> (S1)`, and
+  `REFERENCE_DIRECTOR`'s example now follows it.
+- Nothing said what to do with anyone else. `referenceVoice` now tells the
+  director to cite the label only beside its own speaker — never in a negation
+  beside another — to give every other speaker a concrete, contrasting voice
+  repeated on each of their lines, and to let the referenced speaker have the
+  first line where it can. That last one is a hypothesis: a standalone
+  `ref_audio` sits immediately before the generated audio, so the first voice
+  after it is the likeliest to inherit it.
+
+Two controls came with it. **Whose voice** says, in the user's words, which
+speaker a recording belongs to, so the director is not guessing in a scene with
+two candidates. **Second voice** is a third standalone audio — `ref_audios`
+takes three, and a track and one voice left one free — always voice
+referencing, revealed by the first and counted only beside it, so a stale second
+file with the first emptied is dropped rather than shipped as the only voice.
+
 ### A clip as a reference
 
 **Reference clip** takes a video the same way the slots above take a picture,

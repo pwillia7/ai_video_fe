@@ -1209,16 +1209,20 @@ export interface AudioLabels {
   track?: string;
   /** The standalone voice reference. */
   voice?: string;
+  /** A second voice reference, for a second speaker. Wired after the first. */
+  secondVoice?: string;
 }
 
 export function audioLabels({
   soundtrack = false,
   track = false,
   voice = false,
+  secondVoice = false,
 }: {
   soundtrack?: boolean;
   track?: boolean;
   voice?: boolean;
+  secondVoice?: boolean;
 }): AudioLabels {
   const labels: AudioLabels = {};
   let next = 1;
@@ -1228,6 +1232,7 @@ export function audioLabels({
   if (soundtrack) labels.soundtrack = `<Audio ${next++}>`;
   if (track) labels.track = `<Audio ${next++}>`;
   if (voice) labels.voice = `<Audio ${next++}>`;
+  if (secondVoice) labels.secondVoice = `<Audio ${next++}>`;
   return labels;
 }
 
@@ -1264,54 +1269,148 @@ What is on screen is where your attention belongs. Nothing about the attached tr
 }
 
 /**
- * What to say when a recording has been attached to supply a *voice*.
+ * What to say when recordings have been attached to supply *voices*.
  *
- * The other half of the pair with `referenceTrack`, and the reason there are two
- * slots rather than one control with a purpose select. The node takes up to
- * three standalone audios and numbers them in wiring order, so music and a voice
- * can both be attached to the same run — and they are not two settings of one
- * thing. A score is deferred to and written into `non_diegetic_music`; a voice
- * belongs to somebody on screen, gets a speaker ID, and never goes near the
- * score at all. One control that had to be read two ways would be a control the
- * director could only guess at.
+ * The other half of the pair with `referenceTrack`, and the reason there are
+ * separate slots rather than one control with a purpose select. The node takes
+ * up to three standalone audios and numbers them in wiring order, so music and
+ * a voice — or music and two voices — can be attached to the same run, and
+ * they are not settings of one thing. A score is deferred to and written into
+ * `non_diegetic_music`; a voice belongs to one speaker, takes that speaker's ID,
+ * and never goes near the score at all.
  *
- * What it does *not* do is decide what is carried over. That is `audioKeep`,
- * which writes the marker and the rule underneath it, and which sits after this
- * in the appendix list so it lands last. This block says what the reference is
- * and who it belongs to; that one says how much of it survives.
+ * **One voice, one speaker, and everyone else voiced from text.** H3 does not
+ * keep a voice reference local to its speaker on its own — a scene with the
+ * referenced man and a second character came back with both speaking in the
+ * recording, prompt instructions against it notwithstanding, and the same leak
+ * is reported upstream for plain text voice descriptions
+ * (Comfy-Org/ComfyUI#15454). What this block can do is leave the model as
+ * little room as possible: MiniMax's own format binds a voice with the
+ * speaker's global ID (`<Audio 1> is the voice-timbre reference for <Subject 3>
+ * (S1)`), gives a speaker who is not referenced a concrete voice of their own,
+ * and never mentions the recording anywhere else. A negation — "not <Audio 1>"
+ * beside the other character — is still the label beside that character.
+ *
+ * The ordering rule is a hypothesis rather than a documented behaviour. A
+ * standalone `ref_audio` is laid on the same positional coordinates as the
+ * audio being generated, immediately before it (see `VOICE_TRIM_DEFAULT` in
+ * minimax-h3-ref.ts), so the first voice after it is the one reading as a
+ * continuation of the recording. Letting the referenced speaker have that
+ * position is cheap if it is wrong.
+ *
+ * What it does *not* do is decide what is carried over from the first voice.
+ * That is `audioKeep`, which writes the marker and the rule underneath it, and
+ * which sits after this in the appendix list so it lands last. A second voice
+ * has no such control — it is only ever voice referencing — so its marker is
+ * stated here.
  *
  * Reads the submission rather than taking booleans, on the same terms as every
  * other appendix here.
  */
+export interface VoiceSlot {
+  /** The control holding the recording. Nothing to say without one. */
+  param: string;
+  /**
+   * Whether this slot counts this run. Defaults to "the control has a file";
+   * a second voice passes its own, because it only counts beside a first.
+   */
+  attached?: (values: Record<string, ParamValue>) => boolean;
+  /** What it is called this run, out of `audioLabels`. */
+  label: (labels: AudioLabels) => string | undefined;
+  /** The control saying whose voice it is, in the user's own words. Optional. */
+  ownerParam?: string;
+  /**
+   * The marker, when no "what to keep" control decides it. Left out for the
+   * slot `audioKeep` speaks for.
+   */
+  marker?: string;
+}
+
 export function referenceVoice({
-  voiceParam,
+  voices,
   labelsFor,
 }: {
-  /** The control holding the recording. Nothing to say without one. */
-  voiceParam: string;
-  /** What it is called this run — see `audioLabels`. */
+  /** In wiring order, which is the order the labels are numbered in. */
+  voices: VoiceSlot[];
+  /** What each is called this run — see `audioLabels`. */
   labelsFor: AudioLabelsFor;
 }): DirectorAppendix {
   return (values) => {
-    if (!String(values[voiceParam] ?? "").trim()) return "";
     const labels = labelsFor(values);
-    const label = labels.voice ?? "<Audio 1>";
+    const present = voices
+      .filter((voice) =>
+        voice.attached
+          ? voice.attached(values)
+          : String(values[voice.param] ?? "").trim() !== "",
+      )
+      .map((voice) => ({
+        label: voice.label(labels) ?? "<Audio 1>",
+        owner: voice.ownerParam
+          ? String(values[voice.ownerParam] ?? "").trim()
+          : "",
+        marker: voice.marker,
+      }));
+    if (present.length === 0) return "";
 
-    return `A VOICE REFERENCE HAS BEEN ATTACHED
+    const two = present.length > 1;
+    const names = present.map((voice) => voice.label).join(" and ");
 
-The user has supplied a recording of a voice, and the model is given it directly, as ${label}. You have not heard it, you do not know whose voice it is, and you are not being asked to describe how it sounds.
+    const owners = present
+      .map((voice) =>
+        voice.owner
+          ? `${voice.label} is the voice of: ${voice.owner}. The user has said so, and it is not yours to reassign.`
+          : `${voice.label}: the user has not said whose voice it is. It belongs to one speaker, whoever the scene makes it — a referenced subject who speaks before anyone else does${two ? "" : ", or failing that the one who speaks most"}. Pick one and hold to it.`,
+      )
+      .join("\n");
 
-What it is for is the sound of a person, not the sound of the scene. ${label} says how someone in this video speaks or sings — their timbre, their accent, their pitch and their pacing — and nothing about the room, the score or anything else that is audible.
+    const markers = present
+      .filter((voice) => voice.marker)
+      .map(
+        (voice) =>
+          `${voice.label}: ${voice.marker} - its vocal timbre guides the dialogue delivery of <Subject 2> without copying the recording.`,
+      );
 
-So give it a line in subject_definitions saying that it supplies a voice, and a line in retention_analysis with an audio marker, exactly as a picture gets a definition and a marker. Then, in detailed_description, attach it to whoever carries it: the speaker takes an ordinary speaker ID, and you say plainly that the voice heard is ${label}'s.
+    return `${two ? "TWO VOICE REFERENCES HAVE BEEN ATTACHED" : "A VOICE REFERENCE HAS BEEN ATTACHED"}
 
-The young man (S1), his voice that of ${label}, says: <d>[English] ...</d>
+The user has supplied ${two ? `two recordings, each of a different person's voice, and the model is given them directly, as ${names}` : `a recording of a voice, and the model is given it directly, as ${names}`}. You have not heard ${two ? "them" : "it"}, you do not know whose voice ${two ? "either one is" : "it is"} beyond what you are told here, and you are not being asked to describe how ${two ? "they sound" : "it sounds"}.
 
-Who that is follows from the scene. If a referenced subject is the one speaking, it is theirs — carry both labels the way you would for any speaking subject. If nobody on screen is speaking, it is a narrator or an off-screen voice, written with the voiceover phrasing the grammar gives.
+What ${two ? "each" : "it"} is for is the sound of one person, not the sound of the scene: their timbre, their accent, their pitch and their pacing — and nothing about the room, the score or anything else that is audible.
 
-Because you have not heard it, write no description of what the voice is like: no age, no gender, no accent, no register, no adjective of any kind for it, beyond what the user's own text says. The model has the recording and you do not — a description you invented is a second voice competing with the one it was handed. Name the character as the scene needs them and leave the sound to ${label}.
+WHOSE VOICE
 
-Nothing about a voice reference is a score. Do not write it into non_diegetic_music${labels.track ? ` — that is ${labels.track}'s, and it is a different reference` : ""}, and do not write it into overall_soundscape either: speech belongs in the body.
+${owners}
+
+${two ? "BINDING EACH TO ONE SPEAKER" : "BINDING IT TO ONE SPEAKER"}
+
+In subject_definitions, ${two ? "each takes" : "it takes"} a line naming it the voice-timbre reference for one speaker, with that speaker's global speaker ID — the ID they carry in detailed_description, not a numbering of its own:
+
+${present[0].label} is the voice-timbre reference for <Subject 1> (S1).
+
+Where the speaker is not a referenced subject, a stable description stands in for the subject label: "${present[0].label} is the voice-timbre reference for the man at the counter (S2)." ${two ? "The two voices go to two different speakers, never the same one." : ""}
+
+In retention_analysis, ${two ? "each takes" : "it takes"} a line with an audio marker, and the reason after the marker names the one subject whose delivery it guides — by label or description, and without a speaker ID, which that section never carries.${markers.length > 0 ? ` Where you are not told the marker further down, it is this:\n\n${markers.join("\n")}\n\nwith the subject being the one this voice actually belongs to.` : ""}
+
+In detailed_description, every line that speaker says carries the voice with it:
+
+The young man <Subject 1> (S1), his voice that of ${present[0].label}, says: <d>[English] ...</d>
+
+If nobody on screen is the speaker, it is a narrator or an off-screen voice, written with the voiceover phrasing the grammar gives.
+
+Because you have not heard ${two ? "them" : "it"}, write no description of what ${two ? "a referenced voice" : "that voice"} is like: no age, no gender, no accent, no register, no adjective of any kind for it, beyond what the user's own text says. The model has the recording and you do not — a description you invented is a second voice competing with the one it was handed. This holds for the referenced ${two ? "speakers" : "speaker"} only.
+
+ONE VOICE, ONE SPEAKER
+
+The model's habit is to spread a voice reference across every voice in the scene. Leave it no room to:
+
+Cite ${names} only in ${two ? "each one's own speaker's" : "that speaker's"} definition, retention line, and own lines of dialogue. Never beside anyone else — not even to say it does not apply to them. "Not ${present[0].label}" written next to another character is still that label next to that character, and the model reads the nearness, not the negation. If the user's text says which voice someone does *not* have, carry the intent and leave the label out.
+
+Everyone else who speaks is voiced from text. At their first line, give each of them a concrete voice of their own — age, gender, pitch, timbre, pace, and an accent where one belongs — chosen to contrast plainly with ${two ? "every referenced speaker" : "the referenced speaker"}, and taken from the user's text wherever they have described it. Then repeat a short form of it, two or three words, on every later line of theirs: "The older man (S2), his thin, nasal voice rising, says: ...". No line of theirs goes out with only a speaker ID to go on. Say what their voice is, never what it is not.
+
+While one speaker talks, a listener on screen keeps their mouth closed — say so where both are in frame.
+
+Where the scene allows it, the first line of dialogue is ${two ? "a referenced speaker's" : "the referenced speaker's"}. Never reorder or rewrite the user's own lines to get there — a reply cannot come before its question — but when the user's script opens on someone else, the referenced speaker may be given a word or two first, a greeting or a reaction, inside its own <d> tag. That short line counts against the dialogue budget like any other.
+
+Nothing about a voice reference is a score. Do not write ${two ? "either" : "it"} into non_diegetic_music${labels.track ? ` — that is ${labels.track}'s, and it is a different reference` : ""}, and do not write ${two ? "either" : "it"} into overall_soundscape: speech belongs in the body.
 
 In summary, add "audio reference" to the task-type prefix with " + ".`;
   };
@@ -1655,7 +1754,7 @@ const AUDIO_KEEP_MODES = {
     label: "Same voices, new words",
     marker: "partially_copy",
     reusesWords: false,
-    note: "What carries over is how it is spoken: the timbre, the accent and the pacing. The words do not. Write the lines the target video needs, inside <d> tags, and say that the voice heard in the reference is what speaks them. Its music and room carry over too.",
+    note: "What carries over is how it is spoken: the timbre, the accent and the pacing. The words do not. Write the lines the target video needs, inside <d> tags, and give each of them to the voice of the person who spoke in the reference — a voice speaks only its own speaker's lines, and anyone the reference never had speaking gets a voice of their own. Its music and room carry over too.",
   },
   words: {
     label: "Same words, new voices",
@@ -1704,12 +1803,19 @@ export function audioKeepReusesWords(
   return audioKeepMode(values[param], fallback).reusesWords;
 }
 
+const audioKeepKey = (
+  value: ParamValue | undefined,
+  fallback: AudioKeepMode,
+): AudioKeepMode => {
+  const key = String(value ?? fallback);
+  return Object.hasOwn(AUDIO_KEEP_MODES, key) ? (key as AudioKeepMode) : fallback;
+};
+
 const audioKeepMode = (
   value: ParamValue | undefined,
   fallback: AudioKeepMode,
 ): (typeof AUDIO_KEEP_MODES)[AudioKeepMode] =>
-  AUDIO_KEEP_MODES[String(value ?? fallback) as AudioKeepMode] ??
-  AUDIO_KEEP_MODES[fallback];
+  AUDIO_KEEP_MODES[audioKeepKey(value, fallback)];
 
 /** The "what to keep" control for an attached recording. */
 export function audioKeepParam(
@@ -1764,9 +1870,21 @@ export function audioKeep({
   attached,
   label = "<Audio 1>",
   about,
+  overrides = {},
 }: {
   param: string;
   fallback: AudioKeepMode;
+  /**
+   * A different marker or note for some answers on this slot.
+   *
+   * The grid was written for a mixed recording, where "same voices, new words"
+   * really does copy layers of it — the music and the room — and
+   * `partially_copy` says so. On a slot that holds one person's voice and
+   * nothing else, that answer copies no signal at all: MiniMax's format calls
+   * voice timbre `reference`, and `partially_copy` there asks for part of the
+   * recording to be played.
+   */
+  overrides?: Partial<Record<AudioKeepMode, { marker?: string; note?: string }>>;
   /** Whether there is any attached sound this run. No sound, nothing to say. */
   attached: (values: Record<string, ParamValue>) => boolean;
   /**
@@ -1796,7 +1914,8 @@ export function audioKeep({
 }): DirectorAppendix {
   return (values) => {
     if (!attached(values)) return "";
-    const mode = audioKeepMode(values[param], fallback);
+    const key = audioKeepKey(values[param], fallback);
+    const mode = { ...AUDIO_KEEP_MODES[key], ...overrides[key] };
     const name = typeof label === "function" ? label(values) : label;
 
     return `WHAT ${name} CONTRIBUTES
@@ -2569,7 +2688,9 @@ When one subject draws on more than one image, say what each supplies. When one 
 Attached audio is defined here too, and on the same terms. A recording the model was handed is a reference like any other: it takes an <Audio N> line saying what it supplies, and you are told below which of them this run carries and what each is for.
 
 <Audio 1> is the supplied music track, providing the score for the target video.
-<Audio 2> is the supplied voice reference, providing the voice of <Subject 1>.
+<Audio 2> is the voice-timbre reference for <Subject 1> (S1).
+
+A voice belongs to exactly one speaker, so its definition carries that speaker's global ID — the one they take in detailed_description, not a numbering of its own.
 
 You have not heard any of them, so an audio definition says what the recording is *for* and never what it sounds like. No genre, no tempo, no instrument, no age, no accent, no register — the model has the recording and you do not, and a description you invented competes with it.
 
@@ -2600,7 +2721,7 @@ A new action, a new background, a new camera angle, a new expression or a new li
 Every <Audio N> you defined takes a line here too, and for audio the markers are a different set: fully_copy, partially_copy, reference, or weak_reference. Which one each takes is not yours to judge — you are told it below, for every recording this run carries.
 
 <Audio 1>: fully_copy - reused as the target video's score.
-<Audio 2>: partially_copy - the voice it carries is the voice of <Subject 1>; the words are the scene's.
+<Audio 2>: reference - its vocal timbre guides the dialogue delivery of <Subject 1> without copying the recording; the words are the scene's.
 
 Never write a speaker ID in this section.
 

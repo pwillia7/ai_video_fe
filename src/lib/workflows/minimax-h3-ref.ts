@@ -139,6 +139,30 @@ const VOICE_WORDS_PARAM = "reference_voice_words";
 const VOICE_START_PARAM = "reference_voice_start";
 const VOICE_SECONDS_PARAM = "reference_voice_seconds";
 const VOICE_TRACK_SECONDS_PARAM = "reference_voice_length";
+const VOICE_OWNER_PARAM = "reference_voice_owner";
+
+/**
+ * A second voice, for a second speaker.
+ *
+ * `ref_audios` takes three, and a track and one voice leave the third free. It
+ * is here because one voice reference beside a speaker described only in text
+ * is the case H3 handles worst: the recording spreads to every voice in the
+ * scene. Two recordings, each bound to its own speaker ID, give the model
+ * something to hold the second speaker to other than a sentence.
+ *
+ * Always voice referencing — no "what to keep" grid, no words box. The grid's
+ * other answers are about reusing a recording's lines, and a run that wants
+ * two people's lines reused is a remix of a conversation, not a reference to
+ * two voices. Revealed by the first voice and counted only beside it, so the
+ * numbering never has a second voice without a first.
+ */
+const VOICE2_NODE = "157";
+const VOICE2_TRIM_NODE = "169";
+const VOICE2_PARAM = "reference_voice_2";
+const VOICE2_OWNER_PARAM = "reference_voice_2_owner";
+const VOICE2_START_PARAM = "reference_voice_2_start";
+const VOICE2_SECONDS_PARAM = "reference_voice_2_seconds";
+const VOICE2_TRACK_SECONDS_PARAM = "reference_voice_2_length";
 
 /**
  * What a voice reference is for, unless the user says otherwise.
@@ -182,6 +206,7 @@ const VOICE_TRIM_DEFAULT = 5;
 const audioInput = (index: number) => `ref_audios.ref_audio_${index}`;
 const AUDIO_INPUT = audioInput(0);
 const VOICE_INPUT = audioInput(1);
+const VOICE2_INPUT = audioInput(2);
 
 /**
  * The reference clip: its loader, the split that feeds the model, and the pair
@@ -305,6 +330,14 @@ const voiceAttached = (values: Record<string, ParamValue>): boolean =>
   String(values[VOICE_PARAM] ?? "").trim() !== "";
 
 /**
+ * Whether this run has a second voice. Only beside a first: the control keeps
+ * its file while the first is emptied, and a second voice with no first would
+ * be labelled as the only one.
+ */
+const secondVoiceAttached = (values: Record<string, ParamValue>): boolean =>
+  voiceAttached(values) && String(values[VOICE2_PARAM] ?? "").trim() !== "";
+
+/**
  * Whether this run reuses what was said in the voice reference.
  *
  * Only two of the five answers do. On the other three the words control is
@@ -338,6 +371,7 @@ const labelsFor = (values: Record<string, ParamValue>) =>
     soundtrack: videoAudioAttached(values),
     track: trackAttached(values),
     voice: voiceAttached(values),
+    secondVoice: secondVoiceAttached(values),
   });
 
 /**
@@ -428,6 +462,16 @@ const voiceTrimSeconds = (values: Record<string, ParamValue>): number =>
 /** How long the loaded voice reference runs, or 0 for "nothing measured it". */
 const voiceLength = (values: Record<string, ParamValue>): number =>
   Math.max(0, Number(values[VOICE_TRACK_SECONDS_PARAM] ?? 0));
+
+/** And the second voice's three. */
+const voice2StartSeconds = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[VOICE2_START_PARAM] ?? 0));
+
+const voice2TrimSeconds = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[VOICE2_SECONDS_PARAM] ?? VOICE_TRIM_DEFAULT));
+
+const voice2Length = (values: Record<string, ParamValue>): number =>
+  Math.max(0, Number(values[VOICE2_TRACK_SECONDS_PARAM] ?? 0));
 
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
 const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
@@ -599,6 +643,7 @@ const graph: ComfyGraph = {
       // both be attached, and the director is told which <Audio N> each is.
       "ref_audios.ref_audio_0": ["167", 0],
       "ref_audios.ref_audio_1": ["168", 0],
+      "ref_audios.ref_audio_2": ["169", 0],
     },
     _meta: { title: "MiniMax H3 Reference to Video" },
   },
@@ -808,6 +853,23 @@ const graph: ComfyGraph = {
     },
     _meta: { title: "Trim Audio Duration (Voice)" },
   },
+
+  // The second voice, wired exactly as the first — its own loader and its own
+  // fixed window. See VOICE2_NODE.
+  "157": {
+    class_type: "LoadAudio",
+    inputs: { audio: "" },
+    _meta: { title: "Load Audio (Second voice)" },
+  },
+  "169": {
+    class_type: "TrimAudioDuration",
+    inputs: {
+      audio: ["157", 0],
+      start_index: 0,
+      duration: VOICE_TRIM_DEFAULT,
+    },
+    _meta: { title: "Trim Audio Duration (Second voice)" },
+  },
 };
 
 /**
@@ -860,7 +922,24 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   // Then the two standalone recordings, in the order the node numbers them, so
   // the brief reads in the same order as the references it describes.
   referenceTrack(AUDIO_PARAM, labelsFor),
-  referenceVoice({ voiceParam: VOICE_PARAM, labelsFor }),
+  referenceVoice({
+    voices: [
+      {
+        param: VOICE_PARAM,
+        label: (labels) => labels.voice,
+        ownerParam: VOICE_OWNER_PARAM,
+      },
+      {
+        param: VOICE2_PARAM,
+        attached: secondVoiceAttached,
+        label: (labels) => labels.secondVoice,
+        ownerParam: VOICE2_OWNER_PARAM,
+        // No grid for this one — it is only ever voice referencing.
+        marker: "reference",
+      },
+    ],
+    labelsFor,
+  }),
   words.director,
   voiceWords.director,
   // Last, so they land after everything else that speaks for the sound. One
@@ -884,6 +963,14 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
     // its own. See `about`.
     about:
       "This recording is a voice and nothing else — not a soundtrack. Where the answer above speaks of music and room tone carrying over, there is none in this file to carry: what it has is somebody speaking or singing, and the answer decides only whether their words come across with their voice. The score and the ambience of this video are written from the user's text either way.",
+    // The default answer, which on a bare voice copies no signal at all. See
+    // `audioKeep`'s `overrides`, and MiniMax's own marker for voice timbre.
+    overrides: {
+      voice: {
+        marker: "reference",
+        note: "What carries over is how one person sounds — the timbre, the accent and the pacing — and nothing of the recording itself: not its words, not its signal. It speaks the lines of the one speaker it belongs to and nobody else's. Write the lines the target video needs, inside <d> tags.",
+      },
+    },
   }),
 ]);
 
@@ -898,6 +985,34 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
 const promptText = promptTarget(ids, [words.prompt, voiceWords.prompt]);
 
 const bypass = directorBypassFor(ids);
+
+/**
+ * Whose voice a recording is, in the user's own words.
+ *
+ * The director cannot hear the file, and with two speakers in the scene
+ * "whoever the scene makes it" is a guess. So it is asked for, and whatever
+ * is typed is passed through as the one speaker the voice belongs to. Optional:
+ * with one voice and one obvious speaker the scene still says. Only the
+ * director reads it, so it goes out of the form with the rewrite.
+ */
+function voiceOwnerParam(
+  id: string,
+  revealedBy: string | string[],
+  placeholder: string,
+): ParamDef {
+  return {
+    id,
+    label: "Whose voice",
+    type: "text",
+    default: "",
+    placeholder,
+    maxLength: 200,
+    help: "Who in the scene speaks with this voice. Their lines get this voice and nobody else's do.",
+    group: "References",
+    revealedBy,
+    targets: [director],
+  };
+}
 
 const params: ParamDef[] = [
   // An upload and a facet select per slot, each slot revealed by the one before
@@ -1143,6 +1258,7 @@ const params: ParamDef[] = [
     revealedBy: VOICE_PARAM,
     help: "Voice referencing is the default: the recording guides the timbre and the delivery, and the lines come from your prompt. Turn it up to reuse what was actually said.",
   }),
+  voiceOwnerParam(VOICE_OWNER_PARAM, VOICE_PARAM, "the man in <Picture 1>"),
   {
     id: VOICE_TRACK_SECONDS_PARAM,
     label: "Voice reference length",
@@ -1219,6 +1335,83 @@ const params: ParamDef[] = [
     hiddenBy: audioKeepHidesWords(VOICE_KEEP_PARAM),
     targets: [promptText, director],
   }),
+
+  /**
+   * The second voice, and its three controls. Revealed by the first, so the
+   * form grows one voice at a time the way it grows one picture at a time.
+   */
+  {
+    id: VOICE2_PARAM,
+    label: "Second voice",
+    type: "audio",
+    default: "",
+    compact: true,
+    help: "Optional. A voice for a second speaker. A scene with one voice reference tends to give that voice to everyone — a recording for each speaker holds them apart better than a description does.",
+    group: "References",
+    noun: "voice recording",
+    limitNote: "Up to 4 MB. A few clean seconds of speech is enough.",
+    measures: VOICE2_TRACK_SECONDS_PARAM,
+    revealedBy: VOICE_PARAM,
+    targets: [
+      { node: VOICE2_NODE, input: "audio" },
+      director,
+    ],
+  },
+  voiceOwnerParam(VOICE2_OWNER_PARAM, [VOICE_PARAM, VOICE2_PARAM], "the older man in glasses"),
+  {
+    id: VOICE2_TRACK_SECONDS_PARAM,
+    label: "Second voice length",
+    type: "measured",
+    default: 0,
+    group: "References",
+    targets: [
+      {
+        node: VOICE2_TRIM_NODE,
+        input: "start_index",
+        transform: (_value, values) => voice2StartSeconds(values),
+      },
+    ],
+  },
+  {
+    id: VOICE2_START_PARAM,
+    label: "Start at",
+    type: "number",
+    default: 0,
+    min: 0,
+    max: 3600,
+    step: 0.5,
+    unit: "sec",
+    help: "Where in the recording the reference is taken from.",
+    group: "References",
+    revealedBy: [VOICE_PARAM, VOICE2_PARAM],
+    targets: [
+      {
+        node: VOICE2_TRIM_NODE,
+        input: "start_index",
+        transform: (_value, values) => voice2StartSeconds(values),
+      },
+    ],
+  },
+  {
+    id: VOICE2_SECONDS_PARAM,
+    label: "Seconds to use",
+    type: "slider",
+    default: VOICE_TRIM_DEFAULT,
+    min: 1,
+    max: 15,
+    step: 0.5,
+    unit: "sec",
+    help: "How much of the second voice the model gets to learn from.",
+    group: "References",
+    revealedBy: [VOICE_PARAM, VOICE2_PARAM],
+    targets: [
+      {
+        node: VOICE2_TRIM_NODE,
+        input: "duration",
+        transform: (_value, values) => voice2TrimSeconds(values),
+      },
+    ],
+  },
   {
     id: "ref_image_size",
     label: "Reference handling",
@@ -1473,6 +1666,38 @@ export const minimaxH3Reference: WorkflowDef = {
       },
       mode: { turbo: true },
     },
+    /**
+     * The second voice. Beside a track it takes the third slot, which is every
+     * standalone input the node has; without one it moves up to the second.
+     * And left behind with the first voice emptied, it has to go with it
+     * rather than ship as the only voice.
+     */
+    {
+      name: "a picture and two voices",
+      values: {
+        reference_image_1: "a.png",
+        [VOICE_PARAM]: "voice.wav",
+        [VOICE_OWNER_PARAM]: "the man in <Picture 1>",
+        [VOICE2_PARAM]: "voice2.wav",
+        [VOICE2_OWNER_PARAM]: "the older man",
+      },
+      mode: { turbo: true },
+    },
+    {
+      name: "a music track and two voices",
+      values: {
+        reference_image_1: "a.png",
+        [AUDIO_PARAM]: "song.mp3",
+        [VOICE_PARAM]: "voice.wav",
+        [VOICE2_PARAM]: "voice2.wav",
+      },
+      mode: { turbo: true },
+    },
+    {
+      name: "a second voice left behind without a first",
+      values: { reference_image_1: "a.png", [VOICE2_PARAM]: "voice2.wav" },
+      mode: { turbo: true },
+    },
     {
       name: "a voice with the whole track sent beside it",
       values: {
@@ -1605,7 +1830,7 @@ export const minimaxH3Reference: WorkflowDef = {
      * Which is also the order `labelsFor` assumes when it tells the director
      * what to call each one, so the two have to be built from the same list.
      */
-    for (const input of [AUDIO_INPUT, VOICE_INPUT]) {
+    for (const input of [AUDIO_INPUT, VOICE_INPUT, VOICE2_INPUT]) {
       delete graph[REFERENCE_NODE].inputs[input];
     }
 
@@ -1632,6 +1857,14 @@ export const minimaxH3Reference: WorkflowDef = {
     } else {
       delete graph[VOICE_NODE];
       delete graph[VOICE_TRIM_NODE];
+    }
+
+    // After the first, and only beside it — see `secondVoiceAttached`.
+    if (secondVoiceAttached(values)) {
+      standalone.push(VOICE2_TRIM_NODE);
+    } else {
+      delete graph[VOICE2_NODE];
+      delete graph[VOICE2_TRIM_NODE];
     }
 
     standalone.forEach((source, index) => {
@@ -1689,6 +1922,15 @@ export const minimaxH3Reference: WorkflowDef = {
       throw new ParamError(
         `The voice reference is ${voiceRuns.toFixed(1)} seconds long, so it has nothing at ${voiceStart}s to start from.`,
         VOICE_START_PARAM,
+      );
+    }
+
+    const voice2Start = voice2StartSeconds(values);
+    const voice2Runs = voice2Length(values);
+    if (graph[VOICE2_TRIM_NODE] && voice2Runs > 0 && voice2Start >= voice2Runs) {
+      throw new ParamError(
+        `The second voice is ${voice2Runs.toFixed(1)} seconds long, so it has nothing at ${voice2Start}s to start from.`,
+        VOICE2_START_PARAM,
       );
     }
   },
