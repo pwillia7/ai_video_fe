@@ -1507,6 +1507,24 @@ takes three, and a track and one voice left one free — always voice
 referencing, revealed by the first and counted only beside it, so a stale second
 file with the first emptied is dropped rather than shipped as the only voice.
 
+The director changes were not enough on their own. A two-person scene with one
+voice reference and a text-voiced second speaker (a well-known actor the model
+already knows) still gave both people the recording until the *prompt* changed
+too. What cleared it, tested 2026-09-29, with **Whose voice** filled in:
+
+- **The referenced speaker has the first line.** The recording sits directly in
+  front of the generated audio, and the first voice after it inherits it.
+- **A fixed script of a few short lines**, about twenty words for twelve to
+  fifteen seconds. "Improvised", "slightly different phrasing" and "he argues
+  that…" invite extra speech nothing binds to a speaker.
+- **One close-up per line**, so each voice has its own face and its own stretch
+  of audio, and no overlap or interruption — overlap is where voices merge.
+- **The other speaker's voice described on each of their lines**, in positive
+  terms only, and the recording never mentioned in the prompt at all.
+
+The director already asks for most of this, but it does not reorder or cut a
+script the user wrote, so a prompt that fights it wins. The tips say the same.
+
 ### A clip as a reference
 
 **Reference clip** takes a video the same way the slots above take a picture,
