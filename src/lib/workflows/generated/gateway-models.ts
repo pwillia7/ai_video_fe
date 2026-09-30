@@ -3,18 +3,25 @@
  * Do not edit: run the script. The curation, and why it is these, is in
  * ../rewrite-catalog.ts.
  *
- * Synced 2026-09-25: 390 models in the catalog,
- * 15 families declared, 26 offered.
+ * Synced 2026-09-30: 395 models in the catalog,
+ * 15 families declared, 28 offered.
  */
 import type { OfferedModel } from "../rewrite-catalog";
 
 export const REWRITE_MODELS: OfferedModel[] = [
   {
     id: "spacexai/grok-4.7",
-    label: "Grok 4.7 — $3.60/M",
+    label: "Grok 4.7 — $6/M",
     vision: true,
     free: false,
-    pricePerMillion: 3.6,
+    pricePerMillion: 6,
+  },
+  {
+    id: "spacexai/grok-4.1-fast-non-reasoning",
+    label: "Grok 4.1 Fast Non-Reasoning — $0.50/M",
+    vision: true,
+    free: false,
+    pricePerMillion: 0.5,
   },
   {
     id: "moonshotai/kimi-k3",
@@ -129,6 +136,13 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 0.063,
   },
   {
+    id: "inclusionai/ling-3.1-flash",
+    label: "Ling 3.1 Flash — free",
+    vision: false,
+    free: true,
+    pricePerMillion: 0,
+  },
+  {
     id: "xiaomi/mimo-v2.6-flash",
     label: "MiMo V2.6 Flash — $0.28/M",
     vision: true,
@@ -164,11 +178,11 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 0.72,
   },
   {
-    id: "openai/gpt-6-luna",
-    label: "GPT-6 Luna — $0.50/M",
+    id: "openai/gpt-6.1-sol",
+    label: "GPT-6.1 Sol — $10/M",
     vision: true,
     free: false,
-    pricePerMillion: 0.5,
+    pricePerMillion: 10,
   },
   {
     id: "openai/gpt-oss-120b",
@@ -185,8 +199,8 @@ export const REWRITE_MODELS: OfferedModel[] = [
     pricePerMillion: 3.75,
   },
   {
-    id: "anthropic/claude-sonnet-5",
-    label: "Claude Sonnet 5 — $10/M",
+    id: "anthropic/claude-sonnet-5.5",
+    label: "Claude Sonnet 5.5 — $10/M",
     vision: true,
     free: false,
     pricePerMillion: 10,

@@ -56,8 +56,25 @@ export interface OfferedModel {
  * member of each kind — see `curate` for what "kind" means and why it is not
  * simply the newest.
  */
-export const REWRITE_FAMILIES: Array<{ prefix: string; why: string }> = [
-  { prefix: "spacexai/grok-", why: "The most permissive of the frontier models, and the reason this picker exists." },
+export const REWRITE_FAMILIES: Array<{
+  prefix: string;
+  why: string;
+  /**
+   * Also offer the family's cheapest paid member that does not reason.
+   *
+   * Reasoning tokens are billed as output, and a director that must reason —
+   * Grok's newest will not go below `low` effort — spends most of a rewrite's
+   * cost on thinking nobody reads. Opt-in per family rather than a fifth pick
+   * everywhere, because in most families the cheapest non-reasoning member is
+   * an old model nobody would choose, and the list is a control, not a catalog.
+   */
+  cheapWithoutReasoning?: true;
+}> = [
+  {
+    prefix: "spacexai/grok-",
+    why: "The most permissive of the frontier models, and the reason this picker exists.",
+    cheapWithoutReasoning: true,
+  },
   { prefix: "moonshotai/kimi-", why: "Strong at prose and relaxed about fiction." },
   { prefix: "minimax/minimax-m", why: "From the people who trained the video model this app drives." },
   { prefix: "zai/glm-", why: "Cheap and fast. Its own content policy, strict in different places to the Western ones." },
@@ -127,6 +144,11 @@ function eligible(model: CatalogEntry): boolean {
   return true;
 }
 
+/** Whether the catalog says this one reasons, and so bills thinking as output. */
+function reasons(model: CatalogEntry): boolean {
+  return (model.tags ?? []).includes("reasoning");
+}
+
 /** Whether this one can be shown a picture. See `curate`. */
 function seesImages(model: CatalogEntry): boolean {
   return (model.modalities?.input ?? []).includes("image");
@@ -189,7 +211,8 @@ export function curate(models: CatalogEntry[]): OfferedModel[] {
       price(model.pricing?.output) <= 0 && price(model.pricing?.input) <= 0;
 
     /**
-     * Up to four per family, and often one or two.
+     * Up to four per family, and often one or two — five where a family
+     * opts into `cheapWithoutReasoning`.
      *
      * The free variants follow the same pair as the paid ones and for the same
      * reason: which of the two a run can use is decided per graph and per
@@ -202,6 +225,12 @@ export function curate(models: CatalogEntry[]): OfferedModel[] {
       members.find((model) => paid(model) && !seesImages(model)),
       members.find((model) => gratis(model) && seesImages(model)),
       members.find((model) => gratis(model) && !seesImages(model)),
+      family.cheapWithoutReasoning
+        ? members
+            .filter((model) => paid(model) && !reasons(model))
+            // Stable, so a price tie keeps the newer of the two.
+            .sort((a, b) => price(a.pricing?.output) - price(b.pricing?.output))[0]
+        : undefined,
     ];
 
     for (const model of picks) {
