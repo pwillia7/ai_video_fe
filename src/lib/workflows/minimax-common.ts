@@ -1298,6 +1298,13 @@ What is on screen is where your attention belongs. Nothing about the attached tr
  * continuation of the recording. Letting the referenced speaker have that
  * position is cheap if it is wrong.
  *
+ * With two voices it has to be the *second* one's speaker. The recordings
+ * stack in wiring order and the generated audio starts where the last of them
+ * ends, so whoever speaks first inherits that recording. A scene opening on the
+ * first voice's speaker came back with the two voices swapped (2026-09-30),
+ * binding lines and all — so the rule names which referenced speaker opens,
+ * not just that one does.
+ *
  * What it does *not* do is decide what is carried over from the first voice.
  * That is `audioKeep`, which writes the marker and the rule underneath it, and
  * which sits after this in the appendix list so it lands last. A second voice
@@ -1354,12 +1361,23 @@ export function referenceVoice({
 
     const two = present.length > 1;
     const names = present.map((voice) => voice.label).join(" and ");
+    // The recording the generated audio starts right after — see above.
+    const opener = present[present.length - 1];
+    const openerSpeaker = opener.owner
+      ? `${opener.owner}, whose voice is ${opener.label}`
+      : `the speaker ${opener.label} belongs to`;
 
     const owners = present
       .map((voice) =>
         voice.owner
           ? `${voice.label} is the voice of: ${voice.owner}. The user has said so, and it is not yours to reassign.`
-          : `${voice.label}: the user has not said whose voice it is. It belongs to one speaker, whoever the scene makes it — a referenced subject who speaks before anyone else does${two ? "" : ", or failing that the one who speaks most"}. Pick one and hold to it.`,
+          : `${voice.label}: the user has not said whose voice it is. It belongs to one speaker, whoever the scene makes it — ${
+              !two
+                ? "a referenced subject who speaks before anyone else does, or failing that the one who speaks most"
+                : voice === opener
+                  ? "the referenced subject who speaks first"
+                  : `a referenced subject other than ${opener.label}'s`
+            }. Pick one and hold to it.`,
       )
       .join("\n");
 
@@ -1408,7 +1426,11 @@ Everyone else who speaks is voiced from text. At their first line, give each of 
 
 While one speaker talks, a listener on screen keeps their mouth closed — say so where both are in frame.
 
-Where the scene allows it, the first line of dialogue is ${two ? "a referenced speaker's" : "the referenced speaker's"}. Never reorder or rewrite the user's own lines to get there — a reply cannot come before its question — but when the user's script opens on someone else, the referenced speaker may be given a word or two first, a greeting or a reaction, inside its own <d> tag. That short line counts against the dialogue budget like any other.
+${
+  two
+    ? `The first line of dialogue is ${openerSpeaker}. This is not a preference. The model is handed ${names} in that order and the speech it generates starts right where ${opener.label} ends, so whoever speaks first comes out in ${opener.label} — if the other referenced speaker opens, the two voices swap, whatever the binding lines say. Never reorder or rewrite the user's own lines to get there — a reply cannot come before its question — but when the user's script opens on anyone else, ${opener.owner || "that speaker"} is given a word or two first, a greeting or a reaction, inside its own <d> tag. That short line counts against the dialogue budget like any other.`
+    : `Where the scene allows it, the first line of dialogue is the referenced speaker's. Never reorder or rewrite the user's own lines to get there — a reply cannot come before its question — but when the user's script opens on someone else, the referenced speaker may be given a word or two first, a greeting or a reaction, inside its own <d> tag. That short line counts against the dialogue budget like any other.`
+}
 
 Nothing about a voice reference is a score. Do not write ${two ? "either" : "it"} into non_diegetic_music${labels.track ? ` — that is ${labels.track}'s, and it is a different reference` : ""}, and do not write ${two ? "either" : "it"} into overall_soundscape: speech belongs in the body.
 
