@@ -195,12 +195,20 @@ const VOICE_KEEP_DEFAULT = "voice" as const;
  * model's strongest prior on it is continuation, so the recording's own room,
  * pacing and utterance bleed into speech the prompt asked to be new.
  *
- * Five still sits inside MiniMax's documented 2-15s with room at both ends, and
- * a shorter file simply stops where it stops — `TrimAudioDuration` past the end
- * of the audio is not an error. The control goes to fifteen for anyone who
- * wants the old behaviour back.
+ * And held to 4–6 seconds rather than MiniMax's documented 2–15, because that
+ * window is what testing settled on: longer brought the continuation problem
+ * back, and much shorter gives the model too little of the voice to hold. The
+ * user still picks *which* four to six seconds of a longer recording — see
+ * `VOICE_START_PARAM` — and a window that runs off the end of the file is
+ * refused in `validate` rather than silently coming up short.
  */
 const VOICE_TRIM_DEFAULT = 5;
+const VOICE_TRIM_MIN = 4;
+const VOICE_TRIM_MAX = 6;
+
+/** Held inside the window even for settings saved before it was narrowed. */
+const clampVoiceTrim = (seconds: number): number =>
+  Math.min(VOICE_TRIM_MAX, Math.max(VOICE_TRIM_MIN, seconds));
 
 /** The variadic slots the two standalone audios take, before `finalize` compacts. */
 const audioInput = (index: number) => `ref_audios.ref_audio_${index}`;
@@ -457,7 +465,7 @@ const voiceStartSeconds = (values: Record<string, ParamValue>): number =>
   Math.max(0, Number(values[VOICE_START_PARAM] ?? 0));
 
 const voiceTrimSeconds = (values: Record<string, ParamValue>): number =>
-  Math.max(0, Number(values[VOICE_SECONDS_PARAM] ?? VOICE_TRIM_DEFAULT));
+  clampVoiceTrim(Number(values[VOICE_SECONDS_PARAM] ?? VOICE_TRIM_DEFAULT));
 
 /** How long the loaded voice reference runs, or 0 for "nothing measured it". */
 const voiceLength = (values: Record<string, ParamValue>): number =>
@@ -468,10 +476,40 @@ const voice2StartSeconds = (values: Record<string, ParamValue>): number =>
   Math.max(0, Number(values[VOICE2_START_PARAM] ?? 0));
 
 const voice2TrimSeconds = (values: Record<string, ParamValue>): number =>
-  Math.max(0, Number(values[VOICE2_SECONDS_PARAM] ?? VOICE_TRIM_DEFAULT));
+  clampVoiceTrim(Number(values[VOICE2_SECONDS_PARAM] ?? VOICE_TRIM_DEFAULT));
 
 const voice2Length = (values: Record<string, ParamValue>): number =>
   Math.max(0, Number(values[VOICE2_TRACK_SECONDS_PARAM] ?? 0));
+
+/**
+ * Refuses a voice window that cannot hold `VOICE_TRIM_MIN` seconds of the file.
+ *
+ * Only decidable once the browser has measured the recording; with no
+ * measurement it is passed through, as the track's start check is.
+ */
+function voiceWindowFits(
+  wired: boolean,
+  name: string,
+  start: number,
+  length: number,
+  startParam: string,
+  fileParam: string,
+): void {
+  if (!wired || length <= 0) return;
+  if (length < VOICE_TRIM_MIN) {
+    throw new ParamError(
+      `${name} is ${length.toFixed(1)} seconds long. It needs at least ${VOICE_TRIM_MIN} seconds of one person speaking — record or pick a longer clip.`,
+      fileParam,
+    );
+  }
+  if (length - start < VOICE_TRIM_MIN) {
+    const latest = Math.floor((length - VOICE_TRIM_MIN) * 2) / 2;
+    throw new ParamError(
+      `${name} is ${length.toFixed(1)} seconds long, so starting at ${start}s leaves less than ${VOICE_TRIM_MIN} seconds. Start at ${latest}s or earlier.`,
+      startParam,
+    );
+  }
+}
 
 /** How each slot names its input on those two nodes. Slot 1 is index 0. */
 const refInput = (index: number) => `ref_images.ref_image_${index - 1}`;
@@ -1236,13 +1274,13 @@ const params: ParamDef[] = [
     // A row until asked for, like the clip and the track. The picture is what
     // this workflow is named after and keeps its drop target.
     compact: true,
-    help: "Optional. A recording of how someone sounds, for a person in the video to speak or sing with. MiniMax documents a reference at 2–15 seconds, and a few clean seconds beats a long take.",
+    help: "Optional. A recording of how someone sounds, for a person in the video to speak or sing with. The model hears 4–6 seconds of it — one speaker, talking steadily, no music or other voices. A longer file is fine: pick which stretch with Start at.",
     group: "References",
     // Its own wording: the Create video hand-off fills the music slot and not
     // this one, so the default caption would point at a button that never
     // arrives here.
     noun: "voice recording",
-    limitNote: "Up to 4 MB. A few clean seconds of speech is enough.",
+    limitNote: "Up to 4 MB, at least 4 seconds long. Only 4–6 seconds of it is used.",
     measures: VOICE_TRACK_SECONDS_PARAM,
     targets: [
       { node: VOICE_NODE, input: "audio" },
@@ -1285,7 +1323,7 @@ const params: ParamDef[] = [
     max: 3600,
     step: 0.5,
     unit: "sec",
-    help: "Where in the recording the reference is taken from. Worth moving past a silent or noisy opening — the model hears only what this window covers.",
+    help: "Where in the recording the 4–6 seconds are taken from. Put it on the cleanest stretch of steady speech — past any silence, breath, music or second voice. The model hears only this window, so it has to hold at least 4 seconds before the file ends.",
     group: "References",
     revealedBy: VOICE_PARAM,
     targets: [
@@ -1301,14 +1339,14 @@ const params: ParamDef[] = [
     label: "Seconds to use",
     type: "slider",
     default: VOICE_TRIM_DEFAULT,
-    min: 1,
-    max: 15,
+    min: VOICE_TRIM_MIN,
+    max: VOICE_TRIM_MAX,
     step: 0.5,
     unit: "sec",
     // Not "as long as the video", which is the track's default and the one
     // thing about a score that does not transfer to a voice. See
     // VOICE_TRIM_DEFAULT.
-    help: "How much to take from the start point. Nothing to do with how long the video is — this is how much of the voice the model gets to learn from. Past the end of the file simply stops there.",
+    help: "How much to take from the start point: 4 to 6 seconds, 5 by default. Nothing to do with how long the video is. Longer makes the recording bleed into the new speech; shorter is too little voice to hold on to.",
     group: "References",
     revealedBy: VOICE_PARAM,
     targets: [
@@ -1346,10 +1384,10 @@ const params: ParamDef[] = [
     type: "audio",
     default: "",
     compact: true,
-    help: "Optional. A voice for a second speaker. A scene with one voice reference tends to give that voice to everyone — a recording for each speaker holds them apart better than a description does.",
+    help: "Optional. A voice for a second speaker. A scene with one voice reference tends to give that voice to everyone — a recording for each speaker holds them apart better than a description does. Same rule as the first: 4–6 clean seconds of one person.",
     group: "References",
     noun: "voice recording",
-    limitNote: "Up to 4 MB. A few clean seconds of speech is enough.",
+    limitNote: "Up to 4 MB, at least 4 seconds long. Only 4–6 seconds of it is used.",
     measures: VOICE2_TRACK_SECONDS_PARAM,
     revealedBy: VOICE_PARAM,
     targets: [
@@ -1381,7 +1419,7 @@ const params: ParamDef[] = [
     max: 3600,
     step: 0.5,
     unit: "sec",
-    help: "Where in the recording the reference is taken from.",
+    help: "Where in the second recording its 4–6 seconds are taken from. Pick a clean stretch of this one speaker talking.",
     group: "References",
     revealedBy: [VOICE_PARAM, VOICE2_PARAM],
     targets: [
@@ -1397,11 +1435,11 @@ const params: ParamDef[] = [
     label: "Seconds to use",
     type: "slider",
     default: VOICE_TRIM_DEFAULT,
-    min: 1,
-    max: 15,
+    min: VOICE_TRIM_MIN,
+    max: VOICE_TRIM_MAX,
     step: 0.5,
     unit: "sec",
-    help: "How much of the second voice the model gets to learn from.",
+    help: "How much of the second voice the model gets: 4 to 6 seconds, 5 by default.",
     group: "References",
     revealedBy: [VOICE_PARAM, VOICE2_PARAM],
     targets: [
@@ -1914,24 +1952,25 @@ export const minimaxH3Reference: WorkflowDef = {
       );
     }
 
-    // And the same for the voice reference, which has the same trim node under
-    // it and so fails in exactly the same way.
-    const voiceStart = voiceStartSeconds(values);
-    const voiceRuns = voiceLength(values);
-    if (graph[VOICE_TRIM_NODE] && voiceRuns > 0 && voiceStart >= voiceRuns) {
-      throw new ParamError(
-        `The voice reference is ${voiceRuns.toFixed(1)} seconds long, so it has nothing at ${voiceStart}s to start from.`,
-        VOICE_START_PARAM,
-      );
-    }
-
-    const voice2Start = voice2StartSeconds(values);
-    const voice2Runs = voice2Length(values);
-    if (graph[VOICE2_TRIM_NODE] && voice2Runs > 0 && voice2Start >= voice2Runs) {
-      throw new ParamError(
-        `The second voice is ${voice2Runs.toFixed(1)} seconds long, so it has nothing at ${voice2Start}s to start from.`,
-        VOICE2_START_PARAM,
-      );
-    }
+    // The voices are held to more than the track: not just a start inside the
+    // file, but a window from it that is at least the 4 seconds the reference
+    // needs. A window that runs off the end would be trimmed short without a
+    // word, and a short voice is the one this range exists to rule out.
+    voiceWindowFits(
+      graph[VOICE_TRIM_NODE] !== undefined,
+      "The voice reference",
+      voiceStartSeconds(values),
+      voiceLength(values),
+      VOICE_START_PARAM,
+      VOICE_PARAM,
+    );
+    voiceWindowFits(
+      graph[VOICE2_TRIM_NODE] !== undefined,
+      "The second voice",
+      voice2StartSeconds(values),
+      voice2Length(values),
+      VOICE2_START_PARAM,
+      VOICE2_PARAM,
+    );
   },
 };
