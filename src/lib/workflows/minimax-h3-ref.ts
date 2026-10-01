@@ -165,6 +165,21 @@ const VOICE2_SECONDS_PARAM = "reference_voice_2_seconds";
 const VOICE2_TRACK_SECONDS_PARAM = "reference_voice_2_length";
 
 /**
+ * Which of the two voices' speakers has the first line — and so which recording
+ * is wired last.
+ *
+ * The generated audio starts where the last standalone recording ends, so the
+ * first line comes out in that voice whatever the prompt binds it to. With
+ * Voice 1 wired last, a scene opening on Voice 1's speaker came back with the
+ * two voices swapped (2026-09-30, and again 2026-10-01). Asking the director to
+ * open on whoever was wired last only works by writing a line ahead of the
+ * user's script; wiring the opener's voice last leaves the script alone.
+ */
+const VOICE_OPENER_PARAM = "reference_voice_opener";
+const OPENER_FIRST = "first";
+const OPENER_SECOND = "second";
+
+/**
  * What a voice reference is for, unless the user says otherwise.
  *
  * "Same voices, new words" is the answer this slot exists to make reachable —
@@ -346,6 +361,14 @@ const secondVoiceAttached = (values: Record<string, ParamValue>): boolean =>
   voiceAttached(values) && String(values[VOICE2_PARAM] ?? "").trim() !== "";
 
 /**
+ * Whether the second voice goes in ahead of the first: two voices, and the
+ * first voice's speaker opening the scene. See `VOICE_OPENER_PARAM`.
+ */
+const secondVoiceWiredFirst = (values: Record<string, ParamValue>): boolean =>
+  secondVoiceAttached(values) &&
+  String(values[VOICE_OPENER_PARAM] ?? OPENER_FIRST) !== OPENER_SECOND;
+
+/**
  * Whether this run reuses what was said in the voice reference.
  *
  * Only two of the five answers do. On the other three the words control is
@@ -380,6 +403,7 @@ const labelsFor = (values: Record<string, ParamValue>) =>
     track: trackAttached(values),
     voice: voiceAttached(values),
     secondVoice: secondVoiceAttached(values),
+    secondVoiceFirst: secondVoiceWiredFirst(values),
   });
 
 /**
@@ -1397,6 +1421,21 @@ const params: ParamDef[] = [
   },
   voiceOwnerParam(VOICE2_OWNER_PARAM, [VOICE_PARAM, VOICE2_PARAM], "the older man in glasses"),
   {
+    id: VOICE_OPENER_PARAM,
+    label: "Speaks first",
+    type: "select",
+    default: OPENER_FIRST,
+    options: [
+      { value: OPENER_FIRST, label: "The first voice's speaker" },
+      { value: OPENER_SECOND, label: "The second voice's speaker" },
+    ],
+    help: "Whoever has the first line in your script. The model gives the opening line whichever voice it was handed last, so that voice goes in last — get this wrong and the two voices swap.",
+    group: "References",
+    revealedBy: [VOICE_PARAM, VOICE2_PARAM],
+    // Read by `finalize`, for the order, and by the director, for the labels.
+    targets: [director],
+  },
+  {
     id: VOICE2_TRACK_SECONDS_PARAM,
     label: "Second voice length",
     type: "measured",
@@ -1722,6 +1761,16 @@ export const minimaxH3Reference: WorkflowDef = {
       mode: { turbo: true },
     },
     {
+      name: "two voices with the second voice's speaker opening",
+      values: {
+        reference_image_1: "a.png",
+        [VOICE_PARAM]: "voice.wav",
+        [VOICE2_PARAM]: "voice2.wav",
+        [VOICE_OPENER_PARAM]: OPENER_SECOND,
+      },
+      mode: { turbo: true },
+    },
+    {
       name: "a music track and two voices",
       values: {
         reference_image_1: "a.png",
@@ -1888,22 +1937,25 @@ export const minimaxH3Reference: WorkflowDef = {
       delete graph[TRIM_NODE];
     }
 
+    // Only beside the first — see `secondVoiceAttached` — and on whichever
+    // side of it leaves the opener's voice last. See `VOICE_OPENER_PARAM`.
+    const voices: string[] = [];
     if (voiceAttached(values)) {
       // No "all of it" here: a voice reference is always a window, so the trim
       // is never removed. See VOICE_TRIM_DEFAULT.
-      standalone.push(VOICE_TRIM_NODE);
+      voices.push(VOICE_TRIM_NODE);
     } else {
       delete graph[VOICE_NODE];
       delete graph[VOICE_TRIM_NODE];
     }
-
-    // After the first, and only beside it — see `secondVoiceAttached`.
     if (secondVoiceAttached(values)) {
-      standalone.push(VOICE2_TRIM_NODE);
+      if (secondVoiceWiredFirst(values)) voices.unshift(VOICE2_TRIM_NODE);
+      else voices.push(VOICE2_TRIM_NODE);
     } else {
       delete graph[VOICE2_NODE];
       delete graph[VOICE2_TRIM_NODE];
     }
+    standalone.push(...voices);
 
     standalone.forEach((source, index) => {
       graph[REFERENCE_NODE].inputs[audioInput(index)] = [source, 0];

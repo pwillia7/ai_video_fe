@@ -1209,7 +1209,11 @@ export interface AudioLabels {
   track?: string;
   /** The standalone voice reference. */
   voice?: string;
-  /** A second voice reference, for a second speaker. Wired after the first. */
+  /**
+   * A second voice reference, for a second speaker. Wired after the first
+   * unless `secondVoiceFirst` — see `referenceVoice` for why the order is a
+   * choice.
+   */
   secondVoice?: string;
 }
 
@@ -1218,11 +1222,14 @@ export function audioLabels({
   track = false,
   voice = false,
   secondVoice = false,
+  secondVoiceFirst = false,
 }: {
   soundtrack?: boolean;
   track?: boolean;
   voice?: boolean;
   secondVoice?: boolean;
+  /** The two voices wired the other way round. Only means anything beside both. */
+  secondVoiceFirst?: boolean;
 }): AudioLabels {
   const labels: AudioLabels = {};
   let next = 1;
@@ -1231,8 +1238,9 @@ export function audioLabels({
   // variadic inputs for exactly this reason.
   if (soundtrack) labels.soundtrack = `<Audio ${next++}>`;
   if (track) labels.track = `<Audio ${next++}>`;
+  if (secondVoice && secondVoiceFirst) labels.secondVoice = `<Audio ${next++}>`;
   if (voice) labels.voice = `<Audio ${next++}>`;
-  if (secondVoice) labels.secondVoice = `<Audio ${next++}>`;
+  if (secondVoice && !secondVoiceFirst) labels.secondVoice = `<Audio ${next++}>`;
   return labels;
 }
 
@@ -1305,6 +1313,13 @@ What is on screen is where your attention belongs. Nothing about the attached tr
  * binding lines and all — so the rule names which referenced speaker opens,
  * not just that one does.
  *
+ * Telling the director that was not enough on its own. A script that opens on
+ * the other speaker can only be fixed by giving the opener a line the user
+ * never wrote, and the user's "Patrick speaks first" argues against it
+ * (2026-10-01). So the graph asks who opens and wires that voice last — see
+ * `secondVoiceFirst` in `audioLabels` — and the voices are read here in label
+ * order, so the opener is always the recording that was wired last.
+ *
  * What it does *not* do is decide what is carried over from the first voice.
  * That is `audioKeep`, which writes the marker and the rule underneath it, and
  * which sits after this in the appendix list so it lands last. A second voice
@@ -1333,11 +1348,15 @@ export interface VoiceSlot {
   marker?: string;
 }
 
+/** The N in `<Audio N>`. */
+const audioNumber = (label: string): number =>
+  Number(/\d+/.exec(label)?.[0] ?? 0);
+
 export function referenceVoice({
   voices,
   labelsFor,
 }: {
-  /** In wiring order, which is the order the labels are numbered in. */
+  /** Either order — they are read back in label order, which is wiring order. */
   voices: VoiceSlot[];
   /** What each is called this run — see `audioLabels`. */
   labelsFor: AudioLabelsFor;
@@ -1356,7 +1375,10 @@ export function referenceVoice({
           ? String(values[voice.ownerParam] ?? "").trim()
           : "",
         marker: voice.marker,
-      }));
+      }))
+      // Wiring order, whatever order the slots were declared in: the opener
+      // below is whichever recording the generated audio starts after.
+      .sort((a, b) => audioNumber(a.label) - audioNumber(b.label));
     if (present.length === 0) return "";
 
     const two = present.length > 1;
