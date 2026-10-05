@@ -8,17 +8,28 @@
  *
  *   pnpm tsx scripts/spike-local-director.ts <clip file> [--image <input file>] [--prompt "..."] [--type ltxv] [--seed N] [--max N]
  *
+ *   --director text|image|reference   which brief to write (default: image when
+ *                                     --image is given, text otherwise)
+ *   --prompt-file <path>              the user's idea, read from a file
+ *
  * Needs COMFY_URL (and COMFY_API_TOKEN if the box is behind ComfyUI-Login).
  */
 import { readFileSync } from "node:fs";
-import { IMAGE_DIRECTOR, TEXT_DIRECTOR } from "../src/lib/workflows/minimax-common";
+import {
+  IMAGE_DIRECTOR,
+  REFERENCE_DIRECTOR,
+  TEXT_DIRECTOR,
+} from "../src/lib/workflows/minimax-common";
 
 function loadEnv(): void {
   try {
     for (const line of readFileSync(".env.local", "utf8").split("\n")) {
       const match = line.match(/^\s*([A-Z_]+)\s*=\s*(.*)\s*$/);
       if (match && process.env[match[1]] === undefined) {
-        process.env[match[1]] = match[2].replace(/^["']|["']$/g, "");
+        // Unescape \$ the way dotenv does; the ComfyUI token is full of them.
+        process.env[match[1]] = match[2]
+          .replace(/^["']|["']$/g, "")
+          .replace(/\\\$/g, "$");
       }
     }
   } catch {
@@ -46,10 +57,15 @@ const userPrompt =
 const seed = Number(arg("seed") ?? Math.floor(Math.random() * 2 ** 31));
 const maxLength = Number(arg("max") ?? 2048);
 
-// 0.33.0's TextGenerate has no system_prompt input, so the director rides in
-// the user turn ahead of what was typed. Newer ComfyUI has the input.
-const director = image ? IMAGE_DIRECTOR : TEXT_DIRECTOR;
-const prompt = `${director.trim()}\n\nThe finished video is 10 seconds long.\n\n---\n\nUSER IDEA:\n${userPrompt}`;
+const promptFile = arg("prompt-file");
+const idea = promptFile ? readFileSync(promptFile, "utf8").trim() : userPrompt;
+const directors = { text: TEXT_DIRECTOR, image: IMAGE_DIRECTOR, reference: REFERENCE_DIRECTOR };
+const directorName = (arg("director") ?? (image ? "image" : "text")) as keyof typeof directors;
+const director = directors[directorName];
+if (!director) throw new Error(`--director must be one of ${Object.keys(directors).join(", ")}`);
+// The graphs append the finished length to the director the same way.
+const system = `${director.trim()}\n\nThe finished video is 10 seconds long.`;
+const prompt = idea;
 
 const graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> = {
   "1": { class_type: "CLIPLoader", inputs: { clip_name: clip, type: arg("type") ?? "ltxv" } },
@@ -68,11 +84,14 @@ const graph: Record<string, { class_type: string; inputs: Record<string, unknown
       "sampling_mode.seed": seed,
       thinking: false,
       use_default_template: true,
+      // A socket-only input, so it has to arrive from a node.
+      system_prompt: ["5", 0],
       ...(image ? { image: ["3", 0] } : {}),
     },
   },
   ...(image ? { "3": { class_type: "LoadImage", inputs: { image } } } : {}),
   "4": { class_type: "PreviewAny", inputs: { source: ["2", 0] } },
+  "5": { class_type: "PrimitiveStringMultiline", inputs: { value: system } },
 };
 
 async function stats(): Promise<{ free: number; total: number }> {
@@ -83,42 +102,50 @@ async function stats(): Promise<{ free: number; total: number }> {
 
 const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1);
 
-const before = await stats();
-console.log(`VRAM before: ${gb(before.total - before.free)} / ${gb(before.total)} GB used`);
+async function main() {
+  const before = await stats();
+  console.log(`VRAM before: ${gb(before.total - before.free)} / ${gb(before.total)} GB used`);
 
-const started = Date.now();
-const queued = await fetch(`${base}/prompt`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify({ prompt: graph }),
-});
-const queuedBody = (await queued.json()) as { prompt_id?: string; error?: unknown; node_errors?: unknown };
-if (!queued.ok || !queuedBody.prompt_id) {
-  console.error("Rejected:", JSON.stringify(queuedBody, null, 2));
+  const started = Date.now();
+  const queued = await fetch(`${base}/prompt`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ prompt: graph }),
+  });
+  const queuedBody = (await queued.json()) as { prompt_id?: string; error?: unknown; node_errors?: unknown };
+  if (!queued.ok || !queuedBody.prompt_id) {
+    console.error("Rejected:", JSON.stringify(queuedBody, null, 2));
+    process.exit(1);
+  }
+
+  let peakUsed = before.total - before.free;
+  interface HistoryEntry {
+    status?: { status_str: string; messages?: unknown[] };
+    outputs?: Record<string, { text?: string[] }>;
+  }
+  let entry: HistoryEntry | undefined;
+  while (!entry) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const now = await stats();
+    peakUsed = Math.max(peakUsed, now.total - now.free);
+    const history = (await (await fetch(`${base}/history/${queuedBody.prompt_id}`, { headers })).json()) as Record<string, HistoryEntry | undefined>;
+    const candidate = history[queuedBody.prompt_id];
+    if (candidate?.status && candidate.status.status_str !== "running") entry = candidate;
+  }
+  if (!entry) throw new Error("unreachable");
+  const seconds = (Date.now() - started) / 1000;
+  const after = await stats();
+
+  const text = entry.outputs?.["4"]?.text?.join("") ?? "";
+  console.log(`Status: ${entry.status?.status_str}  seed ${seed}  ${seconds.toFixed(1)}s`);
+  console.log(`VRAM peak: ${gb(peakUsed)} GB   after: ${gb(after.total - after.free)} GB`);
+  console.log(`Director: ${directorName}`);
+  console.log(`Output: ${text.split(/\s+/).filter(Boolean).length} words`);
+  if (entry.status?.status_str !== "success") console.log(JSON.stringify(entry.status?.messages, null, 2));
+  console.log("\n" + text);
+}
+
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
-}
-
-let peakUsed = before.total - before.free;
-interface HistoryEntry {
-  status?: { status_str: string; messages?: unknown[] };
-  outputs?: Record<string, { text?: string[] }>;
-}
-let entry: HistoryEntry | undefined;
-while (!entry) {
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  const now = await stats();
-  peakUsed = Math.max(peakUsed, now.total - now.free);
-  const history = (await (await fetch(`${base}/history/${queuedBody.prompt_id}`, { headers })).json()) as Record<string, HistoryEntry | undefined>;
-  const candidate = history[queuedBody.prompt_id];
-  if (candidate?.status && candidate.status.status_str !== "running") entry = candidate;
-}
-if (!entry) throw new Error("unreachable");
-const seconds = (Date.now() - started) / 1000;
-const after = await stats();
-
-const text = entry.outputs?.["4"]?.text?.join("") ?? "";
-console.log(`Status: ${entry.status?.status_str}  seed ${seed}  ${seconds.toFixed(1)}s`);
-console.log(`VRAM peak: ${gb(peakUsed)} GB   after: ${gb(after.total - after.free)} GB`);
-console.log(`Output: ${text.split(/\s+/).filter(Boolean).length} words`);
-if (entry.status?.status_str !== "success") console.log(JSON.stringify(entry.status?.messages, null, 2));
-console.log("\n" + text);
+});
