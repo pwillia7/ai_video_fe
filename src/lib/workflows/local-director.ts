@@ -24,10 +24,11 @@ import {
  * memory manager knows about and evicts like any other. A separate server is
  * memory ComfyUI cannot see, and the hand-off between the two is a race.
  *
- * The price is speed. ComfyUI's generate loop decodes at roughly 7 tokens a
- * second for this model on a 3090, so a full H3 brief adds about a minute and
- * a half to the run where the gateway adds ten or twenty seconds. That was
- * measured, not guessed — see `scripts/spike-local-director.ts`.
+ * The price is speed, and less of it than it first looked. A full H3 brief
+ * takes about twenty seconds on a 3090, with the model loaded cold, where the
+ * gateway takes ten or twenty — but only from a plain build of the model. The
+ * same weights packaged as an LTX text encoder took eighty. That was measured,
+ * not guessed — see `scripts/spike-local-director.ts` and `slower` below.
  *
  * Not a param. Which machine writes the brief is a fact about the person's
  * setup rather than about any one workflow, so it is chosen once, beside the
@@ -67,6 +68,12 @@ export interface LocalDirectorModel {
    * keeps working whatever it was saved as.
    */
   match: RegExp;
+  /**
+   * Files `match` accepts that are the same model in a worse package — taken
+   * only when nothing better is installed, so a box that has both runs the
+   * good one, and a box that has only this keeps working.
+   */
+  slower?: RegExp;
   /** Where to get it, for the error that says it is missing. */
   download: string;
 }
@@ -74,19 +81,30 @@ export interface LocalDirectorModel {
 /**
  * The models known to work, best first.
  *
- * One today. It was picked because it is the only uncensored model packaged in
- * a form `CLIPLoader` reads without conversion, and because it can see — so the
- * four graphs that show their director a picture keep doing so. The bf16
- * variant of the same file is 26 GB and does not fit on a 24 GB card at all,
- * which is why the pattern insists on the int8 one.
+ * One today: Heretic's uncensored Gemma 4 12B (6 refusals in 100, against 99
+ * for the stock model), as a single-file int8 build made for ComfyUI's
+ * `TextGenerate`. Gemma 4 because it is what ComfyUI's own LTX prompt enhancer
+ * runs, so the format of these briefs is work it is known to do; and it can
+ * see, so the graphs that show their director a picture keep doing so. A bf16
+ * build is 24 GB or more and does not fit on a 24 GB card, which is why the
+ * pattern insists on int8.
+ *
+ * The first build used was an LTX-2.5 text encoder — the same weights with
+ * LTX's conditioning projections added. It writes the same briefs, but the
+ * projections make ComfyUI load it through the LTX encoder wrapper, and a
+ * reference brief took 79–82 seconds from it against 20–24 from the plain
+ * build, warm or cold. It still matches, as `slower`.
  */
 export const LOCAL_DIRECTOR_MODELS: LocalDirectorModel[] = [
   {
     id: "gemma-4-12b-heretic",
     label: "Gemma 4 12B uncensored (heretic, int8)",
-    match: /gemma-?4-?12b.*heretic.*int8/i,
+    match: /gemma[-_ ]?4[-_ ]?12b.*heretic.*int8/i,
+    // The publisher's name as well as the format's: the copy this was measured
+    // on lost "LTX" when its spaces were mangled, and kept "DeepNeuralNerd".
+    slower: /ltx|deepneuralnerd/i,
     download:
-      "https://huggingface.co/DeepNeuralNerd/Gemma-4-12B-it-uncensored-heretic-DeepNeuralNerd-LTX_2.5_ComfyUI",
+      "https://huggingface.co/radiatingreverberations/Gemma-4-12B-It-Uncensored-Heretic-INT8-ConvRot-ComfyUI",
   },
 ];
 
@@ -109,17 +127,20 @@ export function findLocalDirectorFile(
 ): string | undefined {
   // Basename only: ComfyUI lists files in subfolders with the folder prefixed,
   // and a folder name is not part of what the file is.
-  return available.find((file) =>
+  const matches = available.filter((file) =>
     model.match.test(file.split(/[\\/]/).pop() ?? file),
+  );
+  return (
+    matches.find((file) => !model.slower?.test(file)) ?? matches[0]
   );
 }
 
 /**
  * What a local brief adds to a run, for the first estimate in a combination
- * before this device has timings of its own. Measured: 86–98 seconds for a
+ * before this device has timings of its own. Measured: 20–24 seconds for a
  * reference brief on a 3090, the higher figure with the model loaded cold.
  */
-export const LOCAL_DIRECTOR_SECONDS = 90;
+export const LOCAL_DIRECTOR_SECONDS = 25;
 
 export const LOCAL_CLASS = "TextGenerate";
 export const LOCAL_LOADER_CLASS = "CLIPLoader";
@@ -162,7 +183,7 @@ const MAX_LENGTH = 4096;
  *
  * Seed 0, as on the gateway node: ComfyUI caches a node whose inputs have not
  * changed, so re-queueing the same prompt reuses the brief rather than spending
- * another ninety seconds on a new one.
+ * another twenty seconds on a new one.
  */
 export function applyLocalRewrite(graph: ComfyGraph, file: string): void {
   const roots = terminals(graph);

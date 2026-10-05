@@ -55,8 +55,8 @@ export interface Job {
   patches?: string[];
   /**
    * Whether the brief was written on the ComfyUI machine rather than by the
-   * gateway. In `modeKey` for the reason turbo is: it adds a minute and a half
-   * to every run, so an estimate pooling the two would describe neither.
+   * gateway. In `modeKey` for the reason turbo is: it adds time to every run,
+   * so an estimate pooling the two would describe neither.
    */
   localDirector?: boolean;
   /**

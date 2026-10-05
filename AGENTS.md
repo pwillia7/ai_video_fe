@@ -71,7 +71,7 @@ afternoon.
 - **The rewrite can also run on the ComfyUI machine.** `local-director.ts`
   swaps every gateway director for ComfyUI's own `TextGenerate`, per run, when
   the user chooses it beside the key — in-process so ComfyUI evicts it before
-  the video models load, and about 90 seconds slower for it. The model file is
+  the video models load, and about 20 seconds slower for it. The model file is
   found by pattern, not name, because downloads mangle its spaces.
 - **`pnpm typecheck`** before calling anything done. There is no lint script —
   `next lint` was removed in Next 16.

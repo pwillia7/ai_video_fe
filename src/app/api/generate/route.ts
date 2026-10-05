@@ -168,7 +168,7 @@ export async function POST(request: Request) {
       // request: an id that no longer names an entry resolved to the default.
       loras: appliedLoras,
       // Echoed for the same reason: the history buckets render times by how a
-      // run was made, and a local brief adds a minute and a half to it.
+      // run was made, and a local brief adds time to it.
       localDirector: localDirector !== undefined,
       // Only ever a starting point: the client replaces it with this machine's
       // own median for this workflow and these modes as soon as it has one, so

@@ -134,12 +134,14 @@ curation is in `src/lib/workflows/rewrite-catalog.ts`.
 button in the header also chooses *where* the prompt is rewritten: the gateway,
 or **this ComfyUI machine**, which runs an uncensored model through ComfyUI's
 built-in `TextGenerate` node — no key, no content policy, and it can see the
-pictures the image workflows show their director. It costs about a minute and a
-half per run, and it needs two things the gateway does not: a ComfyUI recent
+pictures the image workflows show their director. It costs about twenty seconds
+per run, and it needs two things the gateway does not: a ComfyUI recent
 enough that `TextGenerate` takes a `system_prompt` input (0.38 does; 0.33 does
-not), and one more file in `models/text_encoders/` — the **int8** file from
-<https://huggingface.co/DeepNeuralNerd/Gemma-4-12B-it-uncensored-heretic-DeepNeuralNerd-LTX_2.5_ComfyUI>,
-13 GB. Not the bf16 one: at 26 GB it does not fit on a 24 GB card. Whatever the
+not), and one more file in `models/text_encoders/` — `gemma4_12b_uncensored_heretic_int8_convrot.safetensors` from
+<https://huggingface.co/radiatingreverberations/Gemma-4-12B-It-Uncensored-Heretic-INT8-ConvRot-ComfyUI>,
+12 GB. Not an LTX-2.5 text-encoder build of the same model (DeepNeuralNerd's,
+say): it works, but writes each brief about four times slower, and the app
+only uses one when nothing else is installed. Whatever the
 download saved it as is fine; the app finds it by what it is. Offer this when
 refusals are what is failing their runs, not as part of the default setup.
 `pnpm check:nodes` reports it under **Local director (optional)**.

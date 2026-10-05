@@ -261,14 +261,14 @@ function RewriteKeyModal({
         Where the rewrite runs, first, because it decides whether anything
         below matters. Every gateway model has a content policy of its own,
         and a refusal is a run that never starts; the local model has its
-        refusals taken out, and costs about a minute and a half a run for it.
+        refusals taken out, and costs about twenty seconds a run for it.
       */}
       <Field
         id={`${id}-engine`}
         label="Where is the prompt rewritten?"
         help={
           engine === "local"
-            ? "By an uncensored model on your ComfyUI machine, loaded and unloaded around the video model. It has had its refusals trained out, so it writes the briefs the hosted models decline, and it can see your images — but it adds about a minute and a half to every run."
+            ? "By an uncensored model on your ComfyUI machine, loaded and unloaded around the video model. It has had its refusals trained out, so it writes the briefs the hosted models decline, and it can see your images — but it adds about twenty seconds to every run."
             : "By a hosted model on the Vercel AI Gateway, chosen per workflow under Rewrite model. Fast, but every one of them has a content policy, and a refused brief is a run that never starts."
         }
       >
