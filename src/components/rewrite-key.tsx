@@ -112,38 +112,29 @@ export function RewriteKeyButton({
 
   return (
     <>
+      {/*
+        A badge rather than a bare icon: which machine writes the brief changes
+        what a run costs, how long it takes and what it will refuse, and it was
+        invisible without opening the dialog. Amber still means the one state
+        that stops a generation — the gateway chosen and no key on the box.
+      */}
       <button
         type="button"
         onClick={() => setOpen(true)}
         title={label}
         aria-label={label}
-        className={`grid size-8 place-items-center rounded-md border transition-colors duration-150
+        className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-[12px] font-medium
+          transition-colors duration-150
           ${
             warn
               ? "border-warning/50 bg-warning/10 text-warning hover:border-warning"
-              : "border-border-default bg-surface text-fg-muted hover:border-border-strong hover:text-fg"
+              : engine === "local"
+                ? "border-accent/40 bg-accent-subtle text-accent hover:border-accent"
+                : "border-border-default bg-surface text-fg-muted hover:border-border-strong hover:text-fg"
           }`}
       >
-        <svg
-          viewBox="0 0 16 16"
-          className="size-3.5"
-          fill="none"
-          aria-hidden="true"
-        >
-          <circle
-            cx="5.5"
-            cy="8"
-            r="2.75"
-            stroke="currentColor"
-            strokeWidth="1.3"
-          />
-          <path
-            d="M8.25 8H14M11.5 8v2.25M13 8v1.75"
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinecap="round"
-          />
-        </svg>
+        {engine === "local" ? <MachineIcon /> : <KeyIcon />}
+        <span>{engine === "local" ? "Local" : "Gateway"}</span>
       </button>
 
       <RewriteKeyModal
@@ -198,6 +189,8 @@ function RewriteKeyModal({
     }
   }, [open]);
 
+  const typingKey = engine === "gateway" && key.trim().length > 0;
+
   const save = async () => {
     setSaving(true);
     setError(null);
@@ -232,12 +225,17 @@ function RewriteKeyModal({
             ? "A key is set. Entering another replaces it."
             : "No key set — the prompt rewrite cannot run without one."
       }
+      // The choices above the key take effect as they are made, so there is
+      // nothing to save unless a key is being typed — and only then does the
+      // footer offer to save one. Otherwise it is a way out and nothing else;
+      // a "Save key" button sitting there after switching to the local
+      // director read as though the switch had not been kept.
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="quiet" size="sm" onClick={onClose} disabled={saving}>
-            {gateway?.installed ? "Cancel" : "Done"}
-          </Button>
-          {gateway?.installed ? (
+        typingKey ? (
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="quiet" size="sm" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
             <Button
               variant="primary"
               size="sm"
@@ -246,8 +244,17 @@ function RewriteKeyModal({
             >
               {saving ? "Saving…" : "Save key"}
             </Button>
-          ) : null}
-        </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[12px] text-fg-subtle">
+              Changes apply right away.
+            </span>
+            <Button variant="primary" size="sm" onClick={onClose}>
+              Done
+            </Button>
+          </div>
+        )
       }
     >
       {/*
@@ -316,7 +323,7 @@ function RewriteKeyModal({
         config.json to write to and the save would have nowhere to go. The
         picker setting below does not, so it stays either way.
       */}
-      {gateway?.installed ? (
+      {gateway?.installed && engine === "gateway" ? (
         <>
           <p className="text-[13px] leading-relaxed text-fg-muted">
             Every workflow expands what you type into a full shot description
@@ -425,7 +432,7 @@ function RewriteKeyModal({
         </Field>
       ) : null}
 
-      {gateway?.configPath ? (
+      {gateway?.configPath && engine === "gateway" ? (
         <p className="text-[12px] break-all text-fg-subtle">
           Written to <span className="font-mono">{gateway.configPath}</span> on
           the ComfyUI machine. Setting{" "}
@@ -434,5 +441,39 @@ function RewriteKeyModal({
         </p>
       ) : null}
     </Modal>
+  );
+}
+
+/** The gateway: a key, since a key on the box is what the gateway runs on. */
+function KeyIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+      <circle cx="5.5" cy="8" r="2.75" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M8.25 8H14M11.5 8v2.25M13 8v1.75"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** The ComfyUI machine: a box with a card's worth of fans. */
+function MachineIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+      <rect
+        x="2"
+        y="3.5"
+        width="12"
+        height="9"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+      <circle cx="6" cy="8" r="1.75" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="10.5" cy="8" r="1.75" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
   );
 }
