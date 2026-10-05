@@ -58,6 +58,8 @@ interface GenerateResponse {
   patches?: string[];
   /** Which LoRA each content switch applied, and at what. */
   loras?: Job["loras"];
+  /** Whether the brief was written on the ComfyUI machine. */
+  localDirector?: boolean;
   estimatedSeconds: number | null;
 }
 
@@ -77,6 +79,8 @@ export interface JobsController {
     options?: RunModes & {
       /** Apply the turbo LoRA the memory-sparing way. Nothing without turbo. */
       lowVram?: boolean;
+      /** Write the brief on the ComfyUI machine with this local model id. */
+      localDirector?: string;
       /** The generation whose clip this one was made from, if any. */
       derivedFrom?: string;
     },
@@ -336,7 +340,11 @@ export function useJobs(): JobsController {
     async (
       workflow: WorkflowSummary,
       values: Record<string, ParamValue>,
-      options?: RunModes & { lowVram?: boolean; derivedFrom?: string },
+      options?: RunModes & {
+        lowVram?: boolean;
+        localDirector?: string;
+        derivedFrom?: string;
+      },
     ) => {
       const turbo = Boolean(options?.turbo);
       const asked = options?.patches ?? [];
@@ -357,6 +365,9 @@ export function useJobs(): JobsController {
             tier: options?.tier,
             strengths: options?.strengths,
             alternateBase: options?.alternateBase,
+            ...(options?.localDirector
+              ? { director: "local", localDirector: options.localDirector }
+              : {}),
           }),
         });
 
@@ -383,6 +394,7 @@ export function useJobs(): JobsController {
           turbo,
           patches,
           loras,
+          localDirector: response.localDirector === true,
           derivedFrom: options?.derivedFrom,
           hasAudio: Boolean(workflow.hasAudio),
           submittedAt: Date.now(),

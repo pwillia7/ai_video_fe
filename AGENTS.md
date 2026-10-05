@@ -68,6 +68,11 @@ afternoon.
   The curation is `rewrite-catalog.ts`; never hand-edit the generated file, and
   never hardcode a model id in a graph: the node validates it against the live
   catalog, so a stale one is a rejected run.
+- **The rewrite can also run on the ComfyUI machine.** `local-director.ts`
+  swaps every gateway director for ComfyUI's own `TextGenerate`, per run, when
+  the user chooses it beside the key — in-process so ComfyUI evicts it before
+  the video models load, and about 90 seconds slower for it. The model file is
+  found by pattern, not name, because downloads mangle its spaces.
 - **`pnpm typecheck`** before calling anything done. There is no lint script —
   `next lint` was removed in Next 16.
 - **Secrets never enter the repo.** `COMFY_URL`, `COMFY_API_TOKEN` and

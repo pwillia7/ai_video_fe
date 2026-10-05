@@ -1,6 +1,11 @@
 "use client";
 
 import { compactReferenceSlots } from "@/lib/workflows/minimax-common";
+import {
+  DEFAULT_LOCAL_DIRECTOR,
+  LOCAL_DIRECTOR_MODELS,
+  type DirectorEngine,
+} from "@/lib/workflows/local-director";
 import type { GatewayTier } from "@/lib/workflows/rewrite-model";
 import { effectiveWorkflow } from "@/lib/workflows/turbo";
 import {
@@ -100,6 +105,52 @@ export function writeStoredGatewayTier(tier: GatewayTier): void {
     localStorage.setItem(GATEWAY_TIER_KEY, tier);
   } catch {
     // As elsewhere here — a storage failure costs the preference, nothing more.
+  }
+}
+
+/**
+ * Where the prompt rewrite runs, and which local model it runs on there. Kept
+ * beside the gateway tier and for the same reason: an answer about the
+ * person's setup, not about any one workflow. See local-director.ts.
+ */
+const DIRECTOR_ENGINE_KEY = "sorant-director-engine";
+const LOCAL_DIRECTOR_KEY = "sorant-local-director";
+
+export function readStoredDirectorEngine(): DirectorEngine {
+  try {
+    return localStorage.getItem(DIRECTOR_ENGINE_KEY) === "local"
+      ? "local"
+      : "gateway";
+  } catch {
+    return "gateway";
+  }
+}
+
+export function writeStoredDirectorEngine(engine: DirectorEngine): void {
+  try {
+    localStorage.setItem(DIRECTOR_ENGINE_KEY, engine);
+  } catch {
+    // As elsewhere here — a storage failure costs the preference, nothing more.
+  }
+}
+
+export function readStoredLocalDirector(): string {
+  try {
+    const stored = localStorage.getItem(LOCAL_DIRECTOR_KEY);
+    // A model since dropped from the list falls back rather than being sent.
+    return LOCAL_DIRECTOR_MODELS.some((model) => model.id === stored)
+      ? (stored as string)
+      : DEFAULT_LOCAL_DIRECTOR;
+  } catch {
+    return DEFAULT_LOCAL_DIRECTOR;
+  }
+}
+
+export function writeStoredLocalDirector(id: string): void {
+  try {
+    localStorage.setItem(LOCAL_DIRECTOR_KEY, id);
+  } catch {
+    // As above.
   }
 }
 

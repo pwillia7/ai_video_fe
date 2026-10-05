@@ -33,6 +33,12 @@ import {
 import { stepSamplerGraph } from "../src/lib/workflows/step-sampler";
 import { modelSwapGraph } from "../src/lib/workflows/model-swap";
 import { turboGraph } from "../src/lib/workflows/turbo";
+import {
+  findLocalDirectorFile,
+  LOCAL_CLASS,
+  LOCAL_DIRECTOR_MODELS,
+  LOCAL_LOADER_CLASS,
+} from "../src/lib/workflows/local-director";
 
 /**
  * Next loads .env.local for the app; a bare tsx process gets nothing, so do it
@@ -333,6 +339,39 @@ async function main() {
           "           the key button in the app header.",
       );
     }
+  }
+
+  /**
+   * The local director, which is the other side of a choice and so never a
+   * failure: someone on the gateway needs none of it. Reported so that someone
+   * who picked "this ComfyUI machine" can see why their run would be refused
+   * before a run says so. Asked here rather than through `collect`, because no
+   * stored graph contains these nodes — the conversion adds them per run.
+   */
+  console.log("\nLocal director (optional)");
+  const generator = await getNodeSchema(LOCAL_CLASS);
+  const encoders = enumValuesFor(
+    await getNodeSchema(LOCAL_LOADER_CLASS),
+    "clip_name",
+  );
+  if (!generator) {
+    console.log(
+      `  missing  ${LOCAL_CLASS}  — this ComfyUI is too old to run a director; update it`,
+    );
+  } else if (
+    !(generator.input?.optional && "system_prompt" in generator.input.optional)
+  ) {
+    console.log(
+      `  old      ${LOCAL_CLASS} takes no system_prompt — update ComfyUI before running the director locally`,
+    );
+  }
+  for (const model of LOCAL_DIRECTOR_MODELS) {
+    const file = encoders ? findLocalDirectorFile(model, encoders) : undefined;
+    console.log(
+      file
+        ? `  ok       ${model.label}  (${file})`
+        : `  optional ${model.label}  — not installed; download from ${model.download}`,
+    );
   }
 
   /**

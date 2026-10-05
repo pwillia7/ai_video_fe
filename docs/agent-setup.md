@@ -130,6 +130,20 @@ dies at the rewrite step with an error that says nothing useful, that is usually
 a refusal — have them pick a different model rather than debug the prompt. The
 curation is in `src/lib/workflows/rewrite-catalog.ts`.
 
+**Or the rewrite can run on their own GPU, with nothing refused.** The key
+button in the header also chooses *where* the prompt is rewritten: the gateway,
+or **this ComfyUI machine**, which runs an uncensored model through ComfyUI's
+built-in `TextGenerate` node — no key, no content policy, and it can see the
+pictures the image workflows show their director. It costs about a minute and a
+half per run, and it needs two things the gateway does not: a ComfyUI recent
+enough that `TextGenerate` takes a `system_prompt` input (0.38 does; 0.33 does
+not), and one more file in `models/text_encoders/` — the **int8** file from
+<https://huggingface.co/DeepNeuralNerd/Gemma-4-12B-it-uncensored-heretic-DeepNeuralNerd-LTX_2.5_ComfyUI>,
+13 GB. Not the bf16 one: at 26 GB it does not fit on a 24 GB card. Whatever the
+download saved it as is fine; the app finds it by what it is. Offer this when
+refusals are what is failing their runs, not as part of the default setup.
+`pnpm check:nodes` reports it under **Local director (optional)**.
+
 **Fourteen model files.** Eleven are named literally in the graphs. The other
 three belong to the content-LoRA switch, which is off by default — all three are
 optional, and none is needed unless they want that look.
@@ -386,6 +400,7 @@ to tell them:
 | Generation fails on a node class | `pnpm check:nodes` — a pack is missing |
 | Generation fails at the rewrite, no key | The gateway key on the ComfyUI host, not this app — header key button, or `AI_GATEWAY_API_KEY` |
 | Generation fails at the rewrite, no reason | Usually a refusal. Change **Rewrite model** and try again |
+| Refused: "the local director is chosen but … is not in" | The int8 Gemma file is not in `models/text_encoders/` — or switch the rewrite back to the gateway from the key button |
 | A generation just stops | ComfyUI restarting drops its history; the job shows as **Lost** |
 
 `/api/health` is the fastest single source of truth — it reports `reachable`,

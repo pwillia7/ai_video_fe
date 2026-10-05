@@ -54,6 +54,12 @@ export interface Job {
    */
   patches?: string[];
   /**
+   * Whether the brief was written on the ComfyUI machine rather than by the
+   * gateway. In `modeKey` for the reason turbo is: it adds a minute and a half
+   * to every run, so an estimate pooling the two would describe neither.
+   */
+  localDirector?: boolean;
+  /**
    * What each content-LoRA switch actually applied, by patch id: which entry,
    * which file, at what strength, on which checkpoint.
    *
@@ -406,7 +412,13 @@ export function learnedEstimateSeconds(jobs: Job[], job: Job): number | null {
  * Sorted so two runs with the same switches on match however they were stored.
  */
 function modeKey(job: Job): string {
-  return [job.turbo ? "turbo" : "", ...(job.patches ?? [])].sort().join("|");
+  return [
+    job.turbo ? "turbo" : "",
+    job.localDirector ? "local-director" : "",
+    ...(job.patches ?? []),
+  ]
+    .sort()
+    .join("|");
 }
 
 export function formatDuration(ms: number): string {

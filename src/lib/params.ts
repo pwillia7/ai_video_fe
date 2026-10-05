@@ -7,6 +7,11 @@ import {
 } from "@/lib/workflows/director";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import {
+  applyLocalRewrite,
+  LOCAL_CLASS,
+  localGraph,
+} from "@/lib/workflows/local-director";
+import {
   applyTextOnlyRewrite,
   modelsFor,
   offeredModel,
@@ -235,6 +240,13 @@ export interface AppliedParams {
 export interface RunMode extends RunModes {
   /** Apply the turbo LoRA the memory-sparing way. Only means anything with turbo. */
   lowVram?: boolean;
+  /**
+   * The file of the language model to write the brief with on the ComfyUI
+   * machine, in place of the gateway. Absent means the gateway. Resolved by the
+   * route against the live `text_encoders` list, so this is always a file the
+   * install has. See local-director.ts.
+   */
+  localDirector?: string;
 }
 
 /**
@@ -425,6 +437,12 @@ export function applyParams(
   // Runs last so it sees the resolved values and can prune anything they made
   // redundant — an unused optional input, and the node that fed it.
   workflow.finalize?.(graph, resolved);
+
+  // After `finalize`, for the reason the text-only pass is: whether there is a
+  // picture left to show the director is what `finalize` decides. And before
+  // that pass, because a local director can see — converting it first takes it
+  // out of the text-only pass's reach. See `applyLocalRewrite`.
+  if (mode.localDirector) applyLocalRewrite(graph, mode.localDirector);
 
   // After `finalize`, because both things that send a director here are only
   // settled by then: the model has been written onto the node by its target,
@@ -953,6 +971,37 @@ function rewriteModelProblems(workflow: WorkflowDef): string[] {
     if (!driven.has(id)) {
       problems.push(
         `Rewrite node ${id} is not a target of "${REWRITE_MODEL}", so it would keep the model baked into the graph whatever the form says.`,
+      );
+    }
+  }
+
+  // The local director, which replaces every rewrite node rather than one
+  // value on it. What can go wrong is the same as for the text-only conversion
+  // — a link left reading a node that is gone — plus a gateway node the pass
+  // missed, which would still need the gateway key the user chose not to use.
+  // And the bypass has to work on the converted graph too, since the two are
+  // independent switches and the bypass runs last.
+  const local = localGraph(workflow.graph);
+  for (const link of danglingLinks(local)) {
+    problems.push(`Running the director locally leaves a broken graph: ${link}.`);
+  }
+  for (const [id, node] of Object.entries(local)) {
+    if (REWRITE_CLASSES.includes(node.class_type)) {
+      problems.push(
+        `Rewrite node ${id} is still ${node.class_type} with the local director chosen, so the run would still need the gateway.`,
+      );
+    }
+  }
+  if (workflow.directorBypass) {
+    if (local[workflow.directorBypass.node]?.class_type !== LOCAL_CLASS) {
+      problems.push(
+        `The bypass names ${workflow.directorBypass.node} as the director, which the local conversion did not turn into ${LOCAL_CLASS}.`,
+      );
+    }
+    applyBypass(local, workflow.directorBypass);
+    for (const link of danglingLinks(local)) {
+      problems.push(
+        `Skipping a local director leaves a broken graph: ${link}.`,
       );
     }
   }

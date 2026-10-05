@@ -10,6 +10,11 @@ import {
   type GatewayTier,
 } from "@/lib/workflows/rewrite-model";
 import { Modal } from "@/components/ui/modal";
+import {
+  LOCAL_DIRECTOR_MODELS,
+  localDirectorModel,
+  type DirectorEngine,
+} from "@/lib/workflows/local-director";
 import { api } from "@/lib/client";
 
 interface Gateway {
@@ -44,9 +49,17 @@ interface Gateway {
 export function RewriteKeyButton({
   tier,
   onTierChange,
+  engine,
+  onEngineChange,
+  localDirector,
+  onLocalDirectorChange,
 }: {
   tier: GatewayTier;
   onTierChange: (tier: GatewayTier) => void;
+  engine: DirectorEngine;
+  onEngineChange: (engine: DirectorEngine) => void;
+  localDirector: string;
+  onLocalDirectorChange: (id: string) => void;
 }) {
   const [gateway, setGateway] = useState<Gateway | null>(null);
   const [open, setOpen] = useState(false);
@@ -84,14 +97,18 @@ export function RewriteKeyButton({
    * Amber only for the one state that stops a generation: a pack that is there
    * and has no key. Unknown is not a warning — the connection pill is already
    * saying the box is unreachable, and saying it twice in a control about
-   * something else is noise.
+   * something else is noise. And not at all while the rewrite runs on the
+   * ComfyUI machine, which needs no key.
    */
-  const warn = installed && !configured;
-  const label = !installed
-    ? "Which models the prompt rewrite offers"
-    : configured
-      ? "Change the key the prompt rewrite runs on"
-      : "No rewrite key set — generations will fail until one is";
+  const warn = installed && !configured && engine === "gateway";
+  const label =
+    engine === "local"
+      ? "The prompt rewrite runs on the ComfyUI machine"
+      : !installed
+        ? "Which models the prompt rewrite offers"
+        : configured
+          ? "Change the key the prompt rewrite runs on"
+          : "No rewrite key set — generations will fail until one is";
 
   return (
     <>
@@ -136,6 +153,10 @@ export function RewriteKeyButton({
         onSaved={setGateway}
         tier={tier}
         onTierChange={onTierChange}
+        engine={engine}
+        onEngineChange={onEngineChange}
+        localDirector={localDirector}
+        onLocalDirectorChange={onLocalDirectorChange}
       />
     </>
   );
@@ -148,6 +169,10 @@ function RewriteKeyModal({
   onSaved,
   tier,
   onTierChange,
+  engine,
+  onEngineChange,
+  localDirector,
+  onLocalDirectorChange,
 }: {
   open: boolean;
   onClose: () => void;
@@ -155,6 +180,10 @@ function RewriteKeyModal({
   onSaved: (next: Gateway) => void;
   tier: GatewayTier;
   onTierChange: (tier: GatewayTier) => void;
+  engine: DirectorEngine;
+  onEngineChange: (engine: DirectorEngine) => void;
+  localDirector: string;
+  onLocalDirectorChange: (id: string) => void;
 }) {
   const id = useId();
   const [key, setKey] = useState("");
@@ -193,9 +222,11 @@ function RewriteKeyModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Rewrite key"
+      title="Prompt rewrite"
       subtitle={
-        !gateway?.installed
+        engine === "local"
+          ? "Running on your ComfyUI machine — no key needed."
+          : !gateway?.installed
           ? "The gateway pack is not answering, so the key cannot be set from here. What the picker offers still can."
           : gateway.configured
             ? "A key is set. Entering another replaces it."
@@ -219,6 +250,67 @@ function RewriteKeyModal({
         </div>
       }
     >
+      {/*
+        Where the rewrite runs, first, because it decides whether anything
+        below matters. Every gateway model has a content policy of its own,
+        and a refusal is a run that never starts; the local model has its
+        refusals taken out, and costs about a minute and a half a run for it.
+      */}
+      <Field
+        id={`${id}-engine`}
+        label="Where is the prompt rewritten?"
+        help={
+          engine === "local"
+            ? "By an uncensored model on your ComfyUI machine, loaded and unloaded around the video model. It has had its refusals trained out, so it writes the briefs the hosted models decline, and it can see your images — but it adds about a minute and a half to every run."
+            : "By a hosted model on the Vercel AI Gateway, chosen per workflow under Rewrite model. Fast, but every one of them has a content policy, and a refused brief is a run that never starts."
+        }
+      >
+        <Select
+          id={`${id}-engine`}
+          value={engine}
+          onChange={(next) => onEngineChange(next as DirectorEngine)}
+          options={[
+            { value: "gateway", label: "AI Gateway — hosted models" },
+            {
+              value: "local",
+              label: "This ComfyUI machine — uncensored, slower",
+            },
+          ]}
+        />
+      </Field>
+
+      {engine === "local" ? (
+        <>
+          <Field
+            id={`${id}-local`}
+            label="Local model"
+            help="Goes in ComfyUI's models/text_encoders folder. Take the int8 file — the bf16 one does not fit on a 24 GB card."
+          >
+            <Select
+              id={`${id}-local`}
+              value={localDirector}
+              onChange={onLocalDirectorChange}
+              options={LOCAL_DIRECTOR_MODELS.map((model) => ({
+                value: model.id,
+                label: model.label,
+              }))}
+            />
+          </Field>
+          <p className="text-[12px] text-fg-subtle">
+            Not on the machine yet?{" "}
+            <a
+              href={localDirectorModel(localDirector).download}
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent underline underline-offset-2"
+            >
+              Download it from Hugging Face
+            </a>
+            .
+          </p>
+        </>
+      ) : null}
+
       {/*
         The key half, which does need the pack: without one there is no
         config.json to write to and the save would have nowhere to go. The
@@ -305,31 +397,33 @@ function RewriteKeyModal({
         boolean. It changes nothing about the key and nothing about the run; all
         it does is decide which models the Rewrite model picker offers.
       */}
-      <Field
-        id={`${id}-tier`}
-        label="What kind of key is it?"
-        help={
-          freeModelsExist()
-            ? "A team with no card on it still gets $5 of credit a month, so a paid model is not refused — it is billed against an allowance that runs out. Say free to be offered only the models that cost nothing."
-            : "Nothing in the gateway's catalog is free today, so free changes nothing for now — the answer is kept and takes effect when one appears. A team with no card still gets $5 of credit a month."
-        }
-      >
-        <Select
+      {engine === "gateway" ? (
+        <Field
           id={`${id}-tier`}
-          value={tier}
-          onChange={(next) => onTierChange(next as GatewayTier)}
-          options={[
-            {
-              value: "paid",
-              label: `Paid — every model (${modelsForTier("paid").length})`,
-            },
-            {
-              value: "free",
-              label: `Free credits only — no-cost models (${modelsForTier("free").length})`,
-            },
-          ]}
-        />
-      </Field>
+          label="What kind of key is it?"
+          help={
+            freeModelsExist()
+              ? "A team with no card on it still gets $5 of credit a month, so a paid model is not refused — it is billed against an allowance that runs out. Say free to be offered only the models that cost nothing."
+              : "Nothing in the gateway's catalog is free today, so free changes nothing for now — the answer is kept and takes effect when one appears. A team with no card still gets $5 of credit a month."
+          }
+        >
+          <Select
+            id={`${id}-tier`}
+            value={tier}
+            onChange={(next) => onTierChange(next as GatewayTier)}
+            options={[
+              {
+                value: "paid",
+                label: `Paid — every model (${modelsForTier("paid").length})`,
+              },
+              {
+                value: "free",
+                label: `Free credits only — no-cost models (${modelsForTier("free").length})`,
+              },
+            ]}
+          />
+        </Field>
+      ) : null}
 
       {gateway?.configPath ? (
         <p className="text-[12px] break-all text-fg-subtle">

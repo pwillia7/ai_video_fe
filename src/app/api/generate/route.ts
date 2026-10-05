@@ -1,9 +1,15 @@
 import { unauthorized } from "@/lib/auth";
-import { queuePrompt } from "@/lib/comfy";
+import { enumValuesFor, getNodeSchema, queuePrompt } from "@/lib/comfy";
 import { allowedValuesFor } from "@/lib/dynamic-options";
 import { errorResponse } from "@/lib/errors";
 import { applyParams, ParamError, validateWorkflow } from "@/lib/params";
 import { getWorkflow } from "@/lib/workflows";
+import {
+  findLocalDirectorFile,
+  LOCAL_DIRECTOR_SECONDS,
+  LOCAL_LOADER_CLASS,
+  localDirectorModel,
+} from "@/lib/workflows/local-director";
 import { enabledPatches } from "@/lib/workflows/patches";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +35,8 @@ export async function POST(request: Request) {
       tier?: Record<string, string>;
       strengths?: Record<string, number>;
       alternateBase?: Record<string, boolean>;
+      director?: string;
+      localDirector?: string;
     };
 
     if (!body.workflowId) {
@@ -82,6 +90,30 @@ export async function POST(request: Request) {
       if (typeof value === "boolean") alternateBase[id] = value;
     }
 
+    // Which file the local director is, found on this install rather than sent
+    // by the browser: the browser names a model, never a path, and the file is
+    // matched by what it is because what it was saved as varies. See
+    // `LocalDirectorModel.match`.
+    let localDirector: string | undefined;
+    if (body.director === "local") {
+      const model = localDirectorModel(body.localDirector);
+      const files = enumValuesFor(
+        await getNodeSchema(LOCAL_LOADER_CLASS),
+        "clip_name",
+      );
+      if (!files) {
+        throw new ParamError(
+          "Could not ask ComfyUI which text encoders it has, so the local director cannot be found. Try again in a minute, or switch the director back to the AI Gateway.",
+        );
+      }
+      localDirector = findLocalDirectorFile(model, files);
+      if (!localDirector) {
+        throw new ParamError(
+          `The local director is chosen but ${model.label} is not in ComfyUI's models/text_encoders folder. Download it from ${model.download}, or switch the director back to the AI Gateway.`,
+        );
+      }
+    }
+
     const problems = validateWorkflow(workflow);
     if (problems.length > 0) {
       return Response.json(
@@ -119,6 +151,7 @@ export async function POST(request: Request) {
       tier,
       strengths,
       alternateBase,
+      localDirector,
     });
 
     const clientId = crypto.randomUUID();
@@ -134,19 +167,32 @@ export async function POST(request: Request) {
       // the same reason `applied` is rather than being assumed from the
       // request: an id that no longer names an entry resolved to the default.
       loras: appliedLoras,
+      // Echoed for the same reason: the history buckets render times by how a
+      // run was made, and a local brief adds a minute and a half to it.
+      localDirector: localDirector !== undefined,
       // Only ever a starting point: the client replaces it with this machine's
       // own median for this workflow and these modes as soon as it has one, so
       // the fact that neither number describes both switches at once costs a
       // rough progress bar on the first run in a combination and nothing after.
-      estimatedSeconds:
+      estimatedSeconds: withLocalDirector(
         enabledPatches(workflow.patches, applied)
           .map((patch) => patch.estimatedSeconds)
           .findLast((seconds) => seconds !== undefined) ??
-        (turbo ? workflow.turbo?.estimatedSeconds : undefined) ??
-        workflow.estimatedSeconds ??
-        null,
+          (turbo ? workflow.turbo?.estimatedSeconds : undefined) ??
+          workflow.estimatedSeconds ??
+          null,
+        localDirector !== undefined,
+      ),
     });
   } catch (error) {
     return errorResponse(error);
   }
+}
+
+/** The gateway-run estimate, plus what writing the brief on the box costs. */
+function withLocalDirector(
+  seconds: number | null,
+  local: boolean,
+): number | null {
+  return seconds !== null && local ? seconds + LOCAL_DIRECTOR_SECONDS : seconds;
 }

@@ -40,9 +40,13 @@ import {
   hydrateStrengths,
   hydrateTurbo,
   mergeWithDefaults,
+  readStoredDirectorEngine,
   readStoredGatewayTier,
+  readStoredLocalDirector,
   readStoredLowVram,
+  writeStoredDirectorEngine,
   writeStoredGatewayTier,
+  writeStoredLocalDirector,
   writeStoredLowVram,
   writeStoredParams,
   writeStoredAlternateBase,
@@ -53,6 +57,10 @@ import {
   writeStoredTurbo,
 } from "@/lib/param-storage";
 import { workflowLabel } from "@/lib/workflows/modes";
+import {
+  directorParams,
+  type DirectorEngine,
+} from "@/lib/workflows/local-director";
 import { tierParams, type GatewayTier } from "@/lib/workflows/rewrite-model";
 import {
   compactReferenceSlots,
@@ -243,6 +251,26 @@ function Workbench({
    * between graphs. Read lazily for the same reason as the modes above.
    */
   const [lowVram, setLowVram] = useState(readStoredLowVram);
+
+  /**
+   * Where the prompt rewrite runs, and on which local model when it is the
+   * ComfyUI machine. For every workflow at once, like `lowVram`: it is about
+   * the setup rather than the shot. See local-director.ts.
+   */
+  const [directorEngine, setDirectorEngine] = useState(
+    readStoredDirectorEngine,
+  );
+  const [localDirector, setLocalDirector] = useState(readStoredLocalDirector);
+  const onDirectorEngineChange = useCallback((engine: DirectorEngine) => {
+    setDirectorEngine(engine);
+    writeStoredDirectorEngine(engine);
+  }, []);
+  const onLocalDirectorChange = useCallback((id: string) => {
+    setLocalDirector(id);
+    writeStoredLocalDirector(id);
+  }, []);
+  /** What a run sends for it: a model id on a local run, nothing otherwise. */
+  const runDirector = directorEngine === "local" ? localDirector : undefined;
 
   /**
    * How strong each switch that carries a strength is set. Keyed by patch id
@@ -803,6 +831,7 @@ function Workbench({
     void jobs.submit(selected, values, {
       ...modes,
       lowVram,
+      localDirector: runDirector,
       // Only meaningful on the workflow the clip was actually loaded into, and
       // only for the hand-off that put it there.
       derivedFrom:
@@ -821,7 +850,7 @@ function Workbench({
         stageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
     }
-  }, [selected, values, jobs, clipSource, modes, lowVram]);
+  }, [selected, values, jobs, clipSource, modes, lowVram, runDirector]);
 
   /**
    * Run a failed generation again, exactly as it was.
@@ -836,9 +865,9 @@ function Workbench({
    * away whatever is being worked on in it, and the run that comes back is a
    * new row at the top of this same list either way.
    *
-   * `lowVram` is the one thing taken from the session rather than the run,
-   * because a job does not record it — it is a property of the machine's memory
-   * rather than of the take, and the current answer is the better guess.
+   * `lowVram` and where the brief is written are taken from the session rather
+   * than the run — properties of the setup rather than of the take, where the
+   * current answer is the better guess.
    *
    * `derivedFrom` is carried across so a retried hand-off stays in the family
    * it came from rather than appearing as an unrelated entry beside it.
@@ -867,6 +896,7 @@ function Workbench({
         tier: restored.tier,
         alternateBase: restored.alternateBase,
         lowVram,
+        localDirector: runDirector,
         derivedFrom: job.derivedFrom,
       });
 
@@ -879,7 +909,7 @@ function Workbench({
         );
       }
     },
-    [jobs, workflows, lowVram],
+    [jobs, workflows, lowVram, runDirector],
   );
 
   /** Withheld where the workflow that made the run is no longer registered. */
@@ -945,6 +975,10 @@ function Workbench({
             <RewriteKeyButton
               tier={gatewayTier}
               onTierChange={onGatewayTierChange}
+              engine={directorEngine}
+              onEngineChange={onDirectorEngineChange}
+              localDirector={localDirector}
+              onLocalDirectorChange={onLocalDirectorChange}
             />
             <NotifyToggle />
             <ThemeToggle />
@@ -1121,7 +1155,7 @@ function Workbench({
                 {/* Deliberately never disabled: a running generation should not
                     stop you setting up the next one. */}
                 <ParamForm
-                  params={selected.params}
+                  params={directorParams(selected.params, directorEngine)}
                   values={values}
                   onChange={onParamChange}
                   fieldError={fieldError}
