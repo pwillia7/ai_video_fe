@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { formatDuration, formatWhen, renderMs, type Job } from "@/lib/jobs";
@@ -126,6 +127,20 @@ export function SettingsModal({
         </Section>
       ))}
 
+      {/*
+        What the director turned the prompt into — the text the video model was
+        actually given. Collapsed, because it is long and most visits are for the
+        seed; one heading per director, which only the music workflow has more
+        than one of.
+      */}
+      {Object.entries(job.briefs ?? {}).map(([title, brief], _, all) => (
+        <Brief
+          key={title}
+          heading={all.length > 1 ? `Director's brief — ${title}` : "Director's brief"}
+          brief={brief}
+        />
+      ))}
+
       {known.length > 0 || unknown.length > 0 ? (
         <Section heading="Settings">
           <dl className="flex flex-col">
@@ -148,6 +163,19 @@ export function SettingsModal({
       <Section heading="Run">
         <dl className="flex flex-col">
           <Row label="Workflow" value={workflow?.name ?? job.workflowName} />
+          {/* Who wrote the brief above. The gateway model is a param and is
+              listed under Settings too; this is the one line that says when it
+              was not the one used. */}
+          {job.briefs && Object.keys(job.briefs).length > 0 ? (
+            <Row
+              label="Director"
+              value={
+                job.localDirector
+                  ? "This ComfyUI machine"
+                  : String(resolved.rewrite_model ?? "AI Gateway")
+              }
+            />
+          ) : null}
           {/* What each content switch actually applied. The run's name says
               which switches were on; only this says which LoRA, how strong, and
               on which weights — the three things two otherwise-identical takes
@@ -234,6 +262,56 @@ function Section({
         {heading}
       </h3>
       {children}
+    </section>
+  );
+}
+
+function Brief({ heading, brief }: { heading: string; brief: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(brief);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard refused — the text is selectable below either way.
+    }
+  };
+
+  return (
+    <section>
+      <details className="group">
+        <summary
+          className="flex cursor-pointer list-none items-center justify-between gap-2
+            text-[11px] font-medium uppercase tracking-[0.08em] text-fg-subtle
+            hover:text-fg-muted"
+        >
+          <span>
+            <span className="mr-1.5 inline-block transition-transform group-open:rotate-90">
+              ›
+            </span>
+            {heading}
+          </span>
+          <span className="normal-case tracking-normal">
+            {brief.split(/\s+/).filter(Boolean).length} words
+          </span>
+        </summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <p
+            className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-md border
+              border-border-default bg-bg-subtle p-3 font-mono text-[12px]
+              leading-relaxed text-fg-muted"
+          >
+            {brief}
+          </p>
+          <div className="flex justify-end">
+            <Button size="sm" variant="quiet" onClick={() => void copy()}>
+              {copied ? "Copied" : "Copy brief"}
+            </Button>
+          </div>
+        </div>
+      </details>
     </section>
   );
 }

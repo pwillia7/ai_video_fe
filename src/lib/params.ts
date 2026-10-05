@@ -5,6 +5,7 @@ import {
   bypassProblems,
   promptConsumer,
 } from "@/lib/workflows/director";
+import { attachBriefPreviews } from "@/lib/workflows/brief";
 import { modelLoaderIn } from "@/lib/workflows/model-chain";
 import {
   applyLocalRewrite,
@@ -456,6 +457,9 @@ export function applyParams(
   if (workflow.directorBypass && bypassApplies(workflow.directorBypass, resolved)) {
     applyBypass(graph, workflow.directorBypass);
   }
+
+  // Last of all, so only the directors the run still has get one. See brief.ts.
+  attachBriefPreviews(graph);
 
   return {
     graph,

@@ -107,6 +107,7 @@ function applyStatus(job: Job, status: StatusPayload | undefined): Job {
       phase: "done",
       queuePosition: null,
       outputs: status.outputs,
+      briefs: status.briefs,
       completedAt: Date.now(),
     };
   }
@@ -118,6 +119,7 @@ function applyStatus(job: Job, status: StatusPayload | undefined): Job {
       phase: "error",
       queuePosition: null,
       error: status.error ?? "The workflow failed while executing.",
+      briefs: status.briefs,
       completedAt: Date.now(),
     };
   }

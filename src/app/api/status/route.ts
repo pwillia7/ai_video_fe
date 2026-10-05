@@ -9,6 +9,7 @@ import {
 } from "@/lib/comfy";
 import { errorResponse } from "@/lib/errors";
 import { ParamError } from "@/lib/params";
+import { briefsFrom } from "@/lib/workflows/brief";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -26,6 +27,12 @@ export interface StatusPayload {
   queuePosition: number | null;
   outputs: Array<ComfyFileRef & { url: string }>;
   error?: string;
+  /**
+   * What each director wrote, by title, once the run is finished. On a failed
+   * run too, where it is often the explanation — a brief that came back as a
+   * refusal is a run that rendered something nobody asked for.
+   */
+  briefs?: Record<string, string>;
 }
 
 /** Guards against an oversized fan-out of history lookups. */
@@ -84,9 +91,16 @@ async function statusFor(
   if (entry) {
     const failure = extractError(entry);
     const outputs = collectOutputs(entry);
+    const briefs = briefsFrom(entry);
 
     if (failure) {
-      return { state: "error", queuePosition: null, outputs: [], error: failure };
+      return {
+        state: "error",
+        queuePosition: null,
+        outputs: [],
+        error: failure,
+        briefs,
+      };
     }
 
     // A completed prompt with nothing to show means the graph has no save
@@ -96,6 +110,7 @@ async function statusFor(
         state: "error",
         queuePosition: null,
         outputs: [],
+        briefs,
         error:
           "The workflow finished but produced no file. Check that a save node (SaveVideo, SaveWEBM or VHS_VideoCombine) is connected in the graph.",
       };
@@ -106,6 +121,7 @@ async function statusFor(
         state: "done",
         queuePosition: null,
         outputs: outputs.map((ref) => ({ ...ref, url: mediaUrl(ref) })),
+        briefs,
       };
     }
   }

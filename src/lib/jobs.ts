@@ -60,6 +60,12 @@ export interface Job {
    */
   localDirector?: boolean;
   /**
+   * What the director wrote, by what it was writing — the brief the video model
+   * was actually given, which nothing else on the job records. Absent on a run
+   * written as typed, and on anything from before it was kept.
+   */
+  briefs?: Record<string, string>;
+  /**
    * What each content-LoRA switch actually applied, by patch id: which entry,
    * which file, at what strength, on which checkpoint.
    *
