@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { formatDuration, formatWhen, renderMs, type Job } from "@/lib/jobs";
+import { offeredModel, REWRITE_MODEL } from "@/lib/workflows/rewrite-model";
 import {
   paramVisible,
   type ParamValue,
@@ -48,9 +49,17 @@ export function SettingsModal({
   // values took no part in the run — the lyrics box while the lyricist was
   // switched on holds whatever was last typed there, and reading it back as
   // this generation's lyrics would be a plain lie about what was sung.
+  //
+  // The gateway's model picker too, on a run whose brief was written on the
+  // ComfyUI machine: the value is still submitted and resolved, but no gateway
+  // model was called, and listing one would name the wrong author for the
+  // brief. The Director row under Run says who wrote it instead.
   const known = workflow
     ? workflow.params.filter(
-        (param) => param.id in resolved && paramVisible(param, resolved),
+        (param) =>
+          param.id in resolved &&
+          paramVisible(param, resolved) &&
+          !(job.localDirector && param.id === REWRITE_MODEL),
       )
     : [];
   // Every id the workflow still declares, not only the ones shown above: a
@@ -163,16 +172,19 @@ export function SettingsModal({
       <Section heading="Run">
         <dl className="flex flex-col">
           <Row label="Workflow" value={workflow?.name ?? job.workflowName} />
-          {/* Who wrote the brief above. The gateway model is a param and is
-              listed under Settings too; this is the one line that says when it
-              was not the one used. */}
-          {job.briefs && Object.keys(job.briefs).length > 0 ? (
+          {/* Who wrote the brief. Shown for every local run, brief or not —
+              the gateway picker is left out of Settings on those, so this is
+              the only line that answers it — and for a gateway run wherever
+              there is a brief above to attribute. */}
+          {job.localDirector ||
+          (job.briefs && Object.keys(job.briefs).length > 0) ? (
             <Row
               label="Director"
               value={
                 job.localDirector
                   ? "This ComfyUI machine"
-                  : String(resolved.rewrite_model ?? "AI Gateway")
+                  : (offeredModel(resolved[REWRITE_MODEL])?.label ??
+                    String(resolved[REWRITE_MODEL] ?? "AI Gateway"))
               }
             />
           ) : null}
