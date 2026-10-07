@@ -402,6 +402,31 @@ const CLIP_BUTTONS: Record<
       </svg>
     ),
   },
+  upscale: {
+    label: "Upscale",
+    title: "Make this clip larger and sharper",
+    icon: (
+      // A small frame, and the corner it is pulled out to.
+      <svg viewBox="0 0 16 16" className="size-3.5" fill="none" aria-hidden="true">
+        <rect
+          x="2"
+          y="8"
+          width="6"
+          height="6"
+          rx="1.2"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M9 7l4.5-4.5M10 2.5h3.5V6"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
   illustrate: {
     label: "Create video",
     title: "Build a video around this track",

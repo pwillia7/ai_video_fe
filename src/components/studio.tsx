@@ -99,6 +99,11 @@ const CLIP_NOTICE: Record<ClipAction, { verb: string; detail: string }> = {
     detail:
       "The clip is loaded as the reference below — change anything you like, then generate.",
   },
+  upscale: {
+    verb: "Upscaling",
+    detail:
+      "The clip is loaded below at the default size and model — generate when ready. It is slow — about 20 minutes for a 15-second clip at 800 px.",
+  },
   extend: {
     verb: "Extending",
     detail:

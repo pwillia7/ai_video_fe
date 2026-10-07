@@ -4,6 +4,7 @@ import { minimaxH3ImageToVideo } from "./minimax-h3-i2v";
 import { minimaxH3Reference } from "./minimax-h3-ref";
 import { minimaxH3ReferenceVideo } from "./minimax-h3-ref2v";
 import { minimaxMusic3 } from "./minimax-music3";
+import { seedvr2Upscale } from "./seedvr2-upscale";
 import { toSummary, type WorkflowDef, type WorkflowSummary } from "./types";
 
 /**
@@ -20,6 +21,8 @@ export const WORKFLOWS: WorkflowDef[] = [
   minimaxH3Reference,
   minimaxH3ReferenceVideo,
   minimaxH3Extend,
+  // Not a generator: it only takes a finished clip, by the Upscale button.
+  seedvr2Upscale,
   // Last, and the only one that is not H3 and not video: a different model
   // family that happens to fit the same shape of definition.
   minimaxMusic3,

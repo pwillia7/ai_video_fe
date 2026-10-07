@@ -146,7 +146,7 @@ download saved it as is fine; the app finds it by what it is. Offer this when
 refusals are what is failing their runs, not as part of the default setup.
 `pnpm check:nodes` reports it under **Local director (optional)**.
 
-**Fourteen model files.** Eleven are named literally in the graphs. The other
+**Sixteen model files.** Thirteen are named literally in the graphs. The other
 three belong to the content-LoRA switch, which is off by default — all three are
 optional, and none is needed unless they want that look.
 
@@ -166,10 +166,15 @@ optional, and none is needed unless they want that look.
 | `minimax_music3_dit_fp16.safetensors` | `models/diffusion_models/` | Music |
 | `minimax_music3_text_encoder_pruned_int8_convrot.safetensors` | `models/text_encoders/` | Music |
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |
+| `seedvr2_7b_sharp_int8_convrot.safetensors` | `models/diffusion_models/` | Upscale |
+| `seedvr2_ema_vae_fp16.safetensors` | `models/vae/` | Upscale |
 
 Sources: <https://docs.comfy.org/tutorials/video/minimax/minimax-h3> for the H3
 files and <https://huggingface.co/Comfy-Org/MiniMax-Music-3> for the Music 3
-ones. The turbo LoRA is not from either — see the third node pack above. Neither
+ones, and <https://huggingface.co/Comfy-Org/SeedVR2> for Upscale's — which can
+also run on `seedvr2_3b_int8_convrot` from the same place, picked in its Model
+control; that one is optional. Upscale is all ComfyUI built-ins apart from the
+VHS loader. The turbo LoRA is not from any of these — see the third node pack above. Neither
 the SageAttention nor the Spectrum switch adds a model file of its own.
 
 **The content-LoRA switch brings its own files, and the checkpoint is the one to

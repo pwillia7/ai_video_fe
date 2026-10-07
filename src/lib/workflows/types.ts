@@ -406,7 +406,12 @@ export type ParamValue = string | number | boolean;
  * The ways a finished generation can be sent onward into another workflow.
  * One button on the result for each, in this order.
  */
-export const CLIP_ACTIONS = ["remix", "extend", "illustrate"] as const;
+export const CLIP_ACTIONS = [
+  "remix",
+  "extend",
+  "upscale",
+  "illustrate",
+] as const;
 export type ClipAction = (typeof CLIP_ACTIONS)[number];
 
 /**
