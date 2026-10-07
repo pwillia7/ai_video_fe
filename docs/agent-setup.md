@@ -146,7 +146,7 @@ download saved it as is fine; the app finds it by what it is. Offer this when
 refusals are what is failing their runs, not as part of the default setup.
 `pnpm check:nodes` reports it under **Local director (optional)**.
 
-**Sixteen model files.** Thirteen are named literally in the graphs. The other
+**Seventeen model files.** Fourteen are named literally in the graphs. The other
 three belong to the content-LoRA switch, which is off by default — all three are
 optional, and none is needed unless they want that look.
 
@@ -168,6 +168,7 @@ optional, and none is needed unless they want that look.
 | `minimax_music3_dav.safetensors` | `models/vae/` | Music |
 | `seedvr2_7b_sharp_int8_convrot.safetensors` | `models/diffusion_models/` | Upscale |
 | `seedvr2_ema_vae_fp16.safetensors` | `models/vae/` | Upscale |
+| `rife_v4.26.safetensors` | `models/frame_interpolation/` | Upscale's **Frame rate: Double it** |
 
 Sources: <https://docs.comfy.org/tutorials/video/minimax/minimax-h3> for the H3
 files and <https://huggingface.co/Comfy-Org/MiniMax-Music-3> for the Music 3
@@ -176,7 +177,9 @@ also run on `seedvr2_3b_int8_convrot` from the same place, picked in its Model
 control; that one is optional. Upscale is ComfyUI built-ins for the model and
 VideoHelperSuite for the video either side of it — its loader, Meta Batch
 Manager and Video Combine, which run a clip through in batches so a long one
-does not run the machine out of RAM. The turbo LoRA is not from any of these — see the third node pack above. Neither
+does not run the machine out of RAM. Its frame interpolation loads from
+<https://huggingface.co/Comfy-Org/frame_interpolation>: `rife_v4.26` as above,
+and optionally `film_net_fp16` for the FILM choice under Advanced. The turbo LoRA is not from any of these — see the third node pack above. Neither
 the SageAttention nor the Spectrum switch adds a model file of its own.
 
 **The content-LoRA switch brings its own files, and the checkpoint is the one to
