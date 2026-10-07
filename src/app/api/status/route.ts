@@ -78,6 +78,17 @@ function extractError(entry: ComfyHistoryEntry): string | undefined {
   return undefined;
 }
 
+/** A prompt that was cut off rather than failing: ["execution_interrupted", …]. */
+function wasInterrupted(entry: ComfyHistoryEntry): boolean {
+  const messages = entry.status?.messages;
+  return (
+    Array.isArray(messages) &&
+    messages.some(
+      (message) => Array.isArray(message) && message[0] === "execution_interrupted",
+    )
+  );
+}
+
 /** Queue entries are positional arrays; the prompt id sits at index 1. */
 function promptIdOf(entry: unknown): string | undefined {
   return Array.isArray(entry) ? (entry[1] as string | undefined) : undefined;
@@ -111,6 +122,16 @@ async function statusFor(
           queuePosition: null,
           outputs: [],
           error: `The run stopped after ${run.passes} of its batches without finishing the file — it was interrupted, or ComfyUI restarted.`,
+        };
+      }
+      // An interrupted pass records no error, only that it stopped — which
+      // for a run is the end of it: nothing is queued behind it to finish.
+      if (wasInterrupted(run.entry)) {
+        return {
+          state: "error",
+          queuePosition: null,
+          outputs: [],
+          error: "The run was stopped partway through, so its file was never finished.",
         };
       }
       entry = run.entry;
