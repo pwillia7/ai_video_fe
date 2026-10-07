@@ -74,6 +74,9 @@ const MODEL_INPUTS: Record<string, string> = {
   VAELoader: "vae_name",
   UNETLoader: "unet_name",
   CLIPLoader: "clip_name",
+  // Upscale's frame interpolation. In the stored graph, so reported as needed,
+  // though a run with the frame rate kept removes it.
+  FrameInterpolationModelLoader: "model_name",
   // Neither of these is in any stored graph — both are spliced in by a switch.
   // See below.
   MiniMaxH3TurboLoRA: "lora_name",

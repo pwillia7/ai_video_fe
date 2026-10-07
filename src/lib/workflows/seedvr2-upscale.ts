@@ -1,5 +1,5 @@
 import type { ComfyGraph } from "@/lib/comfy";
-import type { ParamDef, WorkflowDef } from "./types";
+import type { ParamDef, ParamValue, WorkflowDef } from "./types";
 
 /**
  * SeedVR2 upscale: a finished clip, made larger and sharper, sound untouched.
@@ -34,6 +34,15 @@ import type { ParamDef, WorkflowDef } from "./types";
  *    loader hands the combine node the whole file's audio on every pass, and
  *    the combine node muxes it once, when the last batch closes the file.
  *
+ * 5. **Optional frame interpolation** after the upscale (nodes 15–20): RIFE
+ *    puts new frames between the upscaled ones, and the combine writes at the
+ *    raised rate. It runs per batch like everything else, which leaves one gap
+ *    at each join: a batch's last frame and the next batch's first are never
+ *    seen together, so nothing is made between them. Each batch is padded with
+ *    copies of its last frame to fill that slot, which keeps the frame count —
+ *    and so the sync with the audio — exact, at the cost of one held frame per
+ *    join instead of a skipped one. See `finalize` for the switch.
+ *
  * The loader is VHS rather than core for the same reason as Extend's: it reads
  * the fragmented MP4 a browser's recorder writes, which the core loader
  * measures as a single frame — and it is the loader the batch manager drives.
@@ -45,6 +54,19 @@ const VIDEO_NODE = "1";
 const SIZE_NODE = "3";
 const POST_NODE = "13";
 const COMBINE_NODE = "14";
+const INTERP_MODEL_NODE = "15";
+const INTERP_NODE = "16";
+const PAD_REPEAT_NODE = "18";
+const FPS_NODE = "20";
+/** Every node that exists only for frame interpolation. */
+const INTERP_NODES = ["15", "16", "17", "18", "19", "20"];
+const RATE_PARAM = "frame_rate";
+
+/** The multiplier a submission asked for: 1 when interpolation is off. */
+function multiplierOf(values: Record<string, ParamValue>): number {
+  const multiplier = Number(values[RATE_PARAM]);
+  return Number.isInteger(multiplier) && multiplier >= 1 ? multiplier : 1;
+}
 
 /**
  * Frames per batch: about four seconds of a 24 fps clip, so a 15-second H3
@@ -190,15 +212,53 @@ const graph: ComfyGraph = {
     _meta: { title: "Post-Process SeedVR2 Output" },
   },
 
+  // Frame interpolation, removed by `finalize` when it is off. The loader is
+  // core ComfyUI's, which reads RIFE and FILM checkpoints alike.
+  "15": {
+    class_type: "FrameInterpolationModelLoader",
+    inputs: { model_name: "rife_v4.26.safetensors" },
+    _meta: { title: "Load Frame Interpolation Model" },
+  },
+  // N frames in, (N − 1) × multiplier + 1 out: nothing after the last frame.
+  "16": {
+    class_type: "FrameInterpolate",
+    inputs: { interp_model: ["15", 0], images: ["13", 0], multiplier: 2 },
+    _meta: { title: "Run Frame Interpolation Model" },
+  },
+  // The batch's last frame, repeated multiplier − 1 times and appended, so
+  // the batch comes out at exactly N × multiplier frames. The slots it fills
+  // are the ones the next batch's first frame would have been blended into.
+  "17": {
+    class_type: "ImageFromBatch",
+    inputs: { image: ["13", 0], batch_index: -1, length: 1 },
+    _meta: { title: "Last Frame" },
+  },
+  "18": {
+    class_type: "RepeatImageBatch",
+    inputs: { image: ["17", 0], amount: 1 },
+    _meta: { title: "Repeat Last Frame" },
+  },
+  "19": {
+    class_type: "ImageBatch",
+    inputs: { image1: ["16", 0], image2: ["18", 0] },
+    _meta: { title: "Pad Batch" },
+  },
+  // The source's rate times the multiplier, for the combine to write at.
+  "20": {
+    class_type: "ComfyMathExpression",
+    inputs: { expression: "a * b", "values.a": ["2", 0], "values.b": 2 },
+    _meta: { title: "Output Frame Rate" },
+  },
+
   // VHS's combine rather than core SaveVideo: it is the one that can hold a
   // file open across the batch manager's passes. H.264 at CRF 17, near enough
   // lossless at these sizes, since this is the copy someone keeps.
   "14": {
     class_type: "VHS_VideoCombine",
     inputs: {
-      images: ["13", 0],
+      images: ["19", 0],
       audio: ["1", 2],
-      frame_rate: ["2", 0],
+      frame_rate: [FPS_NODE, 0],
       loop_count: 0,
       filename_prefix: PREFIX,
       format: "video/h264-mp4",
@@ -295,6 +355,65 @@ const params: ParamDef[] = [
     targets: [{ node: POST_NODE, input: "color_correction_method" }],
   },
   {
+    id: RATE_PARAM,
+    label: "Frame rate",
+    type: "select",
+    default: "1",
+    options: [
+      {
+        value: "1",
+        label: "Keep the clip's",
+        help: "No new frames — 24 fps for an H3 clip.",
+      },
+      {
+        value: "2",
+        label: "Double it",
+        help: "A new frame between every pair: 48 fps from H3's 24. Smoother motion, and adds a few minutes.",
+      },
+    ],
+    help: "Smooths motion by adding in-between frames after the upscale. The soundtrack is unchanged.",
+    group: "Output",
+    targets: [
+      {
+        node: INTERP_NODE,
+        input: "multiplier",
+        transform: (_value, values) => Math.max(2, multiplierOf(values)),
+      },
+      {
+        node: PAD_REPEAT_NODE,
+        input: "amount",
+        transform: (_value, values) => Math.max(1, multiplierOf(values) - 1),
+      },
+      {
+        node: FPS_NODE,
+        input: "values.b",
+        transform: (_value, values) => multiplierOf(values),
+      },
+    ],
+  },
+  {
+    id: "interpolation_model",
+    label: "Interpolation model",
+    type: "select",
+    default: "rife_v4.26.safetensors",
+    options: [
+      {
+        value: "rife_v4.26.safetensors",
+        label: "RIFE 4.26",
+        help: "Fast, and the usual choice.",
+      },
+      {
+        value: "film_net_fp16.safetensors",
+        label: "FILM",
+        help: "Better through big, fast movement, and much slower.",
+      },
+    ],
+    group: "Output",
+    advanced: true,
+    hiddenBy: { param: RATE_PARAM, is: "1" },
+    targets: [{ node: INTERP_MODEL_NODE, input: "model_name" }],
+  },
+  {
     id: "seed",
     label: "Seed",
     type: "seed",
@@ -336,8 +455,32 @@ export const seedvr2Upscale: WorkflowDef = {
    * prompt ids, and the prefix is what the status and cancel routes find
    * those passes by — so two upscales queued together must not share one.
    */
-  finalize: (graph) => {
+  finalize: (graph, values) => {
     graph[COMBINE_NODE].inputs.filename_prefix =
       `${PREFIX}_${crypto.randomUUID().slice(0, 8)}`;
+
+    // Frame interpolation off: the combine takes the upscale straight, at the
+    // source's own rate, and the interpolation nodes go — a loader left in
+    // would still be validated, and fail on a box without the model file.
+    if (multiplierOf(values) === 1) {
+      graph[COMBINE_NODE].inputs.images = [POST_NODE, 0];
+      graph[COMBINE_NODE].inputs.frame_rate = ["2", 0];
+      for (const node of INTERP_NODES) delete graph[node];
+    }
   },
+  finalizeCases: [
+    { name: "frame rate kept", values: { source_video: "clip.mp4" } },
+    {
+      name: "frame rate doubled",
+      values: { source_video: "clip.mp4", [RATE_PARAM]: "2" },
+    },
+    {
+      name: "frame rate doubled with FILM",
+      values: {
+        source_video: "clip.mp4",
+        [RATE_PARAM]: "2",
+        interpolation_model: "film_net_fp16.safetensors",
+      },
+    },
+  ],
 };
