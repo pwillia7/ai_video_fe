@@ -379,6 +379,24 @@ vercel env add APP_ACCESS_TOKEN production
 Confirm `COMFY_URL` is the *public* one from phase 2, not `localhost`. This is
 the single most common deployment failure and it is worth checking out loud.
 
+**A private Blob store, for uploads over 4 MB.** Vercel refuses a function
+request body over 4.5 MB, so a larger clip or track picked off disk goes from
+the browser straight to Vercel Blob and is copied to ComfyUI from there, then
+deleted. Without a store, small uploads still work and larger ones fail.
+
+```bash
+vercel blob create-store sorant-uploads --access private --yes
+```
+
+That connects it to the linked project and adds `BLOB_READ_WRITE_TOKEN` to
+every environment — and **also rewrites `.env.local`**, pulling the project's
+Development variables into it (including `APP_ACCESS_TOKEN`, which then gates
+the local server too). It keeps local-only values such as `COMFY_API_TOKEN`,
+but check the file afterwards. Cost is fractions of a cent per upload; nothing
+stays stored. The ceiling is 100 MB, matching ComfyUI's `--max-upload-size
+100`; raise `LARGE_UPLOAD_MAX_BYTES` in `src/lib/upload-limits.ts` together
+with that flag.
+
 Then:
 
 ```bash
