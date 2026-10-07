@@ -176,6 +176,23 @@ export async function queuePrompt(
   return result;
 }
 
+/**
+ * Ask ComfyUI to drop the models it has loaded and the node outputs it is
+ * holding from earlier runs.
+ *
+ * Not immediate: ComfyUI sets a flag that its worker acts on between prompts.
+ * So it lands before the next prompt to start — which is the one about to be
+ * queued when nothing is running, and otherwise whatever is next in line.
+ */
+export async function freeMemory(): Promise<void> {
+  await comfyFetch("/free", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ unload_models: true, free_memory: true }),
+    timeoutMs: 10_000,
+  });
+}
+
 export async function getHistoryEntry(
   promptId: string,
 ): Promise<ComfyHistoryEntry | undefined> {

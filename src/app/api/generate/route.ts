@@ -1,5 +1,10 @@
 import { unauthorized } from "@/lib/auth";
-import { enumValuesFor, getNodeSchema, queuePrompt } from "@/lib/comfy";
+import {
+  enumValuesFor,
+  freeMemory,
+  getNodeSchema,
+  queuePrompt,
+} from "@/lib/comfy";
 import { allowedValuesFor } from "@/lib/dynamic-options";
 import { errorResponse } from "@/lib/errors";
 import { applyParams, ParamError, validateWorkflow } from "@/lib/params";
@@ -153,6 +158,10 @@ export async function POST(request: Request) {
       alternateBase,
       localDirector,
     });
+
+    // Best effort: a run that fails for want of RAM still says so itself, and
+    // a ComfyUI that will not free is no reason to refuse the run outright.
+    if (workflow.freesMemory) await freeMemory().catch(() => undefined);
 
     const clientId = crypto.randomUUID();
     const result = await queuePrompt(graph, clientId);

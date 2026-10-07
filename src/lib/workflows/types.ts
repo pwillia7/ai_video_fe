@@ -521,6 +521,16 @@ export interface WorkflowDef {
   /** Which clip hand-off, if any, lands on this workflow. */
   clipTarget?: ClipTarget;
   /**
+   * Set when a run needs the ComfyUI machine's RAM more than it needs the
+   * models and results earlier runs left cached there. The generate route
+   * asks ComfyUI to drop both before queueing it.
+   *
+   * The cost is the next run of anything else loading its models from disk
+   * again, so this is for a graph that holds whole videos in system memory —
+   * the upscale — not for one that merely uses a lot of VRAM.
+   */
+  freesMemory?: boolean;
+  /**
    * Structural adjustment after the params are written in, on the cloned graph.
    *
    * Params can only set values on inputs that already exist. Some graphs need

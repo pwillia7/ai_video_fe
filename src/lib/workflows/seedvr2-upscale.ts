@@ -317,6 +317,12 @@ export const seedvr2Upscale: WorkflowDef = {
   params,
   // No turbo, patches or director: there is no prompt and no H3 anywhere in
   // this graph, and the sampler is already a single step.
+  //
+  // RAM is what this graph runs out of, and an earlier H3 run leaves about
+  // 23 GB of it holding models and cached results: 24.5 GB free on the box
+  // before a free, 47.4 GB after. A 15-second clip at 800 px failed in the
+  // post-process with that still cached, having passed twice without it.
+  freesMemory: true,
   clipTarget: {
     action: "upscale",
     accepts: "video",
