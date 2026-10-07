@@ -207,7 +207,7 @@ const graph: ComfyGraph = {
     inputs: {
       images: ["12", 0],
       original_resized_images: ["3", 0],
-      color_correction_method: "none",
+      color_correction_method: "lab",
     },
     _meta: { title: "Post-Process SeedVR2 Output" },
   },
@@ -323,21 +323,19 @@ const params: ParamDef[] = [
     id: "color_correction",
     label: "Colour match",
     type: "select",
-    // Off, on a side-by-side at 1080: no difference anyone could see in skin,
-    // flowers or a label. Over a whole 15-second clip it ran 3 levels in 255
-    // darker than the source, against LAB's 1. On, it costs the post-process
-    // five or six whole-batch copies and some time.
-    default: "none",
+    // LAB, measured over a whole 15-second clip at 800 px: frame-to-frame
+    // colour drift against the source of 0.22 levels on average and 2.4 at
+    // worst, against 1.62 and 16 with it off — SeedVR2 on its own lets colour
+    // wander from frame to frame, which reads as blips in playback. A single
+    // frame side by side shows none of that, which is how Off was briefly the
+    // default. Per batch it costs about 20 seconds a clip and no RAM to speak
+    // of; on a whole clip at once its copies were what ran the box out.
+    default: "lab",
     options: [
-      {
-        value: "none",
-        label: "Off",
-        help: "Keeps the model's own colours: about 1% darker than the source, otherwise the same.",
-      },
       {
         value: "lab",
         label: "LAB",
-        help: "Pulls every frame's colour back to the source's. Try it if a clip comes back tinted or shifting.",
+        help: "Holds every frame's colour to the source's, so it doesn't drift or blip. The default.",
       },
       {
         value: "wavelet",
@@ -349,8 +347,13 @@ const params: ParamDef[] = [
         label: "AdaIN",
         help: "One overall tint match per frame — the lightest touch.",
       },
+      {
+        value: "none",
+        label: "Off",
+        help: "The model's own colours. They wander a little from frame to frame, which shows as colour blips.",
+      },
     ],
-    help: "Whether the result's colours are re-matched to the source after upscaling. Off unless a clip comes back tinted.",
+    help: "Re-matches the upscale's colours to the source's, frame by frame, after upscaling.",
     group: "Output",
     targets: [{ node: POST_NODE, input: "color_correction_method" }],
   },
