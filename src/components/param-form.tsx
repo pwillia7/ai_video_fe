@@ -334,13 +334,19 @@ function Control({
         </Field>
       );
 
-    case "select":
+    case "select": {
+      // What the chosen option does, under the control: an option's own help
+      // says something the label cannot, and a native dropdown has nowhere
+      // to show it. A note from the workflow outranks it.
+      const chosen = param.options.find(
+        (option) => option.value === String(value ?? param.default),
+      );
       return (
         <Field
           id={id}
           label={param.label}
           help={param.help}
-          note={note}
+          note={note ?? chosen?.help}
           error={error}
         >
           <Select
@@ -353,6 +359,7 @@ function Control({
           />
         </Field>
       );
+    }
 
     case "toggle":
       return (

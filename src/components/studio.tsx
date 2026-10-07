@@ -642,7 +642,7 @@ function Workbench({
     async (job: Job, action: ClipAction) => {
       const target = clipWorkflows.get(action);
       if (!target?.clipTarget || sending) return;
-      const { sourceParam, carry } = target.clipTarget;
+      const { sourceParam, carry, fresh } = target.clipTarget;
 
       const output = job.outputs[0];
       if (!output) return;
@@ -660,7 +660,10 @@ function Workbench({
         });
 
         setValuesByWorkflow((previous) => {
-          const next = { ...previous[target.id], [sourceParam]: ref };
+          const next = {
+            ...(fresh ? defaultValuesFor(target) : previous[target.id]),
+            [sourceParam]: ref,
+          };
 
           // Carry across whatever this destination asked for, so the new run
           // starts out matching the generation it came from rather than

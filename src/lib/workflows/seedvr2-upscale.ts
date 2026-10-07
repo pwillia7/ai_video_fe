@@ -328,6 +328,8 @@ export const seedvr2Upscale: WorkflowDef = {
     action: "upscale",
     accepts: "video",
     sourceParam: "source_video",
+    // Every press of Upscale starts at the defaults, as it was asked to.
+    fresh: true,
   },
   /**
    * A filename prefix of the run's own. VHS re-queues this graph under new

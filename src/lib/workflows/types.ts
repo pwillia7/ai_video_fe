@@ -451,6 +451,14 @@ export interface ClipTarget {
    * handful of seconds — would arrive out of range and be rejected at submit.
    */
   carry?: string[];
+  /**
+   * Start the destination from its defaults, not from whatever was last used
+   * there. For a hand-off whose settings are a recipe rather than a draft:
+   * the upscale's size, model and colour match are chosen for every clip the
+   * same way, so a run should not inherit an experiment from the last one.
+   * `carry` still applies on top.
+   */
+  fresh?: boolean;
 }
 
 /**
