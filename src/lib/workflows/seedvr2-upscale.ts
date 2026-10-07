@@ -1,5 +1,6 @@
 import type { ComfyGraph } from "@/lib/comfy";
-import type { ParamDef, WorkflowDef } from "./types";
+import { ParamError } from "@/lib/params";
+import type { ParamDef, ParamValue, WorkflowDef } from "./types";
 
 /**
  * SeedVR2 upscale: a finished clip, made larger and sharper, sound untouched.
@@ -27,10 +28,38 @@ import type { ParamDef, WorkflowDef } from "./types";
  *
  * Decode time grows faster than the clip does (Comfy-Org/ComfyUI#15782), so a
  * long source costs disproportionately more. Nothing here splits it up; the
- * app's own clips stop at 20 seconds.
+ * app's own clips stop at 20 seconds. What does stop a run is system RAM —
+ * see FRAME_BUDGET.
  */
 
 const VIDEO_NODE = "1";
+const SIZE_NODE = "3";
+const SIZE_PARAM = "shorter_side";
+const SECONDS_PARAM = "source_seconds";
+
+/**
+ * The most video one run may hold, as seconds × shorter side², at the
+ * shorter side the run asks for.
+ *
+ * The limit is the ComfyUI machine's system RAM, not its GPU. Every stage
+ * between the loader and the save holds the whole clip as fp32 frames at the
+ * output size, and ComfyUI keeps each stage's output alive until the run ends.
+ * At 1080 px a 15-second clip is about 9 GB per copy, and with three or four
+ * of them beside the H3 models already cached in RAM, a 64 GB box runs out. It
+ * fails in the VAE decode, after about 20 minutes of work:
+ * `DefaultCPUAllocator: not enough memory: you tried to allocate 9225891840
+ * bytes`. That was 1080 on 15 s, on 2026-10-06.
+ *
+ * Set at what has actually finished on that box: a 15.1-second clip at 800 px.
+ * That allows about 8 seconds at 1080. Raise it once the box has more room —
+ * a larger Windows pagefile, say — and a longer 1080 run has gone through.
+ */
+const FRAME_BUDGET = 15.1 * 800 * 800;
+
+function clipSeconds(values: Record<string, ParamValue>): number {
+  const seconds = values[SECONDS_PARAM];
+  return typeof seconds === "number" ? seconds : 0;
+}
 
 const graph: ComfyGraph = {
   "1": {
@@ -187,10 +216,31 @@ const params: ParamDef[] = [
     required: true,
     help: "Its frame rate and soundtrack carry straight through.",
     group: "Source",
+    measures: SECONDS_PARAM,
     targets: [{ node: VIDEO_NODE, input: "video" }],
   },
   {
-    id: "shorter_side",
+    id: SECONDS_PARAM,
+    label: "Clip length",
+    type: "measured",
+    // Unknown until the player has the clip's metadata. `finalize` passes an
+    // unmeasured run rather than guessing at it.
+    default: 0,
+    group: "Source",
+    // It changes no value of its own: what it decides is whether the size may
+    // be used at all, which `finalize` checks. This writes the same number the
+    // size control does, from the same submission, so the two cannot disagree
+    // whichever is written last.
+    targets: [
+      {
+        node: SIZE_NODE,
+        input: "resize_type.shorter_size",
+        transform: (_value, values) => values[SIZE_PARAM],
+      },
+    ],
+  },
+  {
+    id: SIZE_PARAM,
     label: "Output size",
     type: "slider",
     default: 800,
@@ -199,9 +249,9 @@ const params: ParamDef[] = [
     step: 8,
     unit: "px",
     // The shorter side, so one number means the same thing in any aspect.
-    help: "Height of a landscape clip, width of a portrait one. Time grows with the pixels: 1080 has 1.8× as many as 800.",
+    help: "Height of a landscape clip, width of a portrait one. Larger sizes take longer clips only so far: about 8 seconds at 1080.",
     group: "Output",
-    targets: [{ node: "3", input: "resize_type.shorter_size" }],
+    targets: [{ node: SIZE_NODE, input: "resize_type.shorter_size" }],
   },
   {
     id: "upscale_model",
@@ -272,4 +322,47 @@ export const seedvr2Upscale: WorkflowDef = {
     accepts: "video",
     sourceParam: "source_video",
   },
+  /**
+   * Refuses a run that will not fit in the ComfyUI machine's RAM, at submit
+   * rather than twenty minutes in. See FRAME_BUDGET.
+   */
+  finalize: (_graph, values) => {
+    const seconds = clipSeconds(values);
+    const side = Number(values[SIZE_PARAM]);
+    if (seconds <= 0 || seconds * side * side <= FRAME_BUDGET) return;
+
+    // The largest size this clip fits at, on the slider's own 8 px steps.
+    const fits = Math.floor(Math.sqrt(FRAME_BUDGET / seconds) / 8) * 8;
+    const longest = (FRAME_BUDGET / (side * side)).toFixed(1);
+    throw new ParamError(
+      fits >= 720
+        ? `A ${seconds.toFixed(1)}-second clip at ${side} px needs more memory than the ComfyUI machine has. Use ${fits} px or less, or a clip under ${longest} seconds.`
+        : `A ${seconds.toFixed(1)}-second clip is too long to upscale on the ComfyUI machine even at 720 px. Trim it under ${(FRAME_BUDGET / (720 * 720)).toFixed(1)} seconds.`,
+      SIZE_PARAM,
+    );
+  },
+  finalizeCases: [
+    {
+      name: "a full 15-second clip at 800 px",
+      values: { source_video: "clip.mp4", [SECONDS_PARAM]: 15.1, [SIZE_PARAM]: 800 },
+    },
+    {
+      name: "a short clip at 1080 px",
+      values: { source_video: "clip.mp4", [SECONDS_PARAM]: 8, [SIZE_PARAM]: 1080 },
+    },
+    {
+      name: "a clip the browser has not measured",
+      values: { source_video: "clip.mp4", [SIZE_PARAM]: 1080 },
+    },
+    {
+      name: "a 15-second clip at 1080 px",
+      values: { source_video: "clip.mp4", [SECONDS_PARAM]: 15.1, [SIZE_PARAM]: 1080 },
+      rejects: "Use 800 px or less",
+    },
+    {
+      name: "a 20-second clip at 720 px",
+      values: { source_video: "clip.mp4", [SECONDS_PARAM]: 20, [SIZE_PARAM]: 720 },
+      rejects: "too long to upscale",
+    },
+  ],
 };
