@@ -313,6 +313,15 @@ export interface VideoParam extends ParamBase {
    */
   budgetSeconds?: number;
   /**
+   * The largest frame this control takes, as its short and long edge in
+   * pixels. Left off, a clip is held to MiniMax H3's own canvas, 768×1344,
+   * because the generating workflows make their video at the source's size.
+   * Upscale is the exception: its source is resized anyway, so it can take
+   * a bigger clip than the model would make.
+   */
+  maxShortEdge?: number;
+  maxLongEdge?: number;
+  /**
    * Id of a `measured` param this control fills in with the loaded clip's
    * running time. Named here rather than the other way round because the video
    * control is what has the clip in hand.
@@ -536,6 +545,9 @@ export interface WorkflowDef {
    * The cost is the next run of anything else loading its models from disk
    * again, so this is for a graph that holds whole videos in system memory —
    * the upscale — not for one that merely uses a lot of VRAM.
+   *
+   * Only ever done with the queue empty: a free also drops ComfyUI's cached
+   * node instances, which is where a batched run in progress keeps its place.
    */
   freesMemory?: boolean;
   /**

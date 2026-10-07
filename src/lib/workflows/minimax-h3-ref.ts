@@ -1304,7 +1304,7 @@ const params: ParamDef[] = [
     // this one, so the default caption would point at a button that never
     // arrives here.
     noun: "voice recording",
-    limitNote: "Up to 4 MB, at least 4 seconds long. Only 4–6 seconds of it is used.",
+    limitNote: "Up to 100 MB, at least 4 seconds long. Only 4–6 seconds of it is used.",
     measures: VOICE_TRACK_SECONDS_PARAM,
     targets: [
       { node: VOICE_NODE, input: "audio" },
@@ -1411,7 +1411,7 @@ const params: ParamDef[] = [
     help: "Optional. A voice for a second speaker. A scene with one voice reference tends to give that voice to everyone — a recording for each speaker holds them apart better than a description does. Same rule as the first: 4–6 clean seconds of one person.",
     group: "References",
     noun: "voice recording",
-    limitNote: "Up to 4 MB, at least 4 seconds long. Only 4–6 seconds of it is used.",
+    limitNote: "Up to 100 MB, at least 4 seconds long. Only 4–6 seconds of it is used.",
     measures: VOICE2_TRACK_SECONDS_PARAM,
     revealedBy: VOICE_PARAM,
     targets: [

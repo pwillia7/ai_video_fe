@@ -324,7 +324,7 @@ const params: ParamDef[] = [
     type: "video",
     default: "",
     required: true,
-    help: "Its last frame is where the new footage starts, and sets the size. Up to 768×1344, 20s, 4 MB.",
+    help: "Its last frame is where the new footage starts, and sets the size. Up to 768×1344, 20s, 100 MB.",
     group: "Source",
     targets: [{ node: VIDEO_NODE, input: "video" }],
   },

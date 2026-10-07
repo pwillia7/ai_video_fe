@@ -2,26 +2,20 @@
 
 import { useRef, useState } from "react";
 import { Button, Spinner } from "@/components/ui/button";
-import { api, ApiError, withToken } from "@/lib/client";
-
-interface UploadResponse {
-  ref: string;
-  name: string;
-  subfolder: string;
-  type: string;
-}
+import { ApiError, withToken } from "@/lib/client";
+import { uploadToComfy } from "@/lib/upload";
+import { LARGE_UPLOAD_MAX_BYTES } from "@/lib/upload-limits";
 
 /**
- * The same 4.5 MB request-body cap Vercel enforces before a handler runs, minus
- * a margin. It bites harder here than anywhere else in the app: a few minutes of
- * mp3 is regularly past it, and unlike a photo there is nothing sensible to
- * re-encode in the browser.
+ * The most a track picked off disk may weigh. Past the 4.5 MB a Vercel
+ * function accepts, the upload goes to Blob storage first and is copied on
+ * from there — see uploadToComfy — so a few minutes of mp3 no longer has to
+ * come in by Create video.
  *
- * Which is why the hand-off is the main way a track gets here. Create video on
- * a finished track copies it between ComfyUI's own directories server-side and
- * never moves the bytes through the browser at all, so the cap does not apply.
+ * Create video on a finished track still skips all of this: it copies the file
+ * between ComfyUI's own directories server-side.
  */
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = LARGE_UPLOAD_MAX_BYTES;
 
 /**
  * Picks the track a video is built around, holding the filename ComfyUI returns
@@ -99,14 +93,9 @@ export function AudioUpload({
         return;
       }
 
-      const form = new FormData();
-      form.append("file", file, file.name);
-      // api() deliberately leaves the Content-Type off FormData so the browser
-      // can set the multipart boundary itself.
-      const result = await api<UploadResponse>("/api/upload", {
-        method: "POST",
-        body: form,
-      });
+      // Small tracks post straight to /api/upload; larger ones go by way of
+      // Blob storage. Same answer either way. See uploadToComfy.
+      const result = await uploadToComfy(file, file.name);
       onChange(result.ref);
       applySeconds(null);
     } catch (cause) {

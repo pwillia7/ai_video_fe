@@ -7,24 +7,28 @@ import {
   VideoCapture,
   videoCaptureAvailable,
 } from "@/components/ui/video-capture";
-import { api, ApiError, withToken } from "@/lib/client";
-
-interface UploadResponse {
-  ref: string;
-  name: string;
-  subfolder: string;
-  type: string;
-}
+import { ApiError, withToken } from "@/lib/client";
+import { uploadToComfy } from "@/lib/upload";
+import { LARGE_UPLOAD_MAX_BYTES } from "@/lib/upload-limits";
 
 /**
- * Vercel rejects a request body over 4.5 MB with a 413 before the handler runs.
- * An oversized photo can be re-encoded in the browser to fit; a video cannot,
- * so this is a hard ceiling rather than something to work around.
+ * The most a clip picked off disk may weigh. Past the 4.5 MB a Vercel function
+ * accepts, the upload goes to Blob storage first and is copied on from there —
+ * see uploadToComfy — so this is the claim route's ceiling, not Vercel's.
  *
- * It does not apply to Remix or Extend, which copy a clip between ComfyUI's own
- * directories server-side and never move the bytes through the browser.
+ * It does not apply to Remix, Extend or Upscale, which copy a clip between
+ * ComfyUI's own directories server-side and never move the bytes through the
+ * browser.
  */
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = LARGE_UPLOAD_MAX_BYTES;
+
+/**
+ * What the in-app recorder aims its bitrate at. Far under the upload ceiling
+ * on purpose: the recorder spends whatever budget it is given, and a webcam
+ * take does not get better past about 12 Mbit/s for 20 seconds — it only gets
+ * slower to upload.
+ */
+const RECORDING_MAX_BYTES = 32 * 1024 * 1024;
 
 /**
  * Both workflows that take a clip generate at its own dimensions — a remix at
@@ -123,17 +127,19 @@ function probe(file: File): Promise<Probe> {
   });
 }
 
-/** How long a clip this particular control takes. */
+/** How long, and how large, a clip this particular control takes. */
 interface Limits {
   minSeconds: number;
   maxSeconds: number;
+  maxShortEdge: number;
+  maxLongEdge: number;
 }
 
 /** The reason a clip cannot be used, or null when it can. */
 function rejectionFor(
   file: File,
   { width, height, seconds }: Probe,
-  { minSeconds, maxSeconds }: Limits,
+  { minSeconds, maxSeconds, maxShortEdge, maxLongEdge }: Limits,
 ): string | null {
   if (file.size > MAX_UPLOAD_BYTES) {
     return (
@@ -148,11 +154,12 @@ function rejectionFor(
 
   const long = Math.max(width, height);
   const short = Math.min(width, height);
-  if (long > MAX_LONG_EDGE || short > MAX_SHORT_EDGE) {
-    return (
-      `That clip is ${width}x${height}. The new video is generated at its size, ` +
-      `and this model tops out around ${MAX_SHORT_EDGE}x${MAX_LONG_EDGE} — scale it down first.`
-    );
+  if (long > maxLongEdge || short > maxShortEdge) {
+    return maxShortEdge === MAX_SHORT_EDGE && maxLongEdge === MAX_LONG_EDGE
+      ? `That clip is ${width}x${height}. The new video is generated at its size, ` +
+          `and this model tops out around ${MAX_SHORT_EDGE}x${MAX_LONG_EDGE} — scale it down first.`
+      : `That clip is ${width}x${height}, and this takes up to ` +
+          `${maxShortEdge}x${maxLongEdge} — scale it down first.`;
   }
 
   if (Number.isFinite(seconds) && seconds > maxSeconds) {
@@ -188,6 +195,8 @@ export function VideoUpload({
   onMeasure,
   minSeconds = 0,
   maxSeconds = MAX_SECONDS,
+  maxShortEdge = MAX_SHORT_EDGE,
+  maxLongEdge = MAX_LONG_EDGE,
   budgetSeconds,
   compact = false,
   disabled,
@@ -207,6 +216,9 @@ export function VideoUpload({
   /** See `VideoParam`. Both default to what any clip has to stay inside. */
   minSeconds?: number;
   maxSeconds?: number;
+  /** See `VideoParam`. Default to the generating model's own canvas. */
+  maxShortEdge?: number;
+  maxLongEdge?: number;
   /** See `VideoParam`. Without one, all of an accepted clip is used. */
   budgetSeconds?: number;
   /** See `VideoParam`. Collapsed to a row until asked for, or until filled. */
@@ -262,20 +274,17 @@ export function VideoUpload({
       const rejection = rejectionFor(file, await probe(file), {
         minSeconds,
         maxSeconds,
+        maxShortEdge,
+        maxLongEdge,
       });
       if (rejection) {
         setError(rejection);
         return;
       }
 
-      const form = new FormData();
-      form.append("file", file, file.name);
-      // api() deliberately leaves the Content-Type off FormData so the browser
-      // can set the multipart boundary itself.
-      const result = await api<UploadResponse>("/api/upload", {
-        method: "POST",
-        body: form,
-      });
+      // Small clips post straight to /api/upload; larger ones go by way of
+      // Blob storage. Same answer either way. See uploadToComfy.
+      const result = await uploadToComfy(file, file.name);
       onChange(result.ref);
       // Cleared rather than carried over from `probe`: the preview re-measures
       // the file ComfyUI actually stored, which is the one that will be used.
@@ -529,11 +538,11 @@ export function VideoUpload({
                       Drop a video or click to choose
                     </span>
                     <span className="text-[12px] text-fg-subtle">
-                      Up to {MAX_SHORT_EDGE}×{MAX_LONG_EDGE}, {maxSeconds}s and{" "}
+                      Up to {maxShortEdge}×{maxLongEdge}, {maxSeconds}s and{" "}
                       {MAX_UPLOAD_BYTES / 1024 / 1024} MB
                       {budgetSeconds && budgetSeconds < maxSeconds
                         ? ` — the first ${budgetSeconds}s of it is used`
-                        : " — or hit Remix or Extend on a finished generation"}
+                        : " — or send a finished generation here with its buttons"}
                     </span>
                   </>
                 )}
@@ -565,7 +574,7 @@ export function VideoUpload({
         onClose={() => setCaptureOpen(false)}
         subtitle={label}
         maxSeconds={Math.min(maxSeconds, budgetSeconds ?? maxSeconds)}
-        maxBytes={MAX_UPLOAD_BYTES}
+        maxBytes={RECORDING_MAX_BYTES}
         // Straight into the same handler a file picked off disk goes through,
         // so the measurements, the size guard, the upload and the preview are
         // all one path — a recording is refused for running long or coming out

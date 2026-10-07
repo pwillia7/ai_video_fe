@@ -71,11 +71,11 @@ function clock(seconds: number): string {
  * it goes through exactly the same upload and validation path as one picked off
  * disk.
  *
- * The size limit is what shapes this. A recording cannot be re-encoded smaller
- * afterwards the way an oversized photo can, and the upload ceiling is a hard
- * 4 MB, so the bitrate is budgeted *before* recording starts from the limit and
- * the longest clip allowed: exceed it and there is nothing to do but ask for
- * the take again. The recorder also stops itself at that length rather than
+ * The size budget is what shapes this. A recording cannot be re-encoded
+ * smaller afterwards the way an oversized photo can, so the bitrate is set
+ * *before* recording starts from the budget the caller passes and the longest
+ * clip allowed: exceed it and there is nothing to do but ask for the take
+ * again. The recorder also stops itself at that length rather than
  * trusting anyone to watch a counter.
  */
 export function VideoCapture({
@@ -93,7 +93,7 @@ export function VideoCapture({
   subtitle?: string;
   /** Where the recorder stops itself, and what the bitrate is budgeted for. */
   maxSeconds: number;
-  /** The upload ceiling the budget has to land under. */
+  /** The file size the recording's bitrate is budgeted to land under. */
   maxBytes: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -394,7 +394,7 @@ export function VideoCapture({
         <p className="mt-3 text-[12px] leading-snug text-fg-subtle">
           {recording
             ? `Recording stops on its own in ${Math.ceil(remaining)}s.`
-            : `Up to ${maxSeconds}s, with sound. It records at a bitrate that keeps the file under the ${Math.round(maxBytes / 1024 / 1024)} MB upload limit.`}
+            : `Up to ${maxSeconds}s, with sound. It records at a bitrate that keeps the file under ${Math.round(maxBytes / 1024 / 1024)} MB.`}
         </p>
       )}
     </Modal>

@@ -421,6 +421,8 @@ function Control({
             }
             minSeconds={param.minSeconds}
             maxSeconds={param.maxSeconds}
+            maxShortEdge={param.maxShortEdge}
+            maxLongEdge={param.maxLongEdge}
             budgetSeconds={param.budgetSeconds}
             compact={param.compact}
             disabled={readOnly}

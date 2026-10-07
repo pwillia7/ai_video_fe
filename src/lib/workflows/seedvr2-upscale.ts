@@ -281,8 +281,16 @@ const params: ParamDef[] = [
     type: "video",
     default: "",
     required: true,
-    help: "Its frame rate and soundtrack carry straight through.",
+    help: "Its frame rate and soundtrack carry straight through. Up to 1080×1920 and a minute.",
     group: "Source",
+    // Not H3's 768×1344: the source is resized to the output size before the
+    // model sees it, so a phone's 1080p clip is fine. Past that it would only
+    // be scaled down — and at 4K a batch of frames is ~10 GB of RAM.
+    maxShortEdge: 1080,
+    maxLongEdge: 1920,
+    // Batched, so length costs time, not memory: about 80 seconds of work per
+    // second of clip at 800 px. A minute is over an hour.
+    maxSeconds: 60,
     targets: [{ node: VIDEO_NODE, input: "video" }],
   },
   {

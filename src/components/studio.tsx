@@ -1163,6 +1163,11 @@ function Workbench({
                 {/* Deliberately never disabled: a running generation should not
                     stop you setting up the next one. */}
                 <ParamForm
+                  // Per workflow: two graphs can share a param id — Upscale
+                  // and Extend both call their clip `source_video` — and a
+                  // control kept across the switch keeps its local state, so
+                  // one workflow's upload error would show on the other's.
+                  key={selected.id}
                   params={directorParams(selected.params, directorEngine)}
                   values={values}
                   onChange={onParamChange}

@@ -3,6 +3,7 @@ import {
   enumValuesFor,
   freeMemory,
   getNodeSchema,
+  getQueue,
   queuePrompt,
 } from "@/lib/comfy";
 import { allowedValuesFor } from "@/lib/dynamic-options";
@@ -159,9 +160,20 @@ export async function POST(request: Request) {
       localDirector,
     });
 
-    // Best effort: a run that fails for want of RAM still says so itself, and
-    // a ComfyUI that will not free is no reason to refuse the run outright.
-    if (workflow.freesMemory) await freeMemory().catch(() => undefined);
+    // Only when ComfyUI is idle. A free is applied between prompts and drops
+    // every cached node *instance* along with the models — and a batched run
+    // keeps its place in the clip on one of those instances (VHS's batch
+    // manager). Freed between two of its passes, a run in progress loses it.
+    // Best effort either way: a run short of RAM still says so itself.
+    if (workflow.freesMemory) {
+      await getQueue()
+        .then((queue) =>
+          queue.queue_running.length + queue.queue_pending.length === 0
+            ? freeMemory()
+            : undefined,
+        )
+        .catch(() => undefined);
+    }
 
     const clientId = crypto.randomUUID();
     const result = await queuePrompt(graph, clientId);

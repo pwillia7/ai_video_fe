@@ -122,7 +122,7 @@ const REFERENCE_TRACK: TipSection = {
     "Paste the words for the part you are actually sending, and in order. The director is told to copy them exactly, to write only as many as fit the video's length, and never to translate or tidy them.",
     "Section tags — [Verse], [Chorus], [Instrumental] — are read as structure and kept out of anyone's mouth, so a lyric sheet from the music workflow can go straight in as it stands.",
     "They are appended to your prompt rather than tucked into the rewrite, so they still reach the model with Send my prompt as written on. That is also where to look if you want to see exactly what was sent.",
-    "Uploading a track by hand is capped at 4 MB, which a few minutes of mp3 will exceed. The button has no such limit: it copies the file between ComfyUI's own directories and never sends it through the browser.",
+    "Uploading a track by hand works up to 100 MB. The button is still the quicker way for a track made here: it copies the file between ComfyUI's own directories and never sends it through the browser.",
   ],
 };
 
@@ -199,7 +199,7 @@ export const WORKFLOW_TIPS: Record<string, WorkflowTips> = {
         items: [
           "Two ways in. Press Remix on a finished generation and the clip arrives with the prompt it was made with, or drop a video of your own into the Source panel.",
           "The clip is the only reference the model gets — it supplies the motion, the framing and the audio all at once, as one thing rather than as a pile of stills.",
-          "Your own clips are held to 768×1344, 20 seconds and 4 MB — the remix is generated at the source's size and length, so an oversized clip asks the model for a canvas it was not built for. Scale it down first.",
+          "Your own clips are held to 768×1344, 20 seconds and 100 MB — the remix is generated at the source's size and length, so an oversized clip asks the model for a canvas it was not built for. Scale it down first.",
           "The quickest way to iterate is generate, remix, change one thing.",
         ],
       },

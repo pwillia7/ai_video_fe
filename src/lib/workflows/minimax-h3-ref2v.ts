@@ -373,7 +373,7 @@ const params: ParamDef[] = [
     type: "video",
     default: "",
     required: true,
-    help: "Its size and length become the new video's. Up to 768×1344, 20s, 4 MB.",
+    help: "Its size and length become the new video's. Up to 768×1344, 20s, 100 MB.",
     group: "Source",
     targets: [{ node: VIDEO_NODE, input: "video" }],
     // The clip is the only thing that knows how long the output will be, so
