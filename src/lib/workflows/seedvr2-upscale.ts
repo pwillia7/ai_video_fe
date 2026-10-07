@@ -1,67 +1,71 @@
 import type { ComfyGraph } from "@/lib/comfy";
-import { ParamError } from "@/lib/params";
-import type { ParamDef, ParamValue, WorkflowDef } from "./types";
+import type { ParamDef, WorkflowDef } from "./types";
 
 /**
  * SeedVR2 upscale: a finished clip, made larger and sharper, sound untouched.
  *
  * Flattened from Comfy-Org's "SeedVR2 3B Int8: Upscale Video" template — core
- * nodes only, no custom pack for the model — with three changes, each of which
- * was measured on the 3090 before it went in:
+ * nodes for the model, VHS for the video either side of it — with changes
+ * each of which was measured on the 3090 before it went in:
  *
- * 1. **Fixed temporal chunks.** The template's `SeedVR2TemporalChunk` is on
+ * 1. **It runs in batches.** Every node between the loader and the save holds
+ *    its whole input as fp32 frames at the output size, and ComfyUI keeps each
+ *    one's output until the run ends. At 1080 px a 15-second clip is about 9 GB
+ *    per copy, and the colour match alone makes five or six more while it
+ *    works, so a whole clip at once ran a 64 GB box out of RAM — at 1080 even
+ *    straight after freeing it, 45 minutes in. VHS's Meta Batch Manager (node
+ *    0) instead loads BATCH_FRAMES at a time, runs the graph on them, and
+ *    appends the result to one file node 14 holds open, re-queueing the graph
+ *    itself until the clip runs out. RAM then follows the batch, not the clip.
+ *    The app follows the run across those re-queued prompts by the combine
+ *    node's filename prefix, which `finalize` makes unique; see meta-batch.ts.
+ * 2. **Fixed temporal chunks.** The template's `SeedVR2TemporalChunk` is on
  *    "auto", which sizes chunks to the VRAM that happens to be free. Straight
  *    after an H3 run that is about 9 GB, and auto answered with *one frame per
  *    chunk* — which samples every frame on its own, so nothing holds the
  *    upscale steady from one frame to the next. 21 frames (SeedVR2 wants 4n+1)
  *    is what the template's manual mode defaults to, and fits beside anything.
- * 2. **1024 px VAE tiles**, not 512. The SeedVR2 VAE is the whole cost of this
+ * 3. **1024 px VAE tiles**, not 512. The SeedVR2 VAE is the whole cost of this
  *    graph — the sampler is one step and takes seconds; encode and decode take
  *    minutes — and at 512 a 3-second test spent 851 s in it against 399 s at
  *    1024. Larger again, or untiled, measured no faster.
- * 3. **The clip's own frame rate and audio** go back on at the end, so the
- *    result plays exactly as long as the source and keeps its soundtrack.
+ * 4. **The clip's own frame rate and audio** go back on at the end, so the
+ *    result plays exactly as long as the source and keeps its soundtrack. The
+ *    loader hands the combine node the whole file's audio on every pass, and
+ *    the combine node muxes it once, when the last batch closes the file.
  *
  * The loader is VHS rather than core for the same reason as Extend's: it reads
  * the fragmented MP4 a browser's recorder writes, which the core loader
- * measures as a single frame. `force_rate: 0` leaves the rate as it is.
- *
- * Decode time grows faster than the clip does (Comfy-Org/ComfyUI#15782), so a
- * long source costs disproportionately more. Nothing here splits it up; the
- * app's own clips stop at 20 seconds. What does stop a run is system RAM —
- * see FRAME_BUDGET.
+ * measures as a single frame — and it is the loader the batch manager drives.
+ * `force_rate: 0` leaves the rate as it is.
  */
 
+const MANAGER_NODE = "0";
 const VIDEO_NODE = "1";
 const SIZE_NODE = "3";
-const SIZE_PARAM = "shorter_side";
-const SECONDS_PARAM = "source_seconds";
+const POST_NODE = "13";
+const COMBINE_NODE = "14";
 
 /**
- * The most video one run may hold, as seconds × shorter side², at the
- * shorter side the run asks for.
+ * Frames per batch: about four seconds of a 24 fps clip, so a 15-second H3
+ * clip is four passes.
  *
- * The limit is the ComfyUI machine's system RAM, not its GPU. Every stage
- * between the loader and the save holds the whole clip as fp32 frames at the
- * output size, and ComfyUI keeps each stage's output alive until the run ends.
- * At 1080 px a 15-second clip is about 9 GB per copy, and with three or four
- * of them beside the H3 models already cached in RAM, a 64 GB box runs out. It
- * fails in the VAE decode, after about 20 minutes of work:
- * `DefaultCPUAllocator: not enough memory: you tried to allocate 9225891840
- * bytes`. That was 1080 on 15 s, on 2026-10-06.
- *
- * Set at what has actually finished on that box: a 15.1-second clip at 800 px.
- * That allows about 8 seconds at 1080. Raise it once the box has more room —
- * a larger Windows pagefile, say — and a longer 1080 run has gone through.
+ * 4n+1, which is the length SeedVR2's VAE takes without padding. Larger
+ * batches mean fewer joins between independently upscaled stretches; smaller
+ * ones mean less RAM per pass. At 1080 px a batch of this size is about 2.5 GB
+ * per copy, which leaves room for every copy the graph makes and then some.
  */
-const FRAME_BUDGET = 15.1 * 800 * 800;
+const BATCH_FRAMES = 97;
 
-function clipSeconds(values: Record<string, ParamValue>): number {
-  const seconds = values[SECONDS_PARAM];
-  return typeof seconds === "number" ? seconds : 0;
-}
+/** Unique per submission, so the run's re-queued passes can be told apart. */
+const PREFIX = "video/upscale";
 
 const graph: ComfyGraph = {
+  "0": {
+    class_type: "VHS_BatchManager",
+    inputs: { frames_per_batch: BATCH_FRAMES },
+    _meta: { title: "Meta Batch Manager" },
+  },
   "1": {
     class_type: "VHS_LoadVideo",
     inputs: {
@@ -72,6 +76,7 @@ const graph: ComfyGraph = {
       frame_load_cap: 0,
       skip_first_frames: 0,
       select_every_nth: 1,
+      meta_batch: [MANAGER_NODE, 0],
     },
     _meta: { title: "Load Video" },
   },
@@ -180,30 +185,32 @@ const graph: ComfyGraph = {
     inputs: {
       images: ["12", 0],
       original_resized_images: ["3", 0],
-      color_correction_method: "lab",
+      color_correction_method: "none",
     },
     _meta: { title: "Post-Process SeedVR2 Output" },
   },
 
+  // VHS's combine rather than core SaveVideo: it is the one that can hold a
+  // file open across the batch manager's passes. H.264 at CRF 17, near enough
+  // lossless at these sizes, since this is the copy someone keeps.
   "14": {
-    class_type: "CreateVideo",
+    class_type: "VHS_VideoCombine",
     inputs: {
       images: ["13", 0],
       audio: ["1", 2],
-      fps: ["2", 0],
-      bit_depth: 8,
+      frame_rate: ["2", 0],
+      loop_count: 0,
+      filename_prefix: PREFIX,
+      format: "video/h264-mp4",
+      pix_fmt: "yuv420p",
+      crf: 17,
+      save_metadata: false,
+      trim_to_audio: false,
+      pingpong: false,
+      save_output: true,
+      meta_batch: [MANAGER_NODE, 0],
     },
-    _meta: { title: "Create Video" },
-  },
-  "15": {
-    class_type: "SaveVideo",
-    inputs: {
-      filename_prefix: "video/upscale",
-      format: "auto",
-      codec: "auto",
-      video: ["14", 0],
-    },
-    _meta: { title: "Save Video" },
+    _meta: { title: "Video Combine" },
   },
 };
 
@@ -216,31 +223,10 @@ const params: ParamDef[] = [
     required: true,
     help: "Its frame rate and soundtrack carry straight through.",
     group: "Source",
-    measures: SECONDS_PARAM,
     targets: [{ node: VIDEO_NODE, input: "video" }],
   },
   {
-    id: SECONDS_PARAM,
-    label: "Clip length",
-    type: "measured",
-    // Unknown until the player has the clip's metadata. `finalize` passes an
-    // unmeasured run rather than guessing at it.
-    default: 0,
-    group: "Source",
-    // It changes no value of its own: what it decides is whether the size may
-    // be used at all, which `finalize` checks. This writes the same number the
-    // size control does, from the same submission, so the two cannot disagree
-    // whichever is written last.
-    targets: [
-      {
-        node: SIZE_NODE,
-        input: "resize_type.shorter_size",
-        transform: (_value, values) => values[SIZE_PARAM],
-      },
-    ],
-  },
-  {
-    id: SIZE_PARAM,
+    id: "shorter_side",
     label: "Output size",
     type: "slider",
     default: 800,
@@ -249,7 +235,7 @@ const params: ParamDef[] = [
     step: 8,
     unit: "px",
     // The shorter side, so one number means the same thing in any aspect.
-    help: "Height of a landscape clip, width of a portrait one. Larger sizes take longer clips only so far: about 8 seconds at 1080.",
+    help: "Height of a landscape clip, width of a portrait one. Time grows with the pixels: 1080 has 1.8× as many as 800.",
     group: "Output",
     targets: [{ node: SIZE_NODE, input: "resize_type.shorter_size" }],
   },
@@ -277,21 +263,36 @@ const params: ParamDef[] = [
     id: "color_correction",
     label: "Colour match",
     type: "select",
-    default: "lab",
+    // Off, on a side-by-side at 1080: no difference anyone could see in skin,
+    // flowers or a label. Over a whole 15-second clip it ran 3 levels in 255
+    // darker than the source, against LAB's 1. On, it costs the post-process
+    // five or six whole-batch copies and some time.
+    default: "none",
     options: [
-      { value: "lab", label: "LAB", help: "Most faithful to the source." },
+      {
+        value: "none",
+        label: "Off",
+        help: "Keeps the model's own colours: about 1% darker than the source, otherwise the same.",
+      },
+      {
+        value: "lab",
+        label: "LAB",
+        help: "Pulls every frame's colour back to the source's. Try it if a clip comes back tinted or shifting.",
+      },
       {
         value: "wavelet",
         label: "Wavelet",
-        help: "Matches broad colour, keeps all the new detail.",
+        help: "Matches the broad colour and keeps all the new detail.",
       },
-      { value: "adain", label: "AdaIN", help: "A global tint match." },
-      { value: "none", label: "None", help: "Whatever the model returns." },
+      {
+        value: "adain",
+        label: "AdaIN",
+        help: "One overall tint match per frame — the lightest touch.",
+      },
     ],
-    help: "How the upscale's colours are pulled back to the source's.",
+    help: "Whether the result's colours are re-matched to the source after upscaling. Off unless a clip comes back tinted.",
     group: "Output",
-    advanced: true,
-    targets: [{ node: "13", input: "color_correction_method" }],
+    targets: [{ node: POST_NODE, input: "color_correction_method" }],
   },
   {
     id: "seed",
@@ -318,10 +319,10 @@ export const seedvr2Upscale: WorkflowDef = {
   // No turbo, patches or director: there is no prompt and no H3 anywhere in
   // this graph, and the sampler is already a single step.
   //
-  // RAM is what this graph runs out of, and an earlier H3 run leaves about
+  // RAM is what this graph runs short of, and an earlier H3 run leaves about
   // 23 GB of it holding models and cached results: 24.5 GB free on the box
-  // before a free, 47.4 GB after. A 15-second clip at 800 px failed in the
-  // post-process with that still cached, having passed twice without it.
+  // before a free, 47.4 GB after. Batching bounds what a pass needs; this
+  // gives the pass everything else.
   freesMemory: true,
   clipTarget: {
     action: "upscale",
@@ -329,46 +330,12 @@ export const seedvr2Upscale: WorkflowDef = {
     sourceParam: "source_video",
   },
   /**
-   * Refuses a run that will not fit in the ComfyUI machine's RAM, at submit
-   * rather than twenty minutes in. See FRAME_BUDGET.
+   * A filename prefix of the run's own. VHS re-queues this graph under new
+   * prompt ids, and the prefix is what the status and cancel routes find
+   * those passes by — so two upscales queued together must not share one.
    */
-  finalize: (_graph, values) => {
-    const seconds = clipSeconds(values);
-    const side = Number(values[SIZE_PARAM]);
-    if (seconds <= 0 || seconds * side * side <= FRAME_BUDGET) return;
-
-    // The largest size this clip fits at, on the slider's own 8 px steps.
-    const fits = Math.floor(Math.sqrt(FRAME_BUDGET / seconds) / 8) * 8;
-    const longest = (FRAME_BUDGET / (side * side)).toFixed(1);
-    throw new ParamError(
-      fits >= 720
-        ? `A ${seconds.toFixed(1)}-second clip at ${side} px needs more memory than the ComfyUI machine has. Use ${fits} px or less, or a clip under ${longest} seconds.`
-        : `A ${seconds.toFixed(1)}-second clip is too long to upscale on the ComfyUI machine even at 720 px. Trim it under ${(FRAME_BUDGET / (720 * 720)).toFixed(1)} seconds.`,
-      SIZE_PARAM,
-    );
+  finalize: (graph) => {
+    graph[COMBINE_NODE].inputs.filename_prefix =
+      `${PREFIX}_${crypto.randomUUID().slice(0, 8)}`;
   },
-  finalizeCases: [
-    {
-      name: "a full 15-second clip at 800 px",
-      values: { source_video: "clip.mp4", [SECONDS_PARAM]: 15.1, [SIZE_PARAM]: 800 },
-    },
-    {
-      name: "a short clip at 1080 px",
-      values: { source_video: "clip.mp4", [SECONDS_PARAM]: 8, [SIZE_PARAM]: 1080 },
-    },
-    {
-      name: "a clip the browser has not measured",
-      values: { source_video: "clip.mp4", [SIZE_PARAM]: 1080 },
-    },
-    {
-      name: "a 15-second clip at 1080 px",
-      values: { source_video: "clip.mp4", [SECONDS_PARAM]: 15.1, [SIZE_PARAM]: 1080 },
-      rejects: "Use 800 px or less",
-    },
-    {
-      name: "a 20-second clip at 720 px",
-      values: { source_video: "clip.mp4", [SECONDS_PARAM]: 20, [SIZE_PARAM]: 720 },
-      rejects: "too long to upscale",
-    },
-  ],
 };

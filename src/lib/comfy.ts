@@ -202,6 +202,15 @@ export async function getHistoryEntry(
   return history[promptId];
 }
 
+/** The most recent `count` history entries, keyed by prompt id. */
+export async function getHistoryEntries(
+  count: number,
+): Promise<Record<string, ComfyHistoryEntry>> {
+  return comfyJson<Record<string, ComfyHistoryEntry>>(
+    `/history?max_items=${count}`,
+  );
+}
+
 export async function getQueue(): Promise<ComfyQueue> {
   return comfyJson<ComfyQueue>("/queue");
 }

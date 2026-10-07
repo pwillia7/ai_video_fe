@@ -8,6 +8,12 @@ import {
   type ComfyQueue,
 } from "@/lib/comfy";
 import { errorResponse } from "@/lib/errors";
+import {
+  followRun,
+  graphOf,
+  isUnfinishedBatch,
+  runKey,
+} from "@/lib/meta-batch";
 import { ParamError } from "@/lib/params";
 import { briefsFrom } from "@/lib/workflows/brief";
 
@@ -87,7 +93,30 @@ async function statusFor(
 ): Promise<StatusPayload> {
   // History is authoritative: a finished prompt lands here whether it
   // succeeded or failed, so check it before the queue.
-  const entry = await getHistoryEntry(promptId);
+  let entry = await getHistoryEntry(promptId);
+
+  // The first slice of a batched run, which finishes long before the run
+  // does. The rest of the run carries on under prompt ids this app never saw,
+  // so it is followed by what they share instead. See meta-batch.ts.
+  if (entry && isUnfinishedBatch(entry) && !extractError(entry)) {
+    const key = runKey(graphOf(entry.prompt));
+    if (key) {
+      const run = await followRun(key, queue);
+      if (run.state === "running") {
+        return { state: "running", queuePosition: null, outputs: [] };
+      }
+      if (run.state === "stopped") {
+        return {
+          state: "error",
+          queuePosition: null,
+          outputs: [],
+          error: `The run stopped after ${run.passes} of its batches without finishing the file — it was interrupted, or ComfyUI restarted.`,
+        };
+      }
+      entry = run.entry;
+    }
+  }
+
   if (entry) {
     const failure = extractError(entry);
     const outputs = collectOutputs(entry);

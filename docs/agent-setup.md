@@ -173,8 +173,10 @@ Sources: <https://docs.comfy.org/tutorials/video/minimax/minimax-h3> for the H3
 files and <https://huggingface.co/Comfy-Org/MiniMax-Music-3> for the Music 3
 ones, and <https://huggingface.co/Comfy-Org/SeedVR2> for Upscale's — which can
 also run on `seedvr2_3b_int8_convrot` from the same place, picked in its Model
-control; that one is optional. Upscale is all ComfyUI built-ins apart from the
-VHS loader. The turbo LoRA is not from any of these — see the third node pack above. Neither
+control; that one is optional. Upscale is ComfyUI built-ins for the model and
+VideoHelperSuite for the video either side of it — its loader, Meta Batch
+Manager and Video Combine, which run a clip through in batches so a long one
+does not run the machine out of RAM. The turbo LoRA is not from any of these — see the third node pack above. Neither
 the SageAttention nor the Spectrum switch adds a model file of its own.
 
 **The content-LoRA switch brings its own files, and the checkpoint is the one to
