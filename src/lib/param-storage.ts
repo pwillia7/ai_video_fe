@@ -7,7 +7,7 @@ import {
   type DirectorEngine,
 } from "@/lib/workflows/local-director";
 import type { GatewayTier } from "@/lib/workflows/rewrite-model";
-import { effectiveWorkflow } from "@/lib/workflows/turbo";
+import { effectiveWorkflow, TURBO_STRENGTH } from "@/lib/workflows/turbo";
 import {
   defaultValuesFor,
   type ParamValue,
@@ -222,6 +222,16 @@ export function hydrateStrengths(
       typeof stored[option.id] === "number" && Number.isFinite(stored[option.id])
         ? stored[option.id]
         : option.strength.default;
+  }
+  // The turbo LoRA's, kept beside the content LoRAs' under its own key. Left
+  // out until someone has moved it, so the declared default stands until then.
+  const turbo = stored[TURBO_STRENGTH];
+  if (
+    workflows.some((workflow) => workflow.turbo?.strength) &&
+    typeof turbo === "number" &&
+    Number.isFinite(turbo)
+  ) {
+    strengths[TURBO_STRENGTH] = turbo;
   }
   return strengths;
 }

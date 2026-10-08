@@ -45,7 +45,11 @@ import {
   applyModelSwap,
   modelSwapProblems,
 } from "@/lib/workflows/model-swap";
-import { applyTurbo, turboParams } from "@/lib/workflows/turbo";
+import {
+  applyTurbo,
+  TURBO_STRENGTH,
+  turboParams,
+} from "@/lib/workflows/turbo";
 import {
   pinnedValue,
   pinTriggers,
@@ -331,7 +335,10 @@ export function applyParams(
     if (!workflow.turbo) {
       throw new ParamError(`Workflow "${workflow.id}" has no turbo mode.`);
     }
-    applyTurbo(graph, workflow.turbo, mode.lowVram === true);
+    applyTurbo(graph, workflow.turbo, {
+      lowVram: mode.lowVram === true,
+      strength: mode.strengths?.[TURBO_STRENGTH],
+    });
   }
 
   for (const id of mode.patches ?? []) {

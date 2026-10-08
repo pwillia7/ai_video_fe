@@ -66,7 +66,7 @@ import {
   compactReferenceSlots,
   isReferenceImage,
 } from "@/lib/workflows/minimax-common";
-import { effectiveWorkflow } from "@/lib/workflows/turbo";
+import { effectiveWorkflow, TURBO_STRENGTH } from "@/lib/workflows/turbo";
 import {
   CLIP_ACTIONS,
   defaultValuesFor,
@@ -1116,6 +1116,10 @@ function Workbench({
                     turbo={selected.turbo}
                     on={turboOn}
                     onChange={setTurbo}
+                    strength={strengths[TURBO_STRENGTH]}
+                    onStrengthChange={(value) =>
+                      setStrength(TURBO_STRENGTH, value)
+                    }
                   />
                 ) : null}
 

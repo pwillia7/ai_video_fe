@@ -687,6 +687,9 @@ export function toSummary(workflow: WorkflowDef): WorkflowSummary {
           lowVram: turbo.lowVram
             ? { label: turbo.lowVram.label, help: turbo.lowVram.help }
             : undefined,
+          strength: turbo.strength
+            ? (({ input: _input, ...rest }) => rest)(turbo.strength)
+            : undefined,
         }
       : undefined,
     params: params.map((param) => {

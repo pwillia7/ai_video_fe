@@ -14,6 +14,8 @@ import {
   effectiveSeconds,
   directorTarget,
   durationParam,
+  lookBlock,
+  lookParam,
   REFERENCE_DIRECTOR,
   TRACK_WORDS,
   VOICE_WORDS,
@@ -974,6 +976,9 @@ const director = directorTarget(ids, REFERENCE_DIRECTOR, [
   // batch the director is shown, so the instructions read in the same order as
   // the images they describe.
   referenceFacets(REF_NODES.length, { otherVisualReference: videoAttached }),
+  // After the facets, so a reference that pins the grade has already been
+  // described when the look is asked for.
+  lookBlock,
   referenceVideo({
     videoParam: VIDEO_PARAM,
     audioParam: VIDEO_AUDIO_PARAM,
@@ -1518,6 +1523,7 @@ const params: ParamDef[] = [
   rewriteModelParam(graph, [ids.director]),
 
   durationParam(ids, director),
+  lookParam(director),
   aspectRatioParam("115"),
   {
     id: "megapixels",

@@ -7,6 +7,8 @@ import {
   directorTarget,
   FRAME_EXPRESSION,
   durationParam,
+  lookBlock,
+  lookParam,
   IMAGE_DIRECTOR,
   h3Patches,
   h3ContentLora,
@@ -215,7 +217,7 @@ const ids: MinimaxNodeIds = {
  * graph so that adding a second contributor is a matter of passing this along
  * rather than of noticing that it needed to be.
  */
-const director = directorTarget(ids, IMAGE_DIRECTOR);
+const director = directorTarget(ids, IMAGE_DIRECTOR, [lookBlock]);
 
 const bypass = directorBypassFor(ids);
 
@@ -254,6 +256,7 @@ const params: ParamDef[] = [
   rewriteModelParam(graph, [ids.director]),
 
   durationParam(ids, director),
+  lookParam(director),
 
   ...samplingParams(ids),
 ];

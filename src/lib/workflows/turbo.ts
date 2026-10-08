@@ -1,5 +1,6 @@
 import type { ComfyGraph, ComfyNode } from "@/lib/comfy";
 import { spliceModel, type SpliceId } from "./model-chain";
+import { resolveStrength, type PatchStrength } from "./patches";
 import type { ParamValue, WorkflowSummary } from "./types";
 
 /**
@@ -81,6 +82,14 @@ export interface TurboSpec {
    * switch is not shown and the node's own default stands.
    */
   lowVram?: TurboLowVram;
+  /**
+   * Set when how hard the LoRA is applied is the user's to set. Absent means
+   * the node's exported value stands.
+   *
+   * Sent under `TURBO_STRENGTH` in the run's `strengths`, beside the content
+   * LoRAs' numbers, and clamped the same way — see `resolveStrength`.
+   */
+  strength?: PatchStrength;
   /** Wall-clock estimate with the LoRA applied, if it differs. */
   estimatedSeconds?: number;
   /** Where the switch starts before anyone has touched it. See DEFAULTS_VERSION. */
@@ -101,10 +110,18 @@ export interface TurboSpec {
  */
 export type ClientTurbo = Omit<
   TurboSpec,
-  "node" | "modelInput" | "requiresModel" | "lowVram"
+  "node" | "modelInput" | "requiresModel" | "lowVram" | "strength"
 > & {
   lowVram?: Omit<TurboLowVram, "input">;
+  strength?: Omit<PatchStrength, "input">;
 };
+
+/**
+ * The key the turbo LoRA's strength travels under in a run's `strengths`. Not
+ * an entry id any content LoRA can have, since those are declared by hand and
+ * none is named after a run mode.
+ */
+export const TURBO_STRENGTH = "turbo";
 
 /**
  * Splice the LoRA in, in place. Call it on a clone — `applyParams` does.
@@ -117,7 +134,7 @@ export type ClientTurbo = Omit<
 export function applyTurbo(
   graph: ComfyGraph,
   spec: TurboSpec,
-  lowVram = false,
+  { lowVram = false, strength }: { lowVram?: boolean; strength?: number } = {},
 ): void {
   if (spec.lowVram && !(spec.lowVram.input in spec.node.inputs)) {
     throw new Error(
@@ -125,13 +142,25 @@ export function applyTurbo(
         `${spec.node.class_type} does not accept.`,
     );
   }
+  if (spec.strength && !(spec.strength.input in spec.node.inputs)) {
+    throw new Error(
+      `Turbo offers a strength on "${spec.strength.input}", which ` +
+        `${spec.node.class_type} does not accept.`,
+    );
+  }
+
+  const inputs: Record<string, unknown> = {};
+  if (spec.lowVram) inputs[spec.lowVram.input] = lowVram;
+  if (spec.strength) {
+    inputs[spec.strength.input] = resolveStrength(spec.strength, strength);
+  }
 
   spliceModel(graph, {
     id: TURBO_NODE_ID,
     label: "Turbo",
     node: spec.node,
     modelInput: spec.modelInput,
-    inputs: spec.lowVram ? { [spec.lowVram.input]: lowVram } : undefined,
+    inputs: Object.keys(inputs).length > 0 ? inputs : undefined,
   });
 }
 

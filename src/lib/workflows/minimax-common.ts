@@ -242,6 +242,58 @@ export function directorBypassFor(
   };
 }
 
+/**
+ * How polished the director makes the picture sound.
+ *
+ * H3 renders what it is told about light and colour literally, and the turbo
+ * LoRA already reads punchier than a standard take — deeper contrast, hotter
+ * highlights, more saturation (Sogni's same-seed comparison). A director that
+ * opens every prompt with "cinematic" and reaches for dramatic lighting stacks
+ * on top of that, and the result is the glossy, over-contrasted look people
+ * recognise as AI video. Natural is the default because it is the one that has
+ * to be asked for; Cinematic is the director as it was before this existed.
+ */
+export const LOOK_PARAM = "look";
+
+const LOOKS: Record<string, { label: string; block: string }> = {
+  natural: {
+    label: "Natural",
+    block: `LOOK
+
+Aim for footage that looks photographed, not rendered. In the style statement, write "Live-action, naturalistic" — or the medium the user asked for — in place of "cinematic".
+
+Describe light the way it would actually fall in that place: daylight, overcast sky, window light, practical lamps, available light. Keep contrast gentle and shadows open, colour true to life and slightly muted rather than vivid, and skin with its natural texture. Where a picture or reference fixes the look, keep its grade as it is rather than pushing it further.
+
+Do not ask for dramatic or high-contrast lighting, rim light, glow, bloom, lens flare, volumetric light, saturated or vivid colour, a teal-and-orange grade, or a glossy, polished finish. If the user names a style, a grade or a lighting setup, theirs wins.`,
+  },
+  cinematic: { label: "Cinematic", block: "" },
+};
+
+export const DEFAULT_LOOK = "natural";
+
+/** The look's instruction to the director, or nothing for Cinematic. */
+export const lookBlock: DirectorAppendix = (values) =>
+  (LOOKS[String(values[LOOK_PARAM])] ?? LOOKS[DEFAULT_LOOK]).block;
+
+export function lookParam(
+  /** The graph's director target, as for `durationParam`. */
+  director: ParamTarget,
+): ParamDef {
+  return {
+    id: LOOK_PARAM,
+    label: "Look",
+    type: "select",
+    default: DEFAULT_LOOK,
+    options: Object.entries(LOOKS).map(([value, look]) => ({
+      value,
+      label: look.label,
+    })),
+    help: "Natural asks the director for real-world light and muted colour, which avoids the over-contrasted AI look. Cinematic leaves the grade to it.",
+    group: "Output",
+    targets: [director],
+  };
+}
+
 export function durationParam(
   ids: Pick<MinimaxNodeIds, "duration">,
   /**
@@ -381,9 +433,8 @@ export function h3Turbo(
   return {
     node: {
       class_type: "MiniMaxH3TurboLoRA",
-      // `strength` is as the ComfyUI export sets it rather than exposed: 1 is
-      // what the LoRA was trained to be applied at. `low_vram` is the value the
-      // export carries too, but it is the one the switch below overwrites.
+      // Both values as the ComfyUI export carries them; the strength and Low
+      // VRAM controls below overwrite them.
       inputs: {
         lora_name: "minimax_h3_turbo_v4_step600_ema.safetensors",
         strength: 1,
@@ -414,6 +465,22 @@ export function h3Turbo(
       input: "low_vram",
       label: "Low VRAM",
       help: "Applies the LoRA the memory-sparing way the node pack offers. Slower, and only worth it if a turbo run dies out of memory on this card.",
+    },
+    /**
+     * 1 is what the LoRA was trained at. The pack's README gives the two
+     * directions: 0.8–0.95 for over-sharp grain, 1.05–1.2 for smear and
+     * ghosting on fast motion. Below 1 also tames the punchier contrast and
+     * saturation a turbo take has against a standard one at the same seed —
+     * the "AI video" look — at the cost of convergence at low step counts.
+     */
+    strength: {
+      input: "strength",
+      label: "Turbo strength",
+      default: 1,
+      min: 0.5,
+      max: 1.3,
+      step: 0.05,
+      help: "1 is as trained. Lower softens the contrast and over-sharpening, and wants 6–8 steps; above 1 fixes smear on fast motion.",
     },
     estimatedSeconds,
     /**
